@@ -1,0 +1,6 @@
+{
+  "name": "MusicianLog",
+  "description": "뮤지션의 연습 일지와 레슨 기록을 위한 개인용 스튜디오 저널",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

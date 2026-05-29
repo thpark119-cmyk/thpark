@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Inter:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand: #B45309;
+  --color-brand-light: #F59E0B;
+  --color-bg-deep: #0F0D0C;
+  --color-bg-card: #161413;
+  --color-border: #292524;
+}
+
+body {
+  @apply bg-bg-deep text-stone-200 font-sans antialiased selection:bg-brand/30;
+}
+
+.serif {
+  @apply font-serif italic;
+}
+
+.card {
+  @apply bg-bg-card rounded-[32px] border border-border shadow-inner overflow-hidden transition-all duration-300;
+}
+
+.btn-primary {
+  @apply px-8 py-3 bg-brand text-white rounded-full font-medium hover:bg-brand-light transition-all shadow-lg shadow-brand/20 active:scale-95;
+}
+
+.nav-link {
+  @apply flex items-center gap-3 px-4 py-3 text-stone-400 hover:text-white transition-all rounded-2xl;
+}
+
+.nav-link.active {
+  @apply bg-brand/10 text-brand border border-brand/20;
+}
+
+@keyframes pulse-glow {
+  0% { opacity: 0.1; transform: scale(1); }
+  50% { opacity: 0.15; transform: scale(1.05); }
+  100% { opacity: 0.1; transform: scale(1); }
+}
+
+.glow-element {
+  animation: pulse-glow 8s infinite ease-in-out;
+}

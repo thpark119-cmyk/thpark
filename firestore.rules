@@ -1,0 +1,153 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0. Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == "thpark119@gmail.com"
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && (request.auth.uid == userId || isAdmin());
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidAdmin(data) {
+      return data.email is string && data.email.size() <= 256
+        && data.keys().hasAll(['email'])
+        && data.keys().size() >= 1;
+    }
+
+    // Entity Validations
+    function isValidUser(data) {
+      return (data.uid == request.auth.uid || isAdmin())
+        && data.email is string && data.email.size() <= 256
+        && (data.get('displayName', '') == '' || (data.displayName is string && data.displayName.size() <= 100))
+        && data.keys().hasAll(['uid', 'email'])
+        && data.keys().size() >= 2;
+    }
+
+    function isValidReceivedLesson(data) {
+      return (data.userId == request.auth.uid || isAdmin())
+        && data.teacher is string && data.teacher.size() <= 100
+        && data.topic is string && data.topic.size() <= 200
+        && data.date is string && data.date.size() == 10
+        && (data.get('feedback', '') == '' || (data.feedback is string && data.feedback.size() <= 2000))
+        && (data.get('nextExercises', '') == '' || (data.nextExercises is string && data.nextExercises.size() <= 1000))
+        && data.keys().hasAll(['userId', 'teacher', 'topic', 'date']);
+    }
+
+    function isValidStudent(data) {
+      return (data.userId == request.auth.uid || isAdmin())
+        && data.name is string && data.name.size() <= 50
+        && (data.get('level', '') == '' || data.level in ['Beginner', 'Intermediate', 'Advanced'])
+        && (data.get('currentPiece', '') == '' || (data.currentPiece is string && data.currentPiece.size() <= 200))
+        && data.keys().hasAll(['userId', 'name']);
+    }
+
+    function isValidTeachingLog(data, studentId) {
+      return (data.userId == request.auth.uid || isAdmin())
+        && data.studentId == studentId
+        && data.topic is string && data.topic.size() <= 200
+        && data.date is string && data.date.size() == 10
+        && (data.get('studentFeedback', '') == '' || (data.studentFeedback is string && data.studentFeedback.size() <= 2000))
+        && (data.get('homework', '') == '' || (data.homework is string && data.homework.size() <= 1000))
+        && data.keys().hasAll(['userId', 'studentId', 'topic', 'date']);
+    }
+
+    function isValidRepertoire(data) {
+      return (data.userId == request.auth.uid || isAdmin())
+        && data.composer is string && data.composer.size() <= 100
+        && data.title is string && data.title.size() <= 200
+        && data.status in ['Learning', 'Polishing', 'Completed']
+        && (data.get('notes', '') == '' || (data.notes is string && data.notes.size() <= 1000))
+        && (data.get('sheetMusicUrl', '') == '' || (data.sheetMusicUrl is string && data.sheetMusicUrl.size() <= 1000))
+        && data.keys().hasAll(['userId', 'composer', 'title', 'status']);
+    }
+
+    // 0.1 Admin Only Collection
+    match /admins/{userId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']);
+    }
+
+    // 2. Received Lessons
+    match /received_lessons/{lessonId} {
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() || isSignedIn()) && isValidReceivedLesson(incoming()) && (incoming().userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid 
+        && isValidReceivedLesson(incoming())
+        && incoming().userId == existing().userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['teacher', 'topic', 'date', 'feedback', 'nextExercises']));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 3. Students
+    match /students/{studentId} {
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() || isSignedIn()) && isValidStudent(incoming()) && (incoming().userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid 
+        && isValidStudent(incoming())
+        && incoming().userId == existing().userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'level', 'currentPiece']));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Sub-collection logs
+      match /logs/{logId} {
+        allow list: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
+        allow get: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
+        allow create: if (isAdmin() || isSignedIn()) && isValidTeachingLog(incoming(), studentId) 
+          && (isAdmin() || get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
+        allow update: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid
+          && isValidTeachingLog(incoming(), studentId)
+          && incoming().userId == existing().userId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['topic', 'date', 'studentFeedback', 'homework']));
+        allow delete: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
+      }
+    }
+
+    // 4. Repertoire
+    match /repertoire/{itemId} {
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() || isSignedIn()) && isValidRepertoire(incoming()) && (incoming().userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid 
+        && isValidRepertoire(incoming())
+        && incoming().userId == existing().userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl']));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+  }
+}

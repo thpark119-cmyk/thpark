@@ -1,0 +1,115 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "ReceivedLesson": {
+      "title": "Received Lesson",
+      "description": "A lesson record that the user received from their teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "teacher": { "type": "string" },
+        "topic": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "feedback": { "type": "string" },
+        "nextExercises": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "teacher", "topic", "date"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student that the user teaches",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "level": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced"] },
+        "currentPiece": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name"]
+    },
+    "TeachingLog": {
+      "title": "Teaching Log",
+      "description": "A record of a lesson the user gave to one of their students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "topic": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "studentFeedback": { "type": "string" },
+        "homework": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "studentId", "topic", "date"]
+    },
+    "RepertoireItem": {
+      "title": "Repertoire Item",
+      "description": "A piece of music in the user's repertoire",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "composer": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["Learning", "Polishing", "Completed"] },
+        "notes": { "type": "string" },
+        "sheetMusicUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "composer", "title", "status"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "User with administrative privileges",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": "Admin",
+      "description": "List of authorized administrators"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/received_lessons/{lessonId}": {
+      "schema": "ReceivedLesson",
+      "description": "Lessons the user has received"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Students taught by the user"
+    },
+    "/students/{studentId}/logs/{logId}": {
+      "schema": "TeachingLog",
+      "description": "Teaching records for a specific student"
+    },
+    "/repertoire/{itemId}": {
+      "schema": "RepertoireItem",
+      "description": "User's music repertoire"
+    }
+  }
+}
