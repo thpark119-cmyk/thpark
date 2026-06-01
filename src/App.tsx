@@ -22,7 +22,34 @@ const LoadingView = () => (
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const { user, loading, error } = useAuth();
+
+  const handleGoogleLogin = async () => {
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      console.error("Login failed error:", err);
+      let errorMsg = err?.message || String(err);
+      if (err?.code === 'auth/popup-closed-by-user') {
+        errorMsg = '구글 로그인 창이 사용자에 의해 닫혔습니다. 로그인을 완료하려면 로그인 창에서 계정을 선택해 주세요.';
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        errorMsg = '이 도메인은 Firebase 승인 도메인(Authorized Domains)에 지정되지 않았습니다. Firebase 콘솔 -> Authentication -> Settings에서 이 프리뷰 및 배포용 도메인을 Authorized Domains에 추가해 주셔야 합니다.';
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        errorMsg = 'Firebase 프로젝트에서 Google 로그인 공급업체(Provider)가 활성화되어 있지 않습니다. Firebase 콘솔 -> Authentication -> Sign-in Method에서 Google 로그인을 사용 설정(Enable)해 주세요.';
+      } else if (err?.code === 'auth/popup-blocked') {
+        errorMsg = '브라우저 팝업 차단 기능에 의해 로그인 창이 열리지 않았습니다. 브라우저 주소창 우측에서 팝업을 허용해 주시고 다시 시도해 주세요.';
+      } else {
+        errorMsg = `로그인 오류: ${err?.message || err?.code || '알 수 없는 네트워크/프로젝트 에러입니다.'}`;
+      }
+      setLoginError(errorMsg);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const isAdmin = user?.email === 'thpark119@gmail.com';
 
@@ -131,15 +158,52 @@ export default function App() {
               </div>
             ) : (
               <button 
-                onClick={signInWithGoogle}
-                className="bg-white text-stone-950 px-5 h-11 text-xs font-bold rounded-2xl flex items-center gap-2 shadow-xl shadow-white/5 hover:bg-stone-100 active:scale-[0.98] transition-all"
+                onClick={handleGoogleLogin}
+                disabled={isLoggingIn}
+                className="bg-white text-stone-950 px-5 h-11 text-xs font-bold rounded-2xl flex items-center gap-2 shadow-xl shadow-white/5 hover:bg-stone-100 active:scale-[0.98] disabled:opacity-50 transition-all shrink-0 font-semibold"
               >
-                <LogIn size={14} />
-                Google로 로그인
+                {isLoggingIn ? (
+                  <Loader2 size={14} className="animate-spin text-stone-600" />
+                ) : (
+                  <LogIn size={14} />
+                )}
+                {isLoggingIn ? '로그인 중...' : 'Google로 로그인'}
               </button>
             )}
           </div>
         </header>
+
+        {/* Dynamic Login Error Help Banner */}
+        {loginError && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="mb-8 p-5 bg-red-950/20 border border-red-800/45 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-start text-stone-200"
+          >
+            <div className="space-y-2 flex-grow">
+              <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                <AlertTriangle size={16} />
+                <span>구글 로그인 연결 안내</span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed font-sans">{loginError}</p>
+              
+              <div className="bg-stone-950/60 p-3 rounded-xl border border-white/[0.05] space-y-1 text-[11px] text-stone-400 font-mono">
+                <div className="font-semibold text-brand mb-1">💡 Firebase Authorized Domains 등록 목록:</div>
+                <div>• localhost (로컬 환경 테스트)</div>
+                <div>• {window.location.hostname} (현재 접속 도메인)</div>
+                <div>• ais-dev-dm3gbonsza45ccvwj26dpz-190576830168.asia-east1.run.app</div>
+                <div>• ais-pre-dm3gbonsza45ccvwj26dpz-190576830168.asia-east1.run.app</div>
+                <div className="mt-2 text-[10px] text-stone-500 font-sans">※ 브라우저 3rd-party 쿠키 차단 or 시크릿 허용 제한에 의해 차단될 시, AI Studio 빌더 아이프레임이 아닌 '새 탭/새 창'에서 열어주시면 안정적으로 작동합니다.</div>
+              </div>
+            </div>
+            <button 
+              onClick={() => setLoginError(null)}
+              className="px-4 py-2 text-xs bg-white/10 hover:bg-white/20 text-stone-300 rounded-xl transition-colors font-medium shrink-0 self-end md:self-start"
+            >
+              확인
+            </button>
+          </motion.div>
+        )}
 
         {/* Global guest state banner advising that data is saved locally to browser */}
         {!loading && !user && (
