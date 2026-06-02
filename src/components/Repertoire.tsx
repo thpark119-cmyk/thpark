@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Book, FileText, Search, MoreHorizontal, X, Music } from 'lucide-react';
 import { RepertoireItem } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
+import { useAuth } from '../context/AuthContext';
 
 export default function Repertoire() {
+  const { user } = useAuth();
   const [items, setItems] = useState<RepertoireItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -21,9 +23,9 @@ export default function Repertoire() {
   useEffect(() => {
     const unsubscribe = subscribeToCollection<RepertoireItem>('repertoire', (data) => {
       setItems(data);
-    });
+    }, user);
     return unsubscribe;
-  }, []);
+  }, [user]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +34,7 @@ export default function Repertoire() {
     await addRecord('repertoire', {
       ...newPiece,
       sheetMusicUrl: '#' // Simulated score
-    });
+    }, user);
     
     setIsAdding(false);
     setNewPiece({ title: '', composer: '', notes: '', status: 'Learning' });
@@ -53,13 +55,13 @@ export default function Repertoire() {
     if (!editingItem) return;
     if (!editForm.title || !editForm.composer) return;
 
-    await updateRecord('repertoire', editingItem.id, editForm);
+    await updateRecord('repertoire', editingItem.id, editForm, user);
     setEditingItem(null);
   };
 
   const handleDeleteClick = async (id: string) => {
     if (!window.confirm('정말 삭제할까요?')) return;
-    await deleteRecord('repertoire', id);
+    await deleteRecord('repertoire', id, user);
   };
 
   const filteredItems = items.filter(item => 

@@ -99,9 +99,53 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) 
         && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']);
+
+      // 2. Nested Received Lessons
+      match /received_lessons/{lessonId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidReceivedLesson(incoming());
+        allow update: if isOwner(userId) 
+          && isValidReceivedLesson(incoming())
+          && incoming().userId == existing().userId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['teacher', 'topic', 'date', 'feedback', 'nextExercises']);
+        allow delete: if isOwner(userId);
+      }
+
+      // 3. Nested Students
+      match /students/{studentId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidStudent(incoming());
+        allow update: if isOwner(userId) 
+          && isValidStudent(incoming())
+          && incoming().userId == existing().userId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'level', 'currentPiece']);
+        allow delete: if isOwner(userId);
+
+        // Sub-collection logs
+        match /logs/{logId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) && isValidTeachingLog(incoming(), studentId);
+          allow update: if isOwner(userId)
+            && isValidTeachingLog(incoming(), studentId)
+            && incoming().userId == existing().userId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['topic', 'date', 'studentFeedback', 'homework']);
+          allow delete: if isOwner(userId);
+        }
+      }
+
+      // 4. Nested Repertoire
+      match /repertoire/{itemId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidRepertoire(incoming());
+        allow update: if isOwner(userId) 
+          && isValidRepertoire(incoming())
+          && incoming().userId == existing().userId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl']);
+        allow delete: if isOwner(userId);
+      }
     }
 
-    // 2. Received Lessons
+    // Keep legacy top level match rules optionally if they existed for fallback compatibility but ensure user nested takes precedence
     match /received_lessons/{lessonId} {
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
@@ -113,7 +157,6 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
 
-    // 3. Students
     match /students/{studentId} {
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
@@ -123,22 +166,8 @@ service cloud.firestore {
         && incoming().userId == existing().userId
         && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'level', 'currentPiece']));
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-
-      // Sub-collection logs
-      match /logs/{logId} {
-        allow list: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
-        allow get: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
-        allow create: if (isAdmin() || isSignedIn()) && isValidTeachingLog(incoming(), studentId) 
-          && (isAdmin() || get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
-        allow update: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid
-          && isValidTeachingLog(incoming(), studentId)
-          && incoming().userId == existing().userId
-          && incoming().diff(existing()).affectedKeys().hasOnly(['topic', 'date', 'studentFeedback', 'homework']));
-        allow delete: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.userId == request.auth.uid);
-      }
     }
 
-    // 4. Repertoire
     match /repertoire/{itemId} {
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);

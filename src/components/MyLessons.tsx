@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Bookmark, X, Calendar, User, MessageCircle, Edit } from 'lucide-react';
 import { ReceivedLesson } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
+import { useAuth } from '../context/AuthContext';
 
 export default function MyLessons() {
+  const { user } = useAuth();
   const [logs, setLogs] = useState<ReceivedLesson[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [newLog, setNewLog] = useState({ 
@@ -27,15 +29,15 @@ export default function MyLessons() {
   useEffect(() => {
     const unsubscribe = subscribeToCollection<ReceivedLesson>('received_lessons', (data) => {
       setLogs(data);
-    });
+    }, user);
     return unsubscribe;
-  }, []);
+  }, [user]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLog.teacher || !newLog.topic) return;
     
-    await addRecord('received_lessons', newLog);
+    await addRecord('received_lessons', newLog, user);
     setIsAdding(false);
     setNewLog({ 
       teacher: '', 
@@ -62,13 +64,13 @@ export default function MyLessons() {
     if (!editingLog) return;
     if (!editForm.teacher || !editForm.topic) return;
 
-    await updateRecord('received_lessons', editingLog.id, editForm);
+    await updateRecord('received_lessons', editingLog.id, editForm, user);
     setEditingLog(null);
   };
 
   const handleDeleteClick = async (id: string) => {
     if (!window.confirm('정말 삭제할까요?')) return;
-    await deleteRecord('received_lessons', id);
+    await deleteRecord('received_lessons', id, user);
   };
 
   return (

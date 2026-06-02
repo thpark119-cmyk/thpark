@@ -79,10 +79,12 @@ function triggerLocalListeners(collectionName: string) {
 export function subscribeToCollection<T>(
   collectionName: string, 
   callback: (data: T[]) => void,
-  userSpecific: boolean = true
+  user?: any
 ) {
+  const targetUser = user || null;
+
   // If user is not logged in, gracefully fallback to LocalStorage mock database
-  if (userSpecific && !auth.currentUser) {
+  if (!targetUser) {
     if (!listenersRegistry.has(collectionName)) {
       listenersRegistry.set(collectionName, new Set());
     }
@@ -117,11 +119,9 @@ export function subscribeToCollection<T>(
     };
   }
 
-  let q = query(collection(db, collectionName));
-  
-  if (userSpecific && auth.currentUser) {
-    q = query(collection(db, collectionName), where('userId', '==', auth.currentUser.uid));
-  }
+  // Use subcollection: users/{uid}/{collectionName}
+  const collPath = `users/${targetUser.uid}/${collectionName}`;
+  const q = query(collection(db, collPath));
 
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
@@ -141,13 +141,15 @@ export function subscribeToCollection<T>(
   }, (error) => {
     // Only handle if it's not a cancelled listener
     if (error.code !== ('cancelled' as any)) {
-      handleFirestoreError(error, OperationType.GET, collectionName);
+      handleFirestoreError(error, OperationType.GET, collPath);
     }
   });
 }
 
-export async function addRecord(collectionName: string, data: any) {
-  if (!auth.currentUser) {
+export async function addRecord(collectionName: string, data: any, user?: any) {
+  const targetUser = user || null;
+
+  if (!targetUser) {
     const key = `local_${collectionName}`;
     const existingStr = localStorage.getItem(key) || '[]';
     let items = [];
@@ -167,20 +169,23 @@ export async function addRecord(collectionName: string, data: any) {
     return newItem.id;
   }
 
+  const collPath = `users/${targetUser.uid}/${collectionName}`;
   try {
-    const docRef = await addDoc(collection(db, collectionName), {
+    const docRef = await addDoc(collection(db, collPath), {
       ...data,
-      userId: auth.currentUser.uid,
+      userId: targetUser.uid,
       createdAt: serverTimestamp(),
     });
     return docRef.id;
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, collectionName);
+    handleFirestoreError(error, OperationType.CREATE, collPath);
   }
 }
 
-export async function updateRecord(collectionName: string, id: string, data: any) {
-  if (!auth.currentUser || id.startsWith('local_')) {
+export async function updateRecord(collectionName: string, id: string, data: any, user?: any) {
+  const targetUser = user || null;
+
+  if (!targetUser || id.startsWith('local_')) {
     const key = `local_${collectionName}`;
     const existingStr = localStorage.getItem(key) || '[]';
     let items: any[] = [];
@@ -197,16 +202,19 @@ export async function updateRecord(collectionName: string, id: string, data: any
     return;
   }
 
+  const collPath = `users/${targetUser.uid}/${collectionName}`;
   try {
-    const docRef = doc(db, collectionName, id);
+    const docRef = doc(db, collPath, id);
     await updateDoc(docRef, data);
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${collectionName}/${id}`);
+    handleFirestoreError(error, OperationType.UPDATE, `${collPath}/${id}`);
   }
 }
 
-export async function deleteRecord(collectionName: string, id: string) {
-  if (!auth.currentUser || id.startsWith('local_')) {
+export async function deleteRecord(collectionName: string, id: string, user?: any) {
+  const targetUser = user || null;
+
+  if (!targetUser || id.startsWith('local_')) {
     const key = `local_${collectionName}`;
     const existingStr = localStorage.getItem(key) || '[]';
     let items: any[] = [];
@@ -220,10 +228,11 @@ export async function deleteRecord(collectionName: string, id: string) {
     return;
   }
 
+  const collPath = `users/${targetUser.uid}/${collectionName}`;
   try {
-    const docRef = doc(db, collectionName, id);
+    const docRef = doc(db, collPath, id);
     await deleteDoc(docRef);
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
+    handleFirestoreError(error, OperationType.DELETE, `${collPath}/${id}`);
   }
 }

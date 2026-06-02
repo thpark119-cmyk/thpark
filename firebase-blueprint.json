@@ -1,115 +1,61 @@
 {
   "entities": {
-    "User": {
-      "title": "User",
-      "description": "User profile and settings",
+    "Lesson": {
+      "title": "Lesson Record",
+      "description": "A received piano or instrumental lesson recording logs and tips.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "email": { "type": "string" },
-        "displayName": { "type": "string" },
-        "photoURL": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "teacher": { "type": "string", "description": "The name of the instructor" },
+        "topic": { "type": "string", "description": "The piece or topic studied" },
+        "date": { "type": "string", "format": "date", "description": "Date of the lesson" },
+        "feedback": { "type": "string", "description": "Librarian or teacher input" },
+        "nextExercises": { "type": "string", "description": "Next steps/homework topics" },
+        "userId": { "type": "string", "description": "The user owning this piece of data" },
+        "createdAt": { "type": "object", "description": "Firebase server timestamp" }
       },
-      "required": ["uid", "email"]
-    },
-    "ReceivedLesson": {
-      "title": "Received Lesson",
-      "description": "A lesson record that the user received from their teacher",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "teacher": { "type": "string" },
-        "topic": { "type": "string" },
-        "date": { "type": "string", "format": "date" },
-        "feedback": { "type": "string" },
-        "nextExercises": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "teacher", "topic", "date"]
-    },
-    "Student": {
-      "title": "Student",
-      "description": "A student that the user teaches",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "name": { "type": "string" },
-        "level": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced"] },
-        "currentPiece": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "name"]
-    },
-    "TeachingLog": {
-      "title": "Teaching Log",
-      "description": "A record of a lesson the user gave to one of their students",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "studentId": { "type": "string" },
-        "topic": { "type": "string" },
-        "date": { "type": "string", "format": "date" },
-        "studentFeedback": { "type": "string" },
-        "homework": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "studentId", "topic", "date"]
+      "required": ["teacher", "topic", "date", "userId"]
     },
     "RepertoireItem": {
       "title": "Repertoire Item",
-      "description": "A piece of music in the user's repertoire",
+      "description": "A musical piece in the user's personal portfolio or list of sheet music.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "composer": { "type": "string" },
-        "title": { "type": "string" },
-        "status": { "type": "string", "enum": ["Learning", "Polishing", "Completed"] },
-        "notes": { "type": "string" },
-        "sheetMusicUrl": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "title": { "type": "string", "description": "The title of the piece" },
+        "composer": { "type": "string", "description": "The composer of the piece" },
+        "notes": { "type": "string", "description": "Reminders, performance details, and score details" },
+        "status": { "type": "string", "enum": ["Learning", "Polishing", "Completed"], "description": "Study status" },
+        "sheetMusicUrl": { "type": "string", "description": "Simulated or actual sheet music storage URL" },
+        "userId": { "type": "string", "description": "The user owning this piece" },
+        "createdAt": { "type": "object", "description": "Firebase server timestamp" }
       },
-      "required": ["userId", "composer", "title", "status"]
+      "required": ["title", "composer", "status", "userId"]
     },
-    "Admin": {
-      "title": "Admin",
-      "description": "User with administrative privileges",
+    "Student": {
+      "title": "Student",
+      "description": "Information about a music student taught by the musician.",
       "type": "object",
       "properties": {
-        "email": { "type": "string" },
-        "addedAt": { "type": "string", "format": "date-time" }
+        "name": { "type": "string", "description": "The name of the student" },
+        "level": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced"], "description": "The student's playing level" },
+        "currentPiece": { "type": "string", "description": "The current item the student is learning" },
+        "userId": { "type": "string", "description": "The user owning this student" },
+        "createdAt": { "type": "object", "description": "Firebase server timestamp" }
       },
-      "required": ["email"]
+      "required": ["name", "level", "userId"]
     }
   },
   "firestore": {
-    "/admins/{userId}": {
-      "schema": "Admin",
-      "description": "List of authorized administrators"
+    "/users/{userId}/received_lessons/{lessonId}": {
+      "schema": "Lesson",
+      "description": "Received lessons organized per user"
     },
-    "/users/{userId}": {
-      "schema": "User",
-      "description": "User profiles"
-    },
-    "/received_lessons/{lessonId}": {
-      "schema": "ReceivedLesson",
-      "description": "Lessons the user has received"
-    },
-    "/students/{studentId}": {
-      "schema": "Student",
-      "description": "Students taught by the user"
-    },
-    "/students/{studentId}/logs/{logId}": {
-      "schema": "TeachingLog",
-      "description": "Teaching records for a specific student"
-    },
-    "/repertoire/{itemId}": {
+    "/users/{userId}/repertoire/{repertoireId}": {
       "schema": "RepertoireItem",
-      "description": "User's music repertoire"
+      "description": "My notes and files on musical repertoire"
+    },
+    "/users/{userId}/students/{studentId}": {
+      "schema": "Student",
+      "description": "Studio students being instructed by this musician"
     }
   }
 }

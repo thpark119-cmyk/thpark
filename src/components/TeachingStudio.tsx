@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Plus, User, Target, X, Users, Edit } from 'lucide-react';
 import { Student } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
+import { useAuth } from '../context/AuthContext';
 
 export default function TeachingStudio() {
+  const { user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [newStudent, setNewStudent] = useState({ name: '', level: 'Beginner', currentPiece: '' });
@@ -15,15 +17,15 @@ export default function TeachingStudio() {
   useEffect(() => {
     const unsubscribe = subscribeToCollection<Student>('students', (data) => {
       setStudents(data);
-    });
+    }, user);
     return unsubscribe;
-  }, []);
+  }, [user]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStudent.name) return;
     
-    await addRecord('students', newStudent);
+    await addRecord('students', newStudent, user);
     setIsAdding(false);
     setNewStudent({ name: '', level: 'Beginner', currentPiece: '' });
   };
@@ -42,14 +44,14 @@ export default function TeachingStudio() {
     if (!editingStudent) return;
     if (!editForm.name) return;
 
-    await updateRecord('students', editingStudent.id, editForm);
+    await updateRecord('students', editingStudent.id, editForm, user);
     setEditingStudent(null);
   };
 
   const handleDeleteClick = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm('정말 삭제할까요?')) return;
-    await deleteRecord('students', id);
+    await deleteRecord('students', id, user);
   };
 
   return (
