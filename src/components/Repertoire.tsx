@@ -9,6 +9,7 @@ export default function Repertoire() {
   const { user } = useAuth();
   const [items, setItems] = useState<RepertoireItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [imslpQuery, setImslpQuery] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [newPiece, setNewPiece] = useState({ title: '', composer: '', notes: '', status: 'Learning' as const });
 
@@ -64,6 +65,21 @@ export default function Repertoire() {
     await deleteRecord('repertoire', id, user);
   };
 
+  const handleImslpSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!imslpQuery.trim()) {
+      alert('검색할 작곡가나 곡명을 입력해주세요.');
+      return;
+    }
+    const query = encodeURIComponent(imslpQuery.trim());
+    const url = `https://imslp.org/wiki/Special:Search?search=${query}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleImslpDirect = () => {
+    window.open('https://imslp.org/', '_blank', 'noopener,noreferrer');
+  };
+
   const filteredItems = items.filter(item => 
     item.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
     item.composer.toLowerCase().includes(searchTerm.toLowerCase())
@@ -81,11 +97,40 @@ export default function Repertoire() {
         </button>
       </div>
 
+      <div className="bg-stone-900 border border-white/5 p-6 rounded-[28px] space-y-4 shadow-xl shadow-black/10">
+        <div>
+          <h3 className="text-lg font-serif italic text-white leading-tight">IMSLP에서 악보 찾기</h3>
+          <p className="text-xs text-stone-500 mt-1">작곡가나 곡명을 입력하면 IMSLP에서 악보를 검색할 수 있습니다.</p>
+        </div>
+        
+        <form onSubmit={handleImslpSearch} className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={16} />
+            <input 
+              type="text" 
+              placeholder="예: Bach Cello Suite, Beethoven Sonata"
+              className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 pl-11 pr-4 text-stone-200 placeholder:text-stone-600 outline-none focus:ring-1 focus:ring-brand/30 transition-all text-sm"
+              value={imslpQuery}
+              onChange={(e) => setImslpQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="flex-1 bg-stone-200 text-stone-900 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
+              IMSLP 검색
+            </button>
+            <button type="button" onClick={handleImslpDirect} className="flex-1 bg-stone-800 text-stone-300 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
+              IMSLP 바로가기
+            </button>
+          </div>
+        </form>
+        <p className="text-[10px] text-stone-600">IMSLP의 악보는 국가별 저작권 상태가 다를 수 있으므로 사용 전 저작권 정보를 확인하세요.</p>
+      </div>
+
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={16} />
         <input 
           type="text" 
-          placeholder="곡명, 작곡가 검색..."
+          placeholder="내 악보함 검색 (곡명, 작곡가)..."
           className="w-full bg-stone-900/50 border border-white/5 rounded-2xl py-4 pl-11 pr-4 text-stone-200 placeholder:text-stone-700 outline-none focus:ring-1 focus:ring-brand/30 transition-all text-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
