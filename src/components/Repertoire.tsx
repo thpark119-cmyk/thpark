@@ -72,7 +72,7 @@ export default function Repertoire() {
       return;
     }
     const query = encodeURIComponent(imslpQuery.trim());
-    const url = `https://imslp.org/wiki/Special:Search?search=${query}`;
+    const url = `https://imslp.org/index.php?title=Special:Search&search=${query}&fulltext=1`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
