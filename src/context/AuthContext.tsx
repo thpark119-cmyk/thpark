@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth, handleRedirectResult } from '../lib/firebase';
+import { auth, isFirebaseReady } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +16,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<any>(null);
 
   useEffect(() => {
+    if (!isFirebaseReady || !auth) {
+      console.log("Firebase Auth is inactive. Defaulting immediately to local state mode.");
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       console.log("Auth state changed:", user ? "logged in" : "logged out");
       setUser(user);
@@ -36,3 +42,4 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export const useAuth = () => useContext(AuthContext);
+

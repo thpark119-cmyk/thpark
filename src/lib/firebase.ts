@@ -15,20 +15,39 @@ const finalConfig = {
 
 console.log("Firebase initializing with Project ID:", finalConfig.projectId);
 
-const app = initializeApp(finalConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); 
-export const auth = getAuth(app);
+let app: any = null;
+export let db: any = null;
+export let auth: any = null;
+export let isFirebaseReady = false;
 
-// Use local persistence and wait for it
-setPersistence(auth, browserLocalPersistence)
-  .then(() => console.log("Auth persistence set to local"))
-  .catch(err => {
-    console.error("Persistence error:", err);
-  });
+const hasRequiredConfig = Boolean(finalConfig.apiKey && finalConfig.projectId);
+
+if (hasRequiredConfig) {
+  try {
+    app = initializeApp(finalConfig);
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId); 
+    auth = getAuth(app);
+    isFirebaseReady = true;
+
+    // Use local persistence and wait for it
+    setPersistence(auth, browserLocalPersistence)
+      .then(() => console.log("Auth persistence set to local"))
+      .catch(err => {
+        console.error("Persistence error:", err);
+      });
+  } catch (err) {
+    console.warn("Firebase initialization failed (please check credentials):", err);
+  }
+} else {
+  console.warn("Firebase credentials are not set. MusicianLog will run in standard local-only fallback mode (localStorage).");
+}
 
 export const googleProvider = new GoogleAuthProvider();
 
 export const signInWithGoogle = async () => {
+  if (!isFirebaseReady || !auth) {
+    throw new Error("Firebase가 준비되지 않았습니다. 현재 로컬 저장 모드로 동작 중입니다.");
+  }
   try {
     // Force prompt to ensure user can switch accounts easily
     googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -45,10 +64,15 @@ export const handleRedirectResult = async () => {
   return null;
 };
 
-export const logout = () => signOut(auth);
+export const logout = async () => {
+  if (isFirebaseReady && auth) {
+    return signOut(auth);
+  }
+};
 
 // Test connection as required by integration instructions
 export async function testConnection() {
+  if (!isFirebaseReady || !db) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -57,3 +81,4 @@ export async function testConnection() {
     }
   }
 }
+
