@@ -125,7 +125,16 @@ export const translations = {
       viewSource: '원문 보기',
       page: '페이지',
       noSourcePlaceholder: '이 질문과 직접적으로 관련된 자료를 지식베이스에서 찾지 못했습니다.',
-      fallbackNotice: '전문 자료 검색 중 문제가 발생해 일반 답변으로 제공됩니다.'
+      fallbackNotice: '전문 자료 검색 중 문제가 발생해 일반 답변으로 제공됩니다.',
+      useWebSearch: '최신 웹 정보 검색',
+      useWebSearchDesc: '검색 사용 시 별도의 API 사용량이 발생할 수 있습니다.',
+      questionsRemaining: '오늘 남은 질문',
+      tooFast: '요청이 너무 빠릅니다.',
+      limitReached: '오늘 질문 한도를 모두 사용했습니다.',
+      globalLimitReached: '전체 서비스 사용량 한도에 도달했습니다.',
+      webSearchUsed: '웹 검색 사용',
+      webSearchNotUsed: '웹 검색 없이 답변',
+      webSearchFailed: '최신 웹 정보를 확인하지 못했습니다.'
     },
     status: {
       learning: '연습 중',
@@ -262,7 +271,16 @@ export const translations = {
       viewSource: 'View source',
       page: 'Page',
       noSourcePlaceholder: 'No relevant source was found for this question in the knowledge base.',
-      fallbackNotice: 'An error occurred during specific knowledge search, so a general response is provided.'
+      fallbackNotice: 'An error occurred during specific knowledge search, so a general response is provided.',
+      useWebSearch: 'Use Web Search',
+      useWebSearchDesc: 'May consume additional API quota.',
+      questionsRemaining: 'Questions remaining today',
+      tooFast: 'You\'re sending requests too quickly.',
+      limitReached: 'You\'ve reached today\'s question limit.',
+      globalLimitReached: 'The service usage limit has been reached.',
+      webSearchUsed: 'Web search used',
+      webSearchNotUsed: 'Answered without web search',
+      webSearchFailed: 'Current web information could not be verified.'
     },
     status: {
       learning: 'Learning',
@@ -399,7 +417,16 @@ export const translations = {
       viewSource: 'Quelle öffnen',
       page: 'Seite',
       noSourcePlaceholder: 'Keine passende Quelle gefunden.',
-      fallbackNotice: 'Aufgrund eines Suchfehlers wird eine allgemeine Antwort gegeben.'
+      fallbackNotice: 'Aufgrund eines Suchfehlers wird eine allgemeine Antwort gegeben.',
+      useWebSearch: 'Websuche verwenden',
+      useWebSearchDesc: 'Die Nutzung kann zusätzliche API-Kontingente verbrauchen.',
+      questionsRemaining: 'Heute verbleibende Fragen',
+      tooFast: 'Die Anfragen werden zu schnell gesendet.',
+      limitReached: 'Das heutige Fragenlimit wurde erreicht.',
+      globalLimitReached: 'Das Nutzungslimit des Dienstes wurde erreicht.',
+      webSearchUsed: 'Websuche verwendet',
+      webSearchNotUsed: 'Antwort ohne Websuche',
+      webSearchFailed: 'Aktuelle Webinformationen konnten nicht überprüft werden.'
     },
     status: {
       learning: 'In Arbeit',

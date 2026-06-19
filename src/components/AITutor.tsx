@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Bot, Loader2, Sparkles, RefreshCw, Copy, Check, Settings2, X, Save } from 'lucide-react';
-import { ChatMessage, MusicTutorProfile } from '../types';
+import { Send, User, Bot, Loader2, Sparkles, RefreshCw, Copy, Check, Settings2, X, Save, Globe } from 'lucide-react';
+import { ChatMessage, MusicTutorProfile, UsageLimits } from '../types';
 import { getTutorResponse } from '../services/gemini';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 const PROFILE_KEY = 'musicianlog_ai_tutor_profile';
+const WEB_SEARCH_KEY = 'musicianlog_ai_web_search_enabled';
 
 export default function AITutor() {
   const { t, language } = useLanguage();
@@ -21,6 +22,10 @@ export default function AITutor() {
     }
   });
   const [showProfile, setShowProfile] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(() => {
+    return localStorage.getItem(WEB_SEARCH_KEY) === 'true';
+  });
+  const [usageLimits, setUsageLimits] = useState<UsageLimits | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'model', content: t('tutor.greeting') }
@@ -38,6 +43,12 @@ export default function AITutor() {
   const handleResetProfile = () => {
     setProfile({});
     localStorage.removeItem(PROFILE_KEY);
+  };
+
+  const handleWebSearchToggle = () => {
+    const newVal = !webSearchEnabled;
+    setWebSearchEnabled(newVal);
+    localStorage.setItem(WEB_SEARCH_KEY, String(newVal));
   };
 
   const handleQuickQuestion = (question: string) => {
@@ -64,15 +75,27 @@ export default function AITutor() {
 
     try {
       const token = await user.getIdToken();
-      const response = await getTutorResponse([...messages, userMessage], language, token, profile);
+      // Generate a unique requestId for idempotency
+      const requestId = crypto.randomUUID();
+      const response = await getTutorResponse([...messages, userMessage], language, token, requestId, webSearchEnabled, profile);
       
+      if (response.usage) {
+        setUsageLimits(response.usage);
+      }
+
       if (response.error) {
         let errorMsg = t('tutor.error');
-        if (response.error === 'auth_error') errorMsg = "사용자 인증에 실패했습니다. 다시 로그인해주세요.";
-        if (response.error === 'quota_error') errorMsg = "현재 AI 튜터의 무료 사용량을 초과했습니다. 잠시 후 다시 시도해주세요.";
-        if (response.error === 'length_error') errorMsg = "질문이 너무 깁니다. 4,000자 이내로 줄여주세요.";
-        if (response.error === 'admin_error') errorMsg = "사용자 인증 서버 설정이 완료되지 않았습니다.";
-        if (response.error === 'gemini_error') errorMsg = "AI 튜터 서버 설정이 완료되지 않았습니다.";
+        if (response.errorCode === 'USER_DAILY_LIMIT') errorMsg = t('tutor.limitReached');
+        else if (response.errorCode === 'GLOBAL_DAILY_LIMIT' || response.errorCode === 'GLOBAL_MONTHLY_LIMIT') errorMsg = t('tutor.globalLimitReached');
+        else if (response.errorCode === 'COOLDOWN_ACTIVE' || response.errorCode === 'DUPLICATE_REQUEST') errorMsg = t('tutor.tooFast');
+        else if (response.errorCode === 'TIMEOUT') errorMsg = response.error; // Already translated in node
+        else if (response.error === 'auth_error') errorMsg = "사용자 인증에 실패했습니다. 다시 로그인해주세요.";
+        else if (response.error === 'quota_error' || response.errorCode === 'QUOTA_EXCEEDED') errorMsg = "현재 AI 튜터의 무료 사용량을 초과했습니다. 잠시 후 다시 시도해주세요.";
+        else if (response.error === 'length_error') errorMsg = "질문이 너무 깁니다. 4,000자 이내로 줄여주세요.";
+        else if (response.error === 'admin_error') errorMsg = "사용자 인증 서버 설정이 완료되지 않았습니다.";
+        else if (response.error === 'gemini_error') errorMsg = "AI 튜터 서버 설정이 완료되지 않았습니다.";
+        else if (response.errorCode === 'MAINTENANCE') errorMsg = response.error;
+        
         setMessages(prev => [...prev, { role: 'model', content: errorMsg }]);
       } else {
         setMessages(prev => [...prev, { 
@@ -80,7 +103,8 @@ export default function AITutor() {
           content: response.answer,
           grounded: response.grounded,
           sources: response.sources,
-          warning: response.warning
+          warning: response.warning,
+          webSearchUsed: response.webSearchUsed
         }]);
       }
     } catch (error) {
@@ -113,20 +137,42 @@ export default function AITutor() {
     }
   };
 
+  const renderSourceTypeBadge = (source: AITutorSource) => {
+    if (source.provider === 'google-search') {
+      return (
+        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded-sm">
+          <Globe size={10} /> WEB
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 bg-brand/10 text-brand rounded-sm">
+        <Bot size={10} /> DOC
+      </span>
+    );
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex flex-col h-[calc(100vh-280px)] md:h-[600px] bg-bg-card border border-white/5 rounded-[40px] overflow-hidden relative"
     >
-      <header className="px-6 py-4 border-b border-white/5 flex items-center justify-between gap-3">
+      <header className="px-6 py-4 border-b border-white/5 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-brand/10 flex items-center justify-center text-brand">
             <Bot size={22} />
           </div>
           <div>
             <h2 className="text-xl font-bold text-white tracking-tight">Cello Sensei</h2>
-            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">AI Consultant</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">AI Consultant</p>
+              {usageLimits && (
+                <span className="text-[10px] text-brand/80 font-bold tracking-widest bg-brand/5 px-2 py-0.5 rounded-full border border-brand/10">
+                  {t('tutor.questionsRemaining')} : {usageLimits.remaining}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -214,6 +260,30 @@ export default function AITutor() {
                   className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 col-span-2"
                 />
               </div>
+
+              {/* Web Search Toggle */}
+              <div className="flex items-center justify-between p-3 bg-stone-800/50 rounded-xl border border-white/5">
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium text-stone-200">{t('tutor.useWebSearch')}</span>
+                  <span className="text-[10px] text-stone-500">{t('tutor.useWebSearchDesc')}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={webSearchEnabled}
+                  onClick={handleWebSearchToggle}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    webSearchEnabled ? 'bg-brand' : 'bg-stone-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      webSearchEnabled ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button 
                   onClick={handleResetProfile}
@@ -262,28 +332,44 @@ export default function AITutor() {
                 
                 {m.role === 'model' && i > 0 && (
                   <div className="mt-4 pt-4 border-t border-white/5 flex flex-col gap-2">
-                    <div className="flex items-center gap-1.5 mb-1">
+                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                       <Sparkles size={12} className={m.grounded ? "text-brand" : "text-stone-500"} />
                       <span className={`text-[10px] font-bold uppercase tracking-widest ${m.grounded ? "text-brand" : "text-stone-500"}`}>
                         {m.grounded ? t('tutor.groundedBadge') : t('tutor.generalBadge')}
                       </span>
+                      {m.webSearchUsed && (
+                        <>
+                          <span className="text-stone-600 px-1">•</span>
+                          <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-sm uppercase tracking-widest">
+                            {t('tutor.webSearchUsed')}
+                          </span>
+                        </>
+                      )}
                     </div>
                     {m.grounded && m.sources && m.sources.length > 0 && (
                       <div className="bg-stone-900 rounded-xl p-3 border border-white/5">
-                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-1 flex justify-between">
                           {t('tutor.references')}
                         </div>
-                        <ul className="space-y-2">
+                        <ul className="space-y-3">
                           {m.sources.map((src, idx) => (
                             <li key={idx} className="text-xs">
-                              <span className="text-stone-200 font-medium">[{idx + 1}] {src.title}</span>
-                              <div className="text-[10px] text-stone-500 mt-0.5">
+                              <div className="flex items-start gap-1">
+                                {renderSourceTypeBadge(src)}
+                                <span className="text-stone-200 font-medium ml-1">[{idx + 1}] {src.title}</span>
+                              </div>
+                              <div className="text-[10px] text-stone-500 mt-1 pl-1">
                                 {[src.author, src.organization, src.year].filter(Boolean).join(' · ')}
                               </div>
-                              <div className="flex items-center gap-2 mt-1">
+                              <div className="flex items-center gap-2 mt-1.5 pl-1">
                                 {src.pageNumber && (
-                                  <span className="text-[10px] px-1.5 py-0.5 bg-stone-800 rounded text-stone-400">
+                                  <span className="text-[9px] px-1.5 py-0.5 bg-stone-800 rounded text-stone-400">
                                     {t('tutor.page')} {src.pageNumber}
+                                  </span>
+                                )}
+                                {src.timestamp && (
+                                  <span className="text-[9px] text-stone-500">
+                                    {new Date(src.timestamp).toLocaleString()}
                                   </span>
                                 )}
                                 {src.url && (
@@ -291,7 +377,7 @@ export default function AITutor() {
                                     href={src.url} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                    className="text-[10px] text-brand hover:underline"
+                                    className="text-[10px] text-brand hover:underline flex grid-flow-col items-center gap-1"
                                   >
                                     {t('tutor.viewSource')}
                                   </a>

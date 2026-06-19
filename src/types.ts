@@ -46,6 +46,7 @@ export interface ChatMessage {
   grounded?: boolean;
   sources?: AITutorSource[];
   warning?: string;
+  webSearchUsed?: boolean;
 }
 
 export type MusicTutorProfile = {
@@ -71,4 +72,11 @@ export type AITutorSource = {
   pageNumber?: number;
   timestamp?: string;
   license?: string;
+  provider?: 'file-search' | 'google-search';
+};
+
+export type UsageLimits = {
+  dailyUsed: number;
+  dailyLimit: number;
+  remaining: number;
 };
