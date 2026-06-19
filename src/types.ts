@@ -43,4 +43,32 @@ export interface RepertoireItem {
 export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
+  grounded?: boolean;
+  sources?: AITutorSource[];
+  warning?: string;
 }
+
+export type MusicTutorProfile = {
+  instrument?: string;
+  major?: string;
+  level?: string;
+  composer?: string;
+  work?: string;
+  era?: string;
+  currentIssue?: string;
+  goal?: string;
+};
+
+export type AITutorSource = {
+  id: string;
+  title: string;
+  author?: string;
+  expert?: string;
+  organization?: string;
+  year?: number;
+  sourceType?: string;
+  url?: string;
+  pageNumber?: number;
+  timestamp?: string;
+  license?: string;
+};

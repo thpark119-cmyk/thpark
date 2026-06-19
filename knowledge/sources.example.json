@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sample-cello-1",
+    "title": "Cello Bow Distribution and Phrasing Principles",
+    "author": "AI Tutor Team",
+    "expert": "Generic Expert",
+    "organization": "MusicianLog",
+    "year": 2024,
+    "sourceType": "lecture-note",
+    "instruments": ["cello"],
+    "majors": ["performance"],
+    "eras": ["Romantic"],
+    "composers": ["Dvořák", "Generic"],
+    "works": ["Cello Concerto"],
+    "topics": ["bow distribution", "phrasing", "vibrato"],
+    "languages": ["ko", "en"],
+    "url": "https://musicianlog.app",
+    "localFile": "knowledge/files/sample-cello-practice.md",
+    "license": "Testing",
+    "rightsConfirmed": true,
+    "notes": "A test sample for RAG"
+  }
+]

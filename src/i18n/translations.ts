@@ -118,7 +118,14 @@ export const translations = {
       quickQ1: '이 곡의 프레이징을 어떻게 연습할까요?',
       quickQ2: '비브라토가 불안정한 원인을 알려주세요.',
       quickQ3: '바로크와 낭만주의 아티큘레이션 차이는 무엇인가요?',
-      quickQ4: '학생에게 이 기술을 어떻게 설명하면 좋을까요?'
+      quickQ4: '학생에게 이 기술을 어떻게 설명하면 좋을까요?',
+      references: '참고 자료',
+      groundedBadge: '전문 자료 기반 답변',
+      generalBadge: '일반 AI 답변',
+      viewSource: '원문 보기',
+      page: '페이지',
+      noSourcePlaceholder: '이 질문과 직접적으로 관련된 자료를 지식베이스에서 찾지 못했습니다.',
+      fallbackNotice: '전문 자료 검색 중 문제가 발생해 일반 답변으로 제공됩니다.'
     },
     status: {
       learning: '연습 중',
@@ -248,7 +255,14 @@ export const translations = {
       quickQ1: 'How should I practice phrasing in this piece?',
       quickQ2: 'What causes unstable vibrato?',
       quickQ3: 'What is the difference between Baroque and Romantic articulation?',
-      quickQ4: 'How should I explain this technique to a student?'
+      quickQ4: 'How should I explain this technique to a student?',
+      references: 'References',
+      groundedBadge: 'Grounded in professional sources',
+      generalBadge: 'General AI response',
+      viewSource: 'View source',
+      page: 'Page',
+      noSourcePlaceholder: 'No relevant source was found for this question in the knowledge base.',
+      fallbackNotice: 'An error occurred during specific knowledge search, so a general response is provided.'
     },
     status: {
       learning: 'Learning',
@@ -378,7 +392,14 @@ export const translations = {
       quickQ1: 'Wie sollte ich die Phrasierung in diesem Stück üben?',
       quickQ2: 'Was verursacht ein instabiles Vibrato?',
       quickQ3: 'Was ist der Unterschied zwischen barocker und romantischer Artikulation?',
-      quickQ4: 'Wie erkläre ich diese Technik einem Schüler?'
+      quickQ4: 'Wie erkläre ich diese Technik einem Schüler?',
+      references: 'Quellen',
+      groundedBadge: 'Auf Fachquellen gestützte Antwort',
+      generalBadge: 'Allgemeine KI-Antwort',
+      viewSource: 'Quelle öffnen',
+      page: 'Seite',
+      noSourcePlaceholder: 'Keine passende Quelle gefunden.',
+      fallbackNotice: 'Aufgrund eines Suchfehlers wird eine allgemeine Antwort gegeben.'
     },
     status: {
       learning: 'In Arbeit',

@@ -75,7 +75,13 @@ export default function AITutor() {
         if (response.error === 'gemini_error') errorMsg = "AI 튜터 서버 설정이 완료되지 않았습니다.";
         setMessages(prev => [...prev, { role: 'model', content: errorMsg }]);
       } else {
-        setMessages(prev => [...prev, { role: 'model', content: response.answer }]);
+        setMessages(prev => [...prev, { 
+          role: 'model', 
+          content: response.answer,
+          grounded: response.grounded,
+          sources: response.sources,
+          warning: response.warning
+        }]);
       }
     } catch (error) {
       console.error(error);
@@ -253,6 +259,56 @@ export default function AITutor() {
                   : 'bg-stone-900/80 text-stone-300 rounded-tl-none border border-white/5'
               }`}>
                 {m.content}
+                
+                {m.role === 'model' && i > 0 && (
+                  <div className="mt-4 pt-4 border-t border-white/5 flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Sparkles size={12} className={m.grounded ? "text-brand" : "text-stone-500"} />
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${m.grounded ? "text-brand" : "text-stone-500"}`}>
+                        {m.grounded ? t('tutor.groundedBadge') : t('tutor.generalBadge')}
+                      </span>
+                    </div>
+                    {m.grounded && m.sources && m.sources.length > 0 && (
+                      <div className="bg-stone-900 rounded-xl p-3 border border-white/5">
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">
+                          {t('tutor.references')}
+                        </div>
+                        <ul className="space-y-2">
+                          {m.sources.map((src, idx) => (
+                            <li key={idx} className="text-xs">
+                              <span className="text-stone-200 font-medium">[{idx + 1}] {src.title}</span>
+                              <div className="text-[10px] text-stone-500 mt-0.5">
+                                {[src.author, src.organization, src.year].filter(Boolean).join(' · ')}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                {src.pageNumber && (
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-stone-800 rounded text-stone-400">
+                                    {t('tutor.page')} {src.pageNumber}
+                                  </span>
+                                )}
+                                {src.url && (
+                                  <a 
+                                    href={src.url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-brand hover:underline"
+                                  >
+                                    {t('tutor.viewSource')}
+                                  </a>
+                                )}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {!m.grounded && (
+                       <p className="text-[10px] text-stone-500 italic">
+                         {m.warning === 'fallback' ? t('tutor.fallbackNotice') : t('tutor.noSourcePlaceholder')}
+                       </p>
+                    )}
+                  </div>
+                )}
               </div>
               {m.role === 'model' && (
                 <button 

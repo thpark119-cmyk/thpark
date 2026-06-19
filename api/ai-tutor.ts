@@ -71,28 +71,93 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 4. Call Gemini Generate Content
-    const response = await ai.models.generateContent({
-      model,
-      contents: [...formattedHistory, { role: 'user', parts: [{ text: question }] }],
-      config: {
-        systemInstruction: buildMusicTutorSystemPrompt({
-          language: language || 'ko',
-          profile: safeProfile
-        }),
+    // 4. Set up tools if File Search Store is configured
+    const storeName = process.env.GEMINI_FILE_SEARCH_STORE;
+    const tools: any[] = [];
+    if (storeName) {
+      tools.push({
+        fileSearch: {
+          fileSearchStoreNames: [storeName]
+        }
+      });
+    }
+
+    // 5. Call Gemini Generate Content
+    let response;
+    let grounded = false;
+    let warning = '';
+    const sources: any[] = [];
+    
+    try {
+      response = await ai.models.generateContent({
+        model,
+        contents: [...formattedHistory, { role: 'user', parts: [{ text: question }] }],
+        config: {
+          systemInstruction: buildMusicTutorSystemPrompt({
+            language: language || 'ko',
+            profile: safeProfile
+          }),
+          ...(tools.length > 0 ? { tools } : {})
+        }
+      });
+    } catch (apiError: any) {
+      if (storeName && (apiError.message?.includes('File Search') || apiError.status === 400 || apiError.status === 404)) {
+        // Fallback to no-tools if file search fails
+        warning = 'fallback';
+        response = await ai.models.generateContent({
+          model,
+          contents: [...formattedHistory, { role: 'user', parts: [{ text: question }] }],
+          config: {
+            systemInstruction: buildMusicTutorSystemPrompt({
+              language: language || 'ko',
+              profile: safeProfile
+            }),
+          }
+        });
+      } else {
+        throw apiError;
       }
-    });
+    }
 
     const answer = response.text || '';
     if (!answer) {
       return res.status(502).json({ error: 'Failed to generate answer from AI' });
     }
 
-    // 5. Send JSON Response
+    // Process grounding metadata
+    const candidates = response.candidates || [];
+    if (candidates.length > 0 && candidates[0].groundingMetadata) {
+      const gMetadata = candidates[0].groundingMetadata;
+      if (gMetadata.groundingChunks && gMetadata.groundingChunks.length > 0) {
+        grounded = true;
+        const seenSources = new Set<string>();
+        
+        for (const chunk of gMetadata.groundingChunks) {
+          if (chunk.retrievedContext) {
+            const uri = chunk.retrievedContext.uri || '';
+            const title = chunk.retrievedContext.title || 'Unknown Source';
+            // Extract custom metadata or just use generic if not available
+            const sourceId = uri || title;
+            if (!seenSources.has(sourceId)) {
+              seenSources.add(sourceId);
+              sources.push({
+                id: sourceId,
+                title: title,
+                url: uri,
+                pageNumber: chunk.retrievedContext.pageNumber
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 6. Send JSON Response
     return res.status(200).json({
       answer,
-      grounded: false,
-      sources: []
+      grounded,
+      sources,
+      warning
     });
 
   } catch (error: any) {

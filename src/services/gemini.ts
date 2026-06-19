@@ -1,9 +1,9 @@
-import { ChatMessage } from "../types";
+import { ChatMessage, AITutorSource } from "../types";
 
 export type TutorResponse = {
   answer: string;
   grounded: boolean;
-  sources: any[];
+  sources: AITutorSource[];
   warning?: string;
   error?: string;
 };
