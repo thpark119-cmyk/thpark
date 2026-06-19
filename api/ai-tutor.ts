@@ -71,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Process profile if present
     const safeProfile: any = {};
     if (profile && typeof profile === 'object') {
-      const allowedKeys = ['instrument', 'major', 'level', 'composer', 'work', 'era', 'currentIssue', 'goal'];
+      const allowedKeys = ['majorCategory', 'instrument'];
       for (const key of allowedKeys) {
         if (typeof profile[key] === 'string') {
           safeProfile[key] = profile[key].substring(0, 200);
@@ -130,26 +130,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const maxOutputTokens = Number(process.env.AI_TUTOR_MAX_OUTPUT_TOKENS) || 1800;
 
     const generateCall = async (currentTools: any[]) => {
-      // Setup AbortController for timeout (e.g. 35 seconds to avoid server timeout)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 35000);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('TIMEOUT_ERROR')), 35000);
+      });
+
       try {
-        const res = await ai.models.generateContent({
-          model,
-          contents: [...formattedHistory, { role: 'user', parts: [{ text: question }] }],
-          config: {
-            systemInstruction: buildMusicTutorSystemPrompt({
-              language: language || 'ko',
-              profile: safeProfile
-            }),
-            maxOutputTokens: maxOutputTokens,
-            ...(currentTools.length > 0 ? { tools: currentTools } : {})
-          }
-        }, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const res = await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: [...formattedHistory, { role: 'user', parts: [{ text: question }] }],
+            config: {
+              systemInstruction: buildMusicTutorSystemPrompt({
+                language: language || 'ko',
+                profile: safeProfile
+              }),
+              maxOutputTokens: maxOutputTokens,
+              ...(currentTools.length > 0 ? { tools: currentTools } : {})
+            }
+          }),
+          timeoutPromise
+        ]);
         return res;
-      } catch (err) {
-        clearTimeout(timeoutId);
+      } catch (err: any) {
+        if (err.message === 'TIMEOUT_ERROR') {
+          const timeoutErr = new Error('TIMEOUT');
+          timeoutErr.name = 'AbortError';
+          throw timeoutErr;
+        }
         throw err;
       }
     };

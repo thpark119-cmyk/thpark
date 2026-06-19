@@ -1,13 +1,39 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, User, Bot, Loader2, Sparkles, RefreshCw, Copy, Check, Settings2, X, Save, Globe } from 'lucide-react';
-import { ChatMessage, MusicTutorProfile, UsageLimits } from '../types';
+import { ChatMessage, MusicTutorProfile, UsageLimits, MajorCategory, AITutorSource } from '../types';
 import { getTutorResponse } from '../services/gemini';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 const PROFILE_KEY = 'musicianlog_ai_tutor_profile';
 const WEB_SEARCH_KEY = 'musicianlog_ai_web_search_enabled';
+
+const majorCategories: Array<{ value: MajorCategory, labelKey: string }> = [
+  { value: 'strings', labelKey: 'aiProfile.categories.strings' },
+  { value: 'woodwinds', labelKey: 'aiProfile.categories.woodwinds' },
+  { value: 'brass', labelKey: 'aiProfile.categories.brass' },
+  { value: 'voice', labelKey: 'aiProfile.categories.voice' },
+  { value: 'keyboard', labelKey: 'aiProfile.categories.keyboard' },
+  { value: 'percussion', labelKey: 'aiProfile.categories.percussion' },
+  { value: 'conducting', labelKey: 'aiProfile.categories.conducting' },
+  { value: 'composition-theory', labelKey: 'aiProfile.categories.compositionTheory' },
+  { value: 'korean-traditional', labelKey: 'aiProfile.categories.koreanTraditional' },
+  { value: 'other', labelKey: 'aiProfile.categories.other' }
+];
+
+const specialtiesMap: Record<string, string[]> = {
+  strings: ['violin', 'viola', 'cello', 'double-bass', 'harp', 'classical-guitar', 'other-strings'],
+  woodwinds: ['flute', 'oboe', 'clarinet', 'bassoon', 'saxophone', 'recorder', 'other-woodwinds'],
+  brass: ['horn', 'trumpet', 'trombone', 'tuba', 'euphonium', 'other-brass'],
+  voice: ['soprano', 'mezzo-soprano', 'contralto', 'countertenor', 'tenor', 'baritone', 'bass-baritone', 'bass', 'voice-type-undecided', 'other-voice'],
+  keyboard: ['piano', 'organ', 'harpsichord', 'accordion', 'accompaniment', 'other-keyboard'],
+  percussion: ['orchestral-percussion', 'timpani', 'mallet', 'snare-drum', 'drum-set', 'other-percussion'],
+  conducting: ['orchestra-conducting', 'choral-conducting', 'opera-conducting', 'wind-conducting', 'other-conducting'],
+  'composition-theory': ['composition', 'electronic-music', 'harmony', 'counterpoint', 'form-analysis', 'orchestration', 'music-theory', 'musicology', 'music-education', 'other-composition-theory'],
+  'korean-traditional': ['gayageum', 'geomungo', 'haegeum', 'ajaeng', 'daegeum', 'sogeum', 'piri', 'taepyeongso', 'korean-percussion', 'pansori', 'jeongga', 'korean-folk-song', 'korean-composition', 'other-korean-traditional'],
+  other: ['jazz', 'applied-music', 'musical-theatre', 'audio-recording', 'other']
+};
 
 export default function AITutor() {
   const { t, language } = useLanguage();
@@ -16,9 +42,45 @@ export default function AITutor() {
   const [profile, setProfile] = useState<MusicTutorProfile>(() => {
     try {
       const saved = localStorage.getItem(PROFILE_KEY);
-      return saved ? JSON.parse(saved) : {};
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.category !== undefined) {
+          return parsed;
+        } else {
+          // Migration logic
+          const newProfile: MusicTutorProfile = { category: '', specialty: '' };
+          const oldInst = String(parsed.instrument || '').toLowerCase();
+          const oldMajor = String(parsed.major || '').toLowerCase();
+          
+          const checkMap = (val: string) => {
+             for (const [cat, specs] of Object.entries(specialtiesMap)) {
+               if (specs.includes(val)) return { category: cat, specialty: val };
+             }
+             return null;
+          };
+          
+          let res = checkMap(oldInst) || checkMap(oldMajor);
+          if (res) {
+            newProfile.category = res.category as MajorCategory;
+            newProfile.specialty = res.specialty;
+          } else {
+            // fallback heuristic mapping
+            if (oldInst.includes('soprano')) { newProfile.category = 'voice'; newProfile.specialty = 'soprano'; }
+            else if (oldInst.includes('tenor')) { newProfile.category = 'voice'; newProfile.specialty = 'tenor'; }
+            else if (oldInst.includes('baritone')) { newProfile.category = 'voice'; newProfile.specialty = 'baritone'; }
+            else if (oldInst.includes('flute')) { newProfile.category = 'woodwinds'; newProfile.specialty = 'flute'; }
+            else if (oldInst.includes('cello')) { newProfile.category = 'strings'; newProfile.specialty = 'cello'; }
+            else if (oldInst.includes('violin')) { newProfile.category = 'strings'; newProfile.specialty = 'violin'; }
+            else if (oldInst.includes('piano')) { newProfile.category = 'keyboard'; newProfile.specialty = 'piano'; }
+            else if (oldInst.includes('trumpet')) { newProfile.category = 'brass'; newProfile.specialty = 'trumpet'; }
+          }
+          
+          return newProfile;
+        }
+      }
+      return { category: '', specialty: '' };
     } catch {
-      return {};
+      return { category: '', specialty: '' };
     }
   });
   const [showProfile, setShowProfile] = useState(false);
@@ -77,7 +139,11 @@ export default function AITutor() {
       const token = await user.getIdToken();
       // Generate a unique requestId for idempotency
       const requestId = crypto.randomUUID();
-      const response = await getTutorResponse([...messages, userMessage], language, token, requestId, webSearchEnabled, profile);
+      const apiProfile = {
+        majorCategory: profile.category,
+        instrument: profile.specialty
+      };
+      const response = await getTutorResponse([...messages, userMessage], language, token, requestId, webSearchEnabled, apiProfile);
       
       if (response.usage) {
         setUsageLimits(response.usage);
@@ -152,6 +218,15 @@ export default function AITutor() {
     );
   };
 
+  const getProfileLabel = () => {
+    if (!profile.category || !profile.specialty) return null;
+    const catConf = majorCategories.find(c => c.value === profile.category);
+    if (!catConf) return null;
+    const catLabel = (t('aiProfile' as any) as any)?.categories?.[catConf.labelKey.split('.')[2]] || '';
+    const specLabel = (t('aiProfile' as any) as any)?.specialties?.[profile.specialty] || '';
+    return `${catLabel} > ${specLabel}`;
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -166,7 +241,9 @@ export default function AITutor() {
           <div>
             <h2 className="text-xl font-bold text-white tracking-tight">Cello Sensei</h2>
             <div className="flex items-center gap-2">
-              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">AI Consultant</p>
+              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">
+                AI Consultant {getProfileLabel() ? `• ${t('tutor.currentProfile')}: ${getProfileLabel()}` : ''}
+              </p>
               {usageLimits && (
                 <span className="text-[10px] text-brand/80 font-bold tracking-widest bg-brand/5 px-2 py-0.5 rounded-full border border-brand/10">
                   {t('tutor.questionsRemaining')} : {usageLimits.remaining}
@@ -210,55 +287,50 @@ export default function AITutor() {
                   <X size={16} />
                 </button>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <input 
-                  placeholder={t('tutor.instrument')}
-                  value={profile.instrument || ''}
-                  onChange={e => setProfile({...profile, instrument: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.major')}
-                  value={profile.major || ''}
-                  onChange={e => setProfile({...profile, major: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.level')}
-                  value={profile.level || ''}
-                  onChange={e => setProfile({...profile, level: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.composer')}
-                  value={profile.composer || ''}
-                  onChange={e => setProfile({...profile, composer: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.work')}
-                  value={profile.work || ''}
-                  onChange={e => setProfile({...profile, work: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.era')}
-                  value={profile.era || ''}
-                  onChange={e => setProfile({...profile, era: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
-                />
-                <input 
-                  placeholder={t('tutor.currentIssue')}
-                  value={profile.currentIssue || ''}
-                  onChange={e => setProfile({...profile, currentIssue: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 col-span-2"
-                />
-                <input 
-                  placeholder={t('tutor.goal')}
-                  value={profile.goal || ''}
-                  onChange={e => setProfile({...profile, goal: e.target.value})}
-                  className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 col-span-2"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{t('tutor.major')}</label>
+                  <select
+                    value={profile.category}
+                    onChange={(e) => {
+                      setProfile({ category: e.target.value as MajorCategory, specialty: '' });
+                    }}
+                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
+                  >
+                    <option value="">{t('tutor.categoryPlaceholder')}</option>
+                    {majorCategories.map((c) => {
+                      const keys = c.labelKey.split('.');
+                      const label = (t('aiProfile' as any) as any)?.categories?.[keys[2]] || '';
+                      return (
+                        <option key={c.value} value={c.value}>{label}</option>
+                      );
+                    })}
+                  </select>
+                </div>
+                
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                    {profile.category === 'voice' 
+                      ? (language === 'ko' ? '성종' : language === 'de' ? 'Stimmfach' : 'Voice Type') 
+                      : t('tutor.instrument')}
+                  </label>
+                  <select
+                    value={profile.specialty}
+                    disabled={!profile.category}
+                    onChange={(e) => {
+                      setProfile({ ...profile, specialty: e.target.value });
+                    }}
+                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">{t('tutor.specialtyPlaceholder')}</option>
+                    {profile.category && specialtiesMap[profile.category]?.map((s) => {
+                      const label = (t('aiProfile' as any) as any)?.specialties?.[s] || s;
+                      return (
+                        <option key={s} value={s}>{label}</option>
+                      );
+                    })}
+                  </select>
+                </div>
               </div>
 
               {/* Web Search Toggle */}
@@ -293,7 +365,8 @@ export default function AITutor() {
                 </button>
                 <button 
                   onClick={handleSaveProfile}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand text-white text-xs font-bold uppercase tracking-wide hover:opacity-90 transition-opacity"
+                  disabled={!!profile.category && !profile.specialty}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand text-white text-xs font-bold uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save size={14} />
                   {t('tutor.saveProfile')}

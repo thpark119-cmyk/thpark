@@ -49,15 +49,21 @@ export interface ChatMessage {
   webSearchUsed?: boolean;
 }
 
+export type MajorCategory =
+  | 'strings'
+  | 'woodwinds'
+  | 'brass'
+  | 'voice'
+  | 'keyboard'
+  | 'percussion'
+  | 'conducting'
+  | 'composition-theory'
+  | 'korean-traditional'
+  | 'other';
+
 export type MusicTutorProfile = {
-  instrument?: string;
-  major?: string;
-  level?: string;
-  composer?: string;
-  work?: string;
-  era?: string;
-  currentIssue?: string;
-  goal?: string;
+  category: MajorCategory | '';
+  specialty: string;
 };
 
 export type AITutorSource = {
