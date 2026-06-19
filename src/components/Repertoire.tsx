@@ -4,9 +4,11 @@ import { Plus, Book, FileText, Search, MoreHorizontal, X, Music } from 'lucide-r
 import { RepertoireItem } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Repertoire() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [items, setItems] = useState<RepertoireItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [imslpQuery, setImslpQuery] = useState('');
@@ -61,14 +63,14 @@ export default function Repertoire() {
   };
 
   const handleDeleteClick = async (id: string) => {
-    if (!window.confirm('정말 삭제할까요?')) return;
+    if (!window.confirm(t('common.confirmDelete'))) return;
     await deleteRecord('repertoire', id, user);
   };
 
   const handleImslpSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!imslpQuery.trim()) {
-      alert('검색할 작곡가나 곡명을 입력해주세요.');
+      alert(t('repertoire.enterSearchTerm'));
       return;
     }
     const query = encodeURIComponent(imslpQuery.trim());
@@ -85,10 +87,18 @@ export default function Repertoire() {
     item.composer.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const mapStatus = (statusInput: string) => {
+    const s = statusInput.toLowerCase();
+    if (s === 'learning') return t('status.learning');
+    if (s === 'polishing') return t('status.polishing');
+    if (s === 'completed') return t('status.completed');
+    return statusInput;
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative">
       <div className="flex justify-between items-center px-1">
-        <h2 className="text-3xl font-serif italic text-white leading-none">악보함</h2>
+        <h2 className="text-3xl font-serif italic text-white leading-none">{t('repertoire.title')}</h2>
         <button 
           onClick={() => setIsAdding(true)}
           className="bg-brand w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand/20 active:scale-90 transition-all"
@@ -99,8 +109,8 @@ export default function Repertoire() {
 
       <div className="bg-stone-900 border border-white/5 p-6 rounded-[28px] space-y-4 shadow-xl shadow-black/10">
         <div>
-          <h3 className="text-lg font-serif italic text-white leading-tight">IMSLP에서 악보 찾기</h3>
-          <p className="text-xs text-stone-500 mt-1">작곡가나 곡명을 입력하면 IMSLP에서 악보를 검색할 수 있습니다.</p>
+          <h3 className="text-lg font-serif italic text-white leading-tight">{t('repertoire.imslpTitle')}</h3>
+          <p className="text-xs text-stone-500 mt-1">{t('repertoire.imslpDesc')}</p>
         </div>
         
         <form onSubmit={handleImslpSearch} className="space-y-3">
@@ -108,7 +118,7 @@ export default function Repertoire() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={16} />
             <input 
               type="text" 
-              placeholder="예: Bach Cello Suite, Beethoven Sonata"
+              placeholder={t('repertoire.imslpPlaceholder')}
               className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 pl-11 pr-4 text-stone-200 placeholder:text-stone-600 outline-none focus:ring-1 focus:ring-brand/30 transition-all text-sm"
               value={imslpQuery}
               onChange={(e) => setImslpQuery(e.target.value)}
@@ -116,21 +126,21 @@ export default function Repertoire() {
           </div>
           <div className="flex gap-2">
             <button type="submit" className="flex-1 bg-stone-200 text-stone-900 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
-              IMSLP 검색
+              {t('repertoire.imslpSearchBtn')}
             </button>
             <button type="button" onClick={handleImslpDirect} className="flex-1 bg-stone-800 text-stone-300 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
-              IMSLP 바로가기
+              {t('repertoire.imslpDirectBtn')}
             </button>
           </div>
         </form>
-        <p className="text-[10px] text-stone-600">IMSLP의 악보는 국가별 저작권 상태가 다를 수 있으므로 사용 전 저작권 정보를 확인하세요.</p>
+        <p className="text-[10px] text-stone-600">{t('repertoire.imslpCopyright')}</p>
       </div>
 
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={16} />
         <input 
           type="text" 
-          placeholder="내 악보함 검색 (곡명, 작곡가)..."
+          placeholder={t('repertoire.searchPlaceholder')}
           className="w-full bg-stone-900/50 border border-white/5 rounded-2xl py-4 pl-11 pr-4 text-stone-200 placeholder:text-stone-700 outline-none focus:ring-1 focus:ring-brand/30 transition-all text-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -155,20 +165,20 @@ export default function Repertoire() {
                 item.status === 'Learning' ? 'bg-amber-500/10 text-amber-500' :
                 item.status === 'Polishing' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-stone-800 text-stone-400'
               }`}>
-                {item.status}
+                {mapStatus(item.status)}
               </span>
               <div className="flex items-center gap-1.5">
                 <button 
                   onClick={() => handleEditClick(item)}
                   className="text-[10px] font-bold text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-stone-800 px-2 py-1 rounded-lg border border-white/5 transition-colors"
                 >
-                  수정
+                  {t('common.edit')}
                 </button>
                 <button 
                   onClick={() => handleDeleteClick(item.id)}
                   className="text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/40 px-2 py-1 rounded-lg border border-red-500/10 transition-colors"
                 >
-                  삭제
+                  {t('common.delete')}
                 </button>
               </div>
             </div>
@@ -178,7 +188,7 @@ export default function Repertoire() {
         {filteredItems.length === 0 && (
           <div className="py-20 text-center space-y-4">
             <Music size={40} className="mx-auto text-stone-800 opacity-50" />
-            <p className="text-sm font-medium text-stone-600 uppercase tracking-widest">저장된 곡이 없습니다</p>
+            <p className="text-sm font-medium text-stone-600 uppercase tracking-widest">{t('repertoire.empty')}</p>
           </div>
         )}
       </div>
@@ -201,36 +211,34 @@ export default function Repertoire() {
               className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[40px] p-8 space-y-8 shadow-2xl"
             >
               <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-serif italic text-white leading-none">새 곡 추가</h3>
+                <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.addPiece')}</h3>
                 <button onClick={() => setIsAdding(false)} className="text-stone-600"><X size={24} /></button>
               </div>
 
               <form onSubmit={handleAdd} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">곡명</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.pieceTitle')}</label>
                   <input 
                     required
                     type="text" 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-4 px-5 text-white outline-none focus:border-brand/40 transition-colors"
-                    placeholder="예: 첼로 협주곡 제1번"
                     value={newPiece.title}
                     onChange={e => setNewPiece({...newPiece, title: e.target.value})}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">작곡가</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composer')}</label>
                   <input 
                     required
                     type="text" 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-4 px-5 text-white outline-none focus:border-brand/40 transition-colors"
-                    placeholder="예: 하이든"
                     value={newPiece.composer}
                     onChange={e => setNewPiece({...newPiece, composer: e.target.value})}
                   />
                 </div>
                 
                 <button type="submit" className="w-full bg-brand h-14 rounded-2xl text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all">
-                  저장하기
+                  {t('common.save')}
                 </button>
               </form>
             </motion.div>
@@ -253,36 +261,34 @@ export default function Repertoire() {
               className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl"
             >
               <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-serif italic text-white leading-none">곡 정보 수정</h3>
+                <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.editPiece')}</h3>
                 <button onClick={() => setEditingItem(null)} className="text-stone-600"><X size={24} /></button>
               </div>
 
               <form onSubmit={handleUpdate} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">곡명</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.pieceTitle')}</label>
                   <input 
                     required
                     type="text" 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm"
-                    placeholder="예: 첼로 협주곡 제1번"
                     value={editForm.title}
                     onChange={e => setEditForm({...editForm, title: e.target.value})}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">작곡가</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composer')}</label>
                   <input 
                     required
                     type="text" 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm"
-                    placeholder="예: 하이든"
                     value={editForm.composer}
                     onChange={e => setEditForm({...editForm, composer: e.target.value})}
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">학습 상태</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.status')}</label>
                   <select 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark"
                     value={editForm.status} 
@@ -295,11 +301,10 @@ export default function Repertoire() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">메모 / 연습 방향</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.notes')}</label>
                   <textarea 
                     rows={3}
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm resize-none"
-                    placeholder="기억해야 할 연주 기법이나 주의점을 적어보세요."
                     value={editForm.notes}
                     onChange={e => setEditForm({...editForm, notes: e.target.value})}
                   />
@@ -307,10 +312,10 @@ export default function Repertoire() {
                 
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setEditingItem(null)} className="w-1/3 bg-stone-800 h-12 rounded-2xl text-stone-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all">
-                    취소
+                    {t('common.cancel')}
                   </button>
                   <button type="submit" className="flex-1 bg-brand h-12 rounded-2xl text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all">
-                    저장하기
+                    {t('common.save')}
                   </button>
                 </div>
               </form>

@@ -1,6 +1,8 @@
 import React, { useState, lazy, Suspense } from 'react';
 import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
+import { useLanguage } from './context/LanguageContext';
+import LanguageSelector from './components/LanguageSelector';
 import { signInWithGoogle, logout } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -13,18 +15,22 @@ const AITutor = lazy(() => import('./components/AITutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
 // Reusable Loading Spinner for Suspense
-const LoadingView = () => (
-  <div className="flex flex-col items-center justify-center p-12 space-y-4">
-    <Loader2 className="text-brand animate-spin" size={32} />
-    <span className="text-[10px] text-stone-600 uppercase font-bold tracking-widest">데이터 불러오는 중...</span>
-  </div>
-);
+const LoadingView = () => {
+  const { t } = useLanguage();
+  return (
+    <div className="flex flex-col items-center justify-center p-12 space-y-4">
+      <Loader2 className="text-brand animate-spin" size={32} />
+      <span className="text-[10px] text-stone-600 uppercase font-bold tracking-widest">{t('common.loading')}</span>
+    </div>
+  );
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const { user, loading, error } = useAuth();
+  const { t } = useLanguage();
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true);
@@ -54,15 +60,15 @@ export default function App() {
   const isAdmin = user?.email === 'thpark119@gmail.com';
 
   const navItems = [
-    { id: 'dashboard', label: '대시보드', icon: LayoutGrid },
-    { id: 'mylessons', label: '학습 일지', icon: BookOpen },
-    { id: 'repertoire', label: '악보함', icon: FileMusic },
-    { id: 'studio', label: '학생 관리', icon: Users },
-    { id: 'tutor', label: 'AI 튜터', icon: Sparkles }
+    { id: 'dashboard', label: t('navigation.dashboard'), icon: LayoutGrid },
+    { id: 'mylessons', label: t('navigation.receivedLessons'), icon: BookOpen },
+    { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
+    { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
+    { id: 'tutor', label: t('navigation.tutor'), icon: Sparkles }
   ];
 
   if (isAdmin) {
-    navItems.push({ id: 'admin', label: '관리자', icon: ShieldCheck });
+    navItems.push({ id: 'admin', label: t('app.developer'), icon: ShieldCheck });
   }
 
   if (error) {
@@ -102,7 +108,7 @@ export default function App() {
              <div className="bg-brand h-10 w-10 rounded-2xl text-white shadow-xl shadow-brand/20 flex items-center justify-center">
                <Music size={20} />
              </div>
-             <h1 className="text-2xl font-bold tracking-tight serif italic text-white">MusicianLog</h1>
+             <h1 className="text-2xl font-bold tracking-tight serif italic text-white">{t('app.name')}</h1>
           </div>
           
           {/* Top Integrated Desktop Navbar */}
@@ -134,10 +140,11 @@ export default function App() {
           
           {/* Auth State Panel */}
           <div className="flex items-center gap-3">
+            <LanguageSelector />
             {loading ? (
               <div className="flex items-center gap-2 text-stone-500 font-mono text-[10px] bg-white/[0.01] border border-white/5 px-4 py-2 rounded-xl">
                 <Loader2 size={12} className="animate-spin text-brand" />
-                <span>데이터 동기화...</span>
+                <span>{t('app.syncing')}</span>
               </div>
             ) : user ? (
               <div className="flex items-center gap-3 bg-white/[0.02] border border-white/5 py-1.5 pl-3 pr-2.5 rounded-2xl shadow-xl shadow-black/10">
@@ -151,7 +158,7 @@ export default function App() {
                 <button 
                   onClick={logout}
                   className="p-2 text-stone-500 hover:text-red-400 transition-colors"
-                  title="로그아웃"
+                  title={t('app.logout')}
                 >
                   <LogOut size={16} />
                 </button>
@@ -167,7 +174,7 @@ export default function App() {
                 ) : (
                   <LogIn size={14} />
                 )}
-                {isLoggingIn ? '로그인 중...' : 'Google로 로그인'}
+                {isLoggingIn ? t('app.loggingIn') : t('app.login')}
               </button>
             )}
           </div>
@@ -183,24 +190,15 @@ export default function App() {
             <div className="space-y-2 flex-grow">
               <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
                 <AlertTriangle size={16} />
-                <span>구글 로그인 연결 안내</span>
+                <span>{t('error.loginError')}</span>
               </div>
               <p className="text-xs text-stone-300 leading-relaxed font-sans">{loginError}</p>
-              
-              <div className="bg-stone-950/60 p-3 rounded-xl border border-white/[0.05] space-y-1 text-[11px] text-stone-400 font-mono">
-                <div className="font-semibold text-brand mb-1">💡 Firebase Authorized Domains 등록 목록:</div>
-                <div>• localhost (로컬 환경 테스트)</div>
-                <div>• {window.location.hostname} (현재 접속 도메인)</div>
-                <div>• ais-dev-dm3gbonsza45ccvwj26dpz-190576830168.asia-east1.run.app</div>
-                <div>• ais-pre-dm3gbonsza45ccvwj26dpz-190576830168.asia-east1.run.app</div>
-                <div className="mt-2 text-[10px] text-stone-500 font-sans">※ 브라우저 3rd-party 쿠키 차단 or 시크릿 허용 제한에 의해 차단될 시, AI Studio 빌더 아이프레임이 아닌 '새 탭/새 창'에서 열어주시면 안정적으로 작동합니다.</div>
-              </div>
             </div>
             <button 
               onClick={() => setLoginError(null)}
               className="px-4 py-2 text-xs bg-white/10 hover:bg-white/20 text-stone-300 rounded-xl transition-colors font-medium shrink-0 self-end md:self-start"
             >
-              확인
+              {t('error.confirm')}
             </button>
           </motion.div>
         )}
@@ -214,7 +212,7 @@ export default function App() {
           >
             <Sparkles size={16} className="text-brand shrink-0 animate-pulse" />
             <span className="text-xs leading-relaxed">
-              <strong>게스트 모드:</strong> 로그인하지 않은 상태입니다. 작성하신 기록은 브라우저 쿠키/LocalStorage에 안전하게 저장되나, 브라우저가 변경되거나 캐시가 삭제되면 소실될 수 있습니다. 데이터를 클라우드와 안전하게 동기화하시려면 우측 상단에서 <strong>로그인</strong>을 진행해 주세요.
+              {t('app.guestMode')}
             </span>
           </motion.div>
         )}

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { PlusCircle, ListTodo, Search, MessageSquare, Clock } from 'lucide-react';
 import { subscribeToCollection } from '../lib/firestore';
 import { ReceivedLesson } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
@@ -10,6 +11,7 @@ interface DashboardProps {
 
 export default function Dashboard({ setActiveTab }: DashboardProps) {
   const [recentLessons, setRecentLessons] = useState<ReceivedLesson[]>([]);
+  const { t } = useLanguage();
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<ReceivedLesson>('received_lessons', (data) => {
@@ -19,10 +21,10 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
   }, []);
 
   const quickActions = [
-    { id: 'mylessons', label: '학습 복기', desc: '레슨 내용 정리', color: 'bg-brand', icon: PlusCircle },
-    { id: 'studio', label: '교습 일지', desc: '학생 지도 기록', color: 'bg-stone-800', icon: ListTodo },
-    { id: 'repertoire', label: '악보 찾기', desc: '레파토리 보관함', color: 'bg-stone-800', icon: Search },
-    { id: 'tutor', label: 'AI 상담', desc: '연습 방법 조언', color: 'bg-stone-800', icon: MessageSquare },
+    { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand', icon: PlusCircle },
+    { id: 'studio', label: t('dashboard.quickActionStudio'), desc: t('dashboard.quickActionStudioDesc'), color: 'bg-stone-800', icon: ListTodo },
+    { id: 'repertoire', label: t('dashboard.quickActionRepertoire'), desc: t('dashboard.quickActionRepertoireDesc'), color: 'bg-stone-800', icon: Search },
+    { id: 'tutor', label: t('dashboard.quickActionTutor'), desc: t('dashboard.quickActionTutorDesc'), color: 'bg-stone-800', icon: MessageSquare },
   ];
 
   return (
@@ -33,8 +35,8 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
       id="mobile-hub"
     >
       <div className="space-y-2">
-        <h2 className="text-4xl font-serif italic text-white tracking-tight">오늘의 기록</h2>
-        <p className="text-stone-500 font-medium">무엇을 기록할까요?</p>
+        <h2 className="text-4xl font-serif italic text-white tracking-tight">{t('dashboard.todayRecords')}</h2>
+        <p className="text-stone-500 font-medium">{t('dashboard.whatToRecord')}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
@@ -59,7 +61,7 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
 
       <section className="bg-stone-900/30 rounded-[32px] p-8 border border-white/5 space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-stone-600">최근 학습 내역</h3>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-stone-600">{t('dashboard.recentLessons')}</h3>
           <Clock size={14} className="text-stone-600" />
         </div>
         
@@ -76,12 +78,12 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
             ))
           ) : (
             <div className="p-8 text-center bg-white/[0.01] rounded-2xl border border-dashed border-stone-800">
-              <p className="text-xs text-stone-600 font-bold uppercase tracking-wider">아직 기록된 레슨이 없습니다.</p>
+              <p className="text-xs text-stone-600 font-bold uppercase tracking-wider">{t('dashboard.noRecentLessons')}</p>
               <button 
                 onClick={() => setActiveTab('mylessons')}
                 className="mt-4 text-[10px] text-brand font-bold uppercase tracking-widest hover:underline"
               >
-                첫 레슨 기록하기
+                {t('dashboard.firstLesson')}
               </button>
             </div>
           )}
