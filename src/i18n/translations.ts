@@ -95,7 +95,8 @@ export const translations = {
       firstLesson: '첫 레슨 기록하기'
     },
     tutor: {
-      greeting: '안녕하세요! 당신의 튜터 Sensei입니다. 테크닉이나 악보 해석에 대해 자유롭게 물어보세요.',
+      title: '뮤직 튜터',
+      greeting: '안녕하세요! 당신의 튜터 뮤직 튜터입니다. 테크닉이나 악보 해석에 대해 자유롭게 물어보세요.',
       error: '죄송합니다. 오류가 발생했습니다. 다시 시도해주세요.',
       thinking: '선생님이 생각 중입니다...',
       placeholder: '조언이 필요한 내용을 입력하세요...',
@@ -107,8 +108,8 @@ export const translations = {
       profileSettings: '프로필 설정',
       saveProfile: '저장',
       resetProfile: '초기화',
-      instrument: '악기',
-      major: '전공/분야',
+      major: '전공',
+      specialty: '세부전공',
       level: '수준',
       composer: '작곡가',
       work: '작품명',
@@ -142,8 +143,7 @@ export const translations = {
     aiProfile: {
       categories: {
         strings: '현악',
-        woodwinds: '목관',
-        brass: '금관',
+        winds: '관악',
         voice: '성악',
         keyboard: '건반',
         percussion: '타악',
@@ -167,14 +167,12 @@ export const translations = {
         bassoon: '바순',
         saxophone: '색소폰',
         recorder: '리코더',
-        'other-woodwinds': '기타 목관',
-
         horn: '호른',
         trumpet: '트럼펫',
         trombone: '트롬본',
         tuba: '튜바',
         euphonium: '유포니움',
-        'other-brass': '기타 금관',
+        'other-winds': '기타 관악',
 
         soprano: '소프라노',
         'mezzo-soprano': '메조소프라노',
@@ -345,7 +343,8 @@ export const translations = {
       firstLesson: 'Record your first lesson'
     },
     tutor: {
-      greeting: 'Hello! I am Sensei, your AI tutor. Ask me anything about techniques or sheet music interpretation.',
+      title: 'Music Tutor',
+      greeting: 'Hello! I am Music Tutor, your AI tutor. Ask me anything about techniques or sheet music interpretation.',
       error: 'Sorry. An error occurred. Please try again.',
       thinking: 'Sensei is thinking...',
       placeholder: 'Ask for advice here...',
@@ -357,8 +356,8 @@ export const translations = {
       profileSettings: 'Profile Settings',
       saveProfile: 'Save',
       resetProfile: 'Reset',
-      instrument: 'Instrument',
-      major: 'Major/Field',
+      major: 'Major',
+      specialty: 'Specialization',
       level: 'Level',
       composer: 'Composer',
       work: 'Work/Piece',
@@ -392,8 +391,7 @@ export const translations = {
     aiProfile: {
       categories: {
         strings: 'Strings',
-        woodwinds: 'Woodwinds',
-        brass: 'Brass',
+        winds: 'Winds',
         voice: 'Voice',
         keyboard: 'Keyboard',
         percussion: 'Percussion',
@@ -417,14 +415,12 @@ export const translations = {
         bassoon: 'Bassoon',
         saxophone: 'Saxophone',
         recorder: 'Recorder',
-        'other-woodwinds': 'Other Woodwinds',
-
         horn: 'Horn',
         trumpet: 'Trumpet',
         trombone: 'Trombone',
         tuba: 'Tuba',
         euphonium: 'Euphonium',
-        'other-brass': 'Other Brass',
+        'other-winds': 'Other Winds',
 
         soprano: 'Soprano',
         'mezzo-soprano': 'Mezzo-soprano',
@@ -595,7 +591,8 @@ export const translations = {
       firstLesson: 'Ersten Unterricht aufzeichnen'
     },
     tutor: {
-      greeting: 'Hallo! Ich bin Sensei, dein KI-Tutor. Frag mich alles über Spieltechniken oder die Interpretation von Noten.',
+      title: 'Musik-Tutor',
+      greeting: 'Hallo! Ich bin Musik-Tutor, dein KI-Tutor. Frag mich alles über Spieltechniken oder die Interpretation von Noten.',
       error: 'Entschuldigung. Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
       thinking: 'Sensei denkt nach...',
       placeholder: 'Fragen Sie hier nach Rat...',
@@ -607,8 +604,8 @@ export const translations = {
       profileSettings: 'Profileinstellungen',
       saveProfile: 'Speichern',
       resetProfile: 'Zurücksetzen',
-      instrument: 'Instrument',
-      major: 'Hauptfach/Bereich',
+      major: 'Fachrichtung',
+      specialty: 'Spezialisierung',
       level: 'Niveau',
       composer: 'Komponist',
       work: 'Werk/Stück',
@@ -642,8 +639,7 @@ export const translations = {
     aiProfile: {
       categories: {
         strings: 'Streichinstrumente',
-        woodwinds: 'Holzblasinstrumente',
-        brass: 'Blechblasinstrumente',
+        winds: 'Blasinstrumente',
         voice: 'Gesang',
         keyboard: 'Tasteninstrumente',
         percussion: 'Schlaginstrumente',
@@ -667,14 +663,12 @@ export const translations = {
         bassoon: 'Fagott',
         saxophone: 'Saxophon',
         recorder: 'Blockflöte',
-        'other-woodwinds': 'Sonstige Holzblasinstrumente',
-
         horn: 'Horn',
         trumpet: 'Trompete',
         trombone: 'Posaune',
         tuba: 'Tuba',
         euphonium: 'Euphonium',
-        'other-brass': 'Sonstige Blechblasinstrumente',
+        'other-winds': 'Sonstige Blasinstrumente',
 
         soprano: 'Sopran',
         'mezzo-soprano': 'Mezzosopran',

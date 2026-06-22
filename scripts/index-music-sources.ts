@@ -71,14 +71,13 @@ async function main() {
         { key: 'instruments', stringValue: (source.instruments || []).join(',') },
       ].filter(m => m.stringValue !== '');
 
-      // @ts-ignore
       const response = await ai.fileSearchStores.uploadToFileSearchStore({
         name: storeName,
         fileSearchStoreId: storeName, 
         file: filePath,
         mimeType: filePath.endsWith('.md') ? 'text/markdown' : 'text/plain',
         customMetadata: customMetadata
-      });
+      } as any);
       // uploadToFileSearchStore returns an operation or document ? Wait, I should check the return type. 
       const documentName = typeof response === 'object' && response.name ? response.name : 'uploaded';
       

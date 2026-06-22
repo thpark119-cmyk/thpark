@@ -1,6 +1,6 @@
 export type MusicTutorProfile = {
-  majorCategory?: string;
-  instrument?: string;
+  major?: string;
+  specialty?: string;
 };
 
 type BuildPromptParams = {
@@ -12,11 +12,11 @@ export function buildMusicTutorSystemPrompt({ language, profile }: BuildPromptPa
   let profileSection = '';
   if (profile && Object.keys(profile).length > 0) {
     profileSection = `\n[사용자 전공 프로필]\n`;
-    if (profile.majorCategory) profileSection += `- 대분류: ${profile.majorCategory}\n`;
-    if (profile.instrument) profileSection += `- 세부 전공: ${profile.instrument}\n`;
+    if (profile.major) profileSection += `- 사용자 전공: ${profile.major}\n`;
+    if (profile.specialty) profileSection += `- 사용자 세부전공: ${profile.specialty}\n`;
     
-    if (profile.majorCategory === 'voice' && profile.instrument) {
-      profileSection += `\n[성악 프로필 처리 지침]\n사용자의 세부 전공은 성종이다.\n성종에 맞는 음역, 파사지오, 공명, 딕션, 호흡과 레퍼토리 특성을 고려하되 사용자의 실제 음역과 신체 상태를 임의로 단정하지 마라.\n사용자가 통증, 발성 이상, 지속적인 쉰 목소리를 언급하면 의료적 진단을 하지 말고 전문 교사와 의료 전문가 확인을 권하라.\n절대 '${profile.instrument}'를 악기 이름으로 표현하지 말고 성종으로 인식하라.\n이 프로필은 답변 참고 정보이며 질문 범위를 제한하지 않는다.\n`;
+    if (profile.major === 'voice' && profile.specialty) {
+      profileSection += `\n[성악 프로필 처리 지침]\n사용자의 세부 전공은 성종이다.\n성종에 맞는 음역, 파사지오, 공명, 딕션, 호흡과 레퍼토리 특성을 고려하되 사용자의 실제 음역과 신체 상태를 임의로 단정하지 마라.\n사용자가 통증, 발성 이상, 지속적인 쉰 목소리를 언급하면 의료적 진단을 하지 말고 전문 교사와 의료 전문가 확인을 권하라.\n절대 '${profile.specialty}'를 악기 이름으로 표현하지 말고 성종으로 인식하라.\n이 프로필은 답변 참고 정보이며 질문 범위를 제한하지 않는다.\n`;
     } else {
       profileSection += `(이 프로필을 우선적으로 고려하여 답변할 것)\n`;
     }

@@ -71,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Process profile if present
     const safeProfile: any = {};
     if (profile && typeof profile === 'object') {
-      const allowedKeys = ['majorCategory', 'instrument'];
+      const allowedKeys = ['major', 'specialty'];
       for (const key of allowedKeys) {
         if (typeof profile[key] === 'string') {
           safeProfile[key] = profile[key].substring(0, 200);
@@ -86,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+    const model = process.env.GEMINI_MODEL || 'gemini-pro';
     
     const formattedHistory = [];
     if (Array.isArray(history)) {

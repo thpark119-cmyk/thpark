@@ -15,7 +15,7 @@ async function main() {
     const storeName = process.argv[2]; // optional argument
 
     const store = await ai.fileSearchStores.create(
-      storeName ? { fileSearchStore: { displayName: storeName } } : {}
+      (storeName ? { fileSearchStore: { displayName: storeName } } : {}) as any
     );
     
     console.log('\\nFile Search Store created successfully.\\n');

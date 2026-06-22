@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     return res.status(200).json({
-      model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+      model: process.env.GEMINI_MODEL || 'gemini-pro',
       aiTutorEnabled: process.env.AI_TUTOR_ENABLED !== 'false',
       fileSearchEnabled: !!process.env.GEMINI_FILE_SEARCH_STORE && process.env.FILE_SEARCH_ENABLED !== 'false',
       googleSearchEnabled: process.env.ENABLE_GOOGLE_SEARCH_GROUNDING === 'true',

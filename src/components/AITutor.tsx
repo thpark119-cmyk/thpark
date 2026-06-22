@@ -11,8 +11,7 @@ const WEB_SEARCH_KEY = 'musicianlog_ai_web_search_enabled';
 
 const majorCategories: Array<{ value: MajorCategory, labelKey: string }> = [
   { value: 'strings', labelKey: 'aiProfile.categories.strings' },
-  { value: 'woodwinds', labelKey: 'aiProfile.categories.woodwinds' },
-  { value: 'brass', labelKey: 'aiProfile.categories.brass' },
+  { value: 'winds', labelKey: 'aiProfile.categories.winds' },
   { value: 'voice', labelKey: 'aiProfile.categories.voice' },
   { value: 'keyboard', labelKey: 'aiProfile.categories.keyboard' },
   { value: 'percussion', labelKey: 'aiProfile.categories.percussion' },
@@ -24,8 +23,7 @@ const majorCategories: Array<{ value: MajorCategory, labelKey: string }> = [
 
 const specialtiesMap: Record<string, string[]> = {
   strings: ['violin', 'viola', 'cello', 'double-bass', 'harp', 'classical-guitar', 'other-strings'],
-  woodwinds: ['flute', 'oboe', 'clarinet', 'bassoon', 'saxophone', 'recorder', 'other-woodwinds'],
-  brass: ['horn', 'trumpet', 'trombone', 'tuba', 'euphonium', 'other-brass'],
+  winds: ['flute', 'oboe', 'clarinet', 'bassoon', 'saxophone', 'recorder', 'horn', 'trumpet', 'trombone', 'tuba', 'euphonium', 'other-winds'],
   voice: ['soprano', 'mezzo-soprano', 'contralto', 'countertenor', 'tenor', 'baritone', 'bass-baritone', 'bass', 'voice-type-undecided', 'other-voice'],
   keyboard: ['piano', 'organ', 'harpsichord', 'accordion', 'accompaniment', 'other-keyboard'],
   percussion: ['orchestral-percussion', 'timpani', 'mallet', 'snare-drum', 'drum-set', 'other-percussion'],
@@ -44,43 +42,55 @@ export default function AITutor() {
       const saved = localStorage.getItem(PROFILE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.category !== undefined) {
+        if (parsed.major !== undefined) {
+          if (parsed.major === 'woodwinds' || parsed.major === 'brass') {
+            parsed.major = 'winds';
+          }
+          if (parsed.specialty === 'other-woodwinds' || parsed.specialty === 'other-brass') {
+            parsed.specialty = 'other-winds';
+          }
           return parsed;
+        } else if (parsed.category !== undefined) {
+          let major = parsed.category;
+          if (major === 'woodwinds' || major === 'brass') major = 'winds';
+          let specialty = parsed.specialty || '';
+          if (specialty === 'other-woodwinds' || specialty === 'other-brass') specialty = 'other-winds';
+          return { major: major as MajorCategory, specialty };
         } else {
           // Migration logic
-          const newProfile: MusicTutorProfile = { category: '', specialty: '' };
+          const newProfile: MusicTutorProfile = { major: '', specialty: '' };
           const oldInst = String(parsed.instrument || '').toLowerCase();
           const oldMajor = String(parsed.major || '').toLowerCase();
           
           const checkMap = (val: string) => {
              for (const [cat, specs] of Object.entries(specialtiesMap)) {
-               if (specs.includes(val)) return { category: cat, specialty: val };
+               if (specs.includes(val)) return { major: cat, specialty: val };
              }
              return null;
           };
           
           let res = checkMap(oldInst) || checkMap(oldMajor);
           if (res) {
-            newProfile.category = res.category as MajorCategory;
+            newProfile.major = res.major as MajorCategory;
             newProfile.specialty = res.specialty;
           } else {
             // fallback heuristic mapping
-            if (oldInst.includes('soprano')) { newProfile.category = 'voice'; newProfile.specialty = 'soprano'; }
-            else if (oldInst.includes('tenor')) { newProfile.category = 'voice'; newProfile.specialty = 'tenor'; }
-            else if (oldInst.includes('baritone')) { newProfile.category = 'voice'; newProfile.specialty = 'baritone'; }
-            else if (oldInst.includes('flute')) { newProfile.category = 'woodwinds'; newProfile.specialty = 'flute'; }
-            else if (oldInst.includes('cello')) { newProfile.category = 'strings'; newProfile.specialty = 'cello'; }
-            else if (oldInst.includes('violin')) { newProfile.category = 'strings'; newProfile.specialty = 'violin'; }
-            else if (oldInst.includes('piano')) { newProfile.category = 'keyboard'; newProfile.specialty = 'piano'; }
-            else if (oldInst.includes('trumpet')) { newProfile.category = 'brass'; newProfile.specialty = 'trumpet'; }
+            if (oldInst.includes('soprano')) { newProfile.major = 'voice'; newProfile.specialty = 'soprano'; }
+            else if (oldInst.includes('tenor')) { newProfile.major = 'voice'; newProfile.specialty = 'tenor'; }
+            else if (oldInst.includes('baritone')) { newProfile.major = 'voice'; newProfile.specialty = 'baritone'; }
+            else if (oldInst.includes('flute')) { newProfile.major = 'winds'; newProfile.specialty = 'flute'; }
+            else if (oldInst.includes('cello')) { newProfile.major = 'strings'; newProfile.specialty = 'cello'; }
+            else if (oldInst.includes('violin')) { newProfile.major = 'strings'; newProfile.specialty = 'violin'; }
+            else if (oldInst.includes('piano')) { newProfile.major = 'keyboard'; newProfile.specialty = 'piano'; }
+            else if (oldInst.includes('trumpet')) { newProfile.major = 'winds'; newProfile.specialty = 'trumpet'; }
           }
           
           return newProfile;
         }
       }
-      return { category: '', specialty: '' };
+      return { major: '', specialty: '' };
     } catch {
-      return { category: '', specialty: '' };
+      return { major: '', specialty: '' };
     }
   });
   const [showProfile, setShowProfile] = useState(false);
@@ -140,8 +150,8 @@ export default function AITutor() {
       // Generate a unique requestId for idempotency
       const requestId = crypto.randomUUID();
       const apiProfile = {
-        majorCategory: profile.category,
-        instrument: profile.specialty
+        major: profile.major,
+        specialty: profile.specialty
       };
       const response = await getTutorResponse([...messages, userMessage], language, token, requestId, webSearchEnabled, apiProfile);
       
@@ -219,12 +229,12 @@ export default function AITutor() {
   };
 
   const getProfileLabel = () => {
-    if (!profile.category || !profile.specialty) return null;
-    const catConf = majorCategories.find(c => c.value === profile.category);
+    if (!profile.major || !profile.specialty) return null;
+    const catConf = majorCategories.find(c => c.value === profile.major);
     if (!catConf) return null;
-    const catLabel = (t('aiProfile' as any) as any)?.categories?.[catConf.labelKey.split('.')[2]] || '';
-    const specLabel = (t('aiProfile' as any) as any)?.specialties?.[profile.specialty] || '';
-    return `${catLabel} > ${specLabel}`;
+    const catLabel = t(catConf.labelKey);
+    const specLabel = t(`aiProfile.specialties.${profile.specialty}`);
+    return `${catLabel} · ${specLabel}`;
   };
 
   return (
@@ -239,7 +249,7 @@ export default function AITutor() {
             <Bot size={22} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white tracking-tight">Cello Sensei</h2>
+            <h2 className="text-xl font-bold text-white tracking-tight">{t('tutor.title')}</h2>
             <div className="flex items-center gap-2">
               <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">
                 AI Consultant {getProfileLabel() ? `• ${t('tutor.currentProfile')}: ${getProfileLabel()}` : ''}
@@ -291,18 +301,16 @@ export default function AITutor() {
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{t('tutor.major')}</label>
                   <select
-                    value={profile.category}
+                    value={profile.major}
                     onChange={(e) => {
-                      setProfile({ category: e.target.value as MajorCategory, specialty: '' });
+                      setProfile({ major: e.target.value as MajorCategory, specialty: '' });
                     }}
                     className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
                   >
                     <option value="">{t('tutor.categoryPlaceholder')}</option>
                     {majorCategories.map((c) => {
-                      const keys = c.labelKey.split('.');
-                      const label = (t('aiProfile' as any) as any)?.categories?.[keys[2]] || '';
                       return (
-                        <option key={c.value} value={c.value}>{label}</option>
+                        <option key={c.value} value={c.value}>{t(c.labelKey)}</option>
                       );
                     })}
                   </select>
@@ -310,23 +318,20 @@ export default function AITutor() {
                 
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
-                    {profile.category === 'voice' 
-                      ? (language === 'ko' ? '성종' : language === 'de' ? 'Stimmfach' : 'Voice Type') 
-                      : t('tutor.instrument')}
+                    {t('tutor.specialty')}
                   </label>
                   <select
                     value={profile.specialty}
-                    disabled={!profile.category}
+                    disabled={!profile.major}
                     onChange={(e) => {
                       setProfile({ ...profile, specialty: e.target.value });
                     }}
                     className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">{t('tutor.specialtyPlaceholder')}</option>
-                    {profile.category && specialtiesMap[profile.category]?.map((s) => {
-                      const label = (t('aiProfile' as any) as any)?.specialties?.[s] || s;
+                    {profile.major && specialtiesMap[profile.major]?.map((s) => {
                       return (
-                        <option key={s} value={s}>{label}</option>
+                        <option key={s} value={s}>{t(`aiProfile.specialties.${s}`)}</option>
                       );
                     })}
                   </select>
@@ -365,7 +370,7 @@ export default function AITutor() {
                 </button>
                 <button 
                   onClick={handleSaveProfile}
-                  disabled={!!profile.category && !profile.specialty}
+                  disabled={!!profile.major && !profile.specialty}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand text-white text-xs font-bold uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save size={14} />

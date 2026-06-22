@@ -51,8 +51,7 @@ export interface ChatMessage {
 
 export type MajorCategory =
   | 'strings'
-  | 'woodwinds'
-  | 'brass'
+  | 'winds'
   | 'voice'
   | 'keyboard'
   | 'percussion'
@@ -62,7 +61,7 @@ export type MajorCategory =
   | 'other';
 
 export type MusicTutorProfile = {
-  category: MajorCategory | '';
+  major: MajorCategory | '';
   specialty: string;
 };
 
