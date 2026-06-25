@@ -283,7 +283,7 @@ export const translations = {
       confirm: 'OK'
     },
     lessons: {
-      title: 'Lessons Received',
+      title: 'My Lessons',
       addRecord: 'Add Lesson Record',
       teacher: 'Teacher',
       date: 'Date',
@@ -294,7 +294,7 @@ export const translations = {
       editRecord: 'Edit Lesson Record'
     },
     students: {
-      title: 'My Studio',
+      title: 'Teaching',
       addStudent: 'Register Student',
       name: 'Student Name',
       level: 'Level',
@@ -308,9 +308,9 @@ export const translations = {
       homework: 'Assignment'
     },
     repertoire: {
-      title: 'My Sheet Music',
+      title: 'My Scores',
       addPiece: 'Add Piece',
-      search: 'Search my library...',
+      search: 'Search my scores...',
       findImslp: 'Find Sheet Music on IMSLP',
       findImslpDesc: 'Enter a composer or title to search for sheet music on IMSLP.',
       imslpSearch: 'Search IMSLP',
@@ -322,7 +322,7 @@ export const translations = {
       composerLabel: 'Composer',
       statusLabel: 'Status',
       notesLabel: 'Performance Notes & Links',
-      empty: 'No sheet music saved yet.',
+      empty: 'No scores saved yet.',
       editPiece: 'Edit Piece Info'
     },
     dashboard: {
@@ -330,12 +330,12 @@ export const translations = {
       subtitle: 'Manage your performances and lesson records in one place.',
       todayRecords: 'Today\'s Records',
       whatToRecord: 'What would you like to record?',
-      quickActionMyLessons: 'Review Lesson',
-      quickActionMyLessonsDesc: 'Summarize received lessons',
+      quickActionMyLessons: 'My Lessons',
+      quickActionMyLessonsDesc: 'Review your lesson notes',
       quickActionStudio: 'Teaching Log',
-      quickActionStudioDesc: 'Record student progress',
-      quickActionRepertoire: 'Sheet Music',
-      quickActionRepertoireDesc: 'Your repertoire library',
+      quickActionStudioDesc: 'Student progress',
+      quickActionRepertoire: 'My Scores',
+      quickActionRepertoireDesc: 'Your repertoire',
       quickActionTutor: 'AI Tutor',
       quickActionTutorDesc: 'Practice advice',
       recentLessons: 'Recent Lessons',
@@ -345,9 +345,9 @@ export const translations = {
     tutor: {
       title: 'Music Tutor',
       greeting: 'Hello! I am Music Tutor, your AI tutor. Ask me anything about techniques or sheet music interpretation.',
-      error: 'Sorry. An error occurred. Please try again.',
-      thinking: 'Sensei is thinking...',
-      placeholder: 'Ask for advice here...',
+      error: 'Something went wrong. Please try again.',
+      thinking: 'Tutor is thinking...',
+      placeholder: 'Type something to ask...',
       loginRequired: 'Google login is required to use the AI Tutor.',
       newConversation: 'New Conversation',
       copyAnswer: 'Copy Answer',
@@ -356,8 +356,8 @@ export const translations = {
       profileSettings: 'Profile Settings',
       saveProfile: 'Save',
       resetProfile: 'Reset',
-      major: 'Major',
-      specialty: 'Specialization',
+      major: 'My Major',
+      specialty: 'Specialty',
       level: 'Level',
       composer: 'Composer',
       work: 'Work/Piece',
@@ -369,8 +369,8 @@ export const translations = {
       quickQ3: 'What is the difference between Baroque and Romantic articulation?',
       quickQ4: 'How should I explain this technique to a student?',
       references: 'References',
-      groundedBadge: 'Grounded in professional sources',
-      generalBadge: 'General AI response',
+      groundedBadge: 'Grounded in specific sources',
+      generalBadge: 'General response',
       viewSource: 'View source',
       page: 'Page',
       noSourcePlaceholder: 'No relevant source was found for this question in the knowledge base.',
@@ -384,9 +384,9 @@ export const translations = {
       webSearchUsed: 'Web search used',
       webSearchNotUsed: 'Answered without web search',
       webSearchFailed: 'Current web information could not be verified.',
-      categoryPlaceholder: 'Select category',
-      specialtyPlaceholder: 'Select specialty',
-      currentProfile: 'Current major'
+      categoryPlaceholder: 'Pick your major',
+      specialtyPlaceholder: 'Pick your specialty',
+      currentProfile: 'My major'
     },
     aiProfile: {
       categories: {
@@ -531,7 +531,7 @@ export const translations = {
       confirm: 'OK'
     },
     lessons: {
-      title: 'Erhaltener Unterricht',
+      title: 'Mein Unterricht',
       addRecord: 'Unterricht hinzufügen',
       teacher: 'Lehrer',
       date: 'Datum',
@@ -542,7 +542,7 @@ export const translations = {
       editRecord: 'Unterricht bearbeiten'
     },
     students: {
-      title: 'Mein Studio',
+      title: 'Unterricht',
       addStudent: 'Schüler registrieren',
       name: 'Name des Schülers',
       level: 'Niveau',
@@ -556,9 +556,9 @@ export const translations = {
       homework: 'Aufgabe'
     },
     repertoire: {
-      title: 'Meine Notenbibliothek',
+      title: 'Meine Noten',
       addPiece: 'Stück hinzufügen',
-      search: 'Bibliothek durchsuchen...',
+      search: 'Noten durchsuchen...',
       findImslp: 'Noten auf IMSLP finden',
       findImslpDesc: 'Geben Sie einen Komponisten oder Titel ein, um auf IMSLP zu suchen.',
       imslpSearch: 'IMSLP durchsuchen',
@@ -578,12 +578,12 @@ export const translations = {
       subtitle: 'Verwalten Sie Ihre Auftritte und Unterrichtsstunden an einem Ort.',
       todayRecords: 'Heutige Aufzeichnungen',
       whatToRecord: 'Was möchten Sie aufzeichnen?',
-      quickActionMyLessons: 'Unterricht überprüfen',
+      quickActionMyLessons: 'Mein Unterricht',
       quickActionMyLessonsDesc: 'Lektionen zusammenfassen',
       quickActionStudio: 'Unterrichtsprotokoll',
       quickActionStudioDesc: 'Schülerfortschritt',
-      quickActionRepertoire: 'Noten',
-      quickActionRepertoireDesc: 'Ihre Repertoire-Bibliothek',
+      quickActionRepertoire: 'Meine Noten',
+      quickActionRepertoireDesc: 'Deine Noten',
       quickActionTutor: 'KI-Tutor',
       quickActionTutorDesc: 'Übungstipps',
       recentLessons: 'Letzte Unterrichtsstunden',
@@ -593,9 +593,9 @@ export const translations = {
     tutor: {
       title: 'Musik-Tutor',
       greeting: 'Hallo! Ich bin Musik-Tutor, dein KI-Tutor. Frag mich alles über Spieltechniken oder die Interpretation von Noten.',
-      error: 'Entschuldigung. Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
-      thinking: 'Sensei denkt nach...',
-      placeholder: 'Fragen Sie hier nach Rat...',
+      error: 'Da ist etwas schiefgelaufen. Versuch\'s nochmal.',
+      thinking: 'Tutor denkt nach...',
+      placeholder: 'Frage etwas...',
       loginRequired: 'Für die Nutzung des KI-Tutors ist eine Google-Anmeldung erforderlich.',
       newConversation: 'Neuer Chat',
       copyAnswer: 'Antwort kopieren',
@@ -604,8 +604,8 @@ export const translations = {
       profileSettings: 'Profileinstellungen',
       saveProfile: 'Speichern',
       resetProfile: 'Zurücksetzen',
-      major: 'Fachrichtung',
-      specialty: 'Spezialisierung',
+      major: 'Mein Fach',
+      specialty: 'Schwerpunkt',
       level: 'Niveau',
       composer: 'Komponist',
       work: 'Werk/Stück',
@@ -617,8 +617,8 @@ export const translations = {
       quickQ3: 'Was ist der Unterschied zwischen barocker und romantischer Artikulation?',
       quickQ4: 'Wie erkläre ich diese Technik einem Schüler?',
       references: 'Quellen',
-      groundedBadge: 'Auf Fachquellen gestützte Antwort',
-      generalBadge: 'Allgemeine KI-Antwort',
+      groundedBadge: 'Mit Fachquellen',
+      generalBadge: 'Allgemeine Antwort',
       viewSource: 'Quelle öffnen',
       page: 'Seite',
       noSourcePlaceholder: 'Keine passende Quelle gefunden.',
@@ -632,8 +632,8 @@ export const translations = {
       webSearchUsed: 'Websuche verwendet',
       webSearchNotUsed: 'Antwort ohne Websuche',
       webSearchFailed: 'Aktuelle Webinformationen konnten nicht überprüft werden.',
-      categoryPlaceholder: 'Fachbereich wählen',
-      specialtyPlaceholder: 'Spezialisierung wählen',
+      categoryPlaceholder: 'Fach wählen',
+      specialtyPlaceholder: 'Schwerpunkt wählen',
       currentProfile: 'Aktuelles Hauptfach'
     },
     aiProfile: {
