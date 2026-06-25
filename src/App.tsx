@@ -49,7 +49,7 @@ export default function App() {
       } else if (err?.code === 'auth/popup-blocked') {
         errorMsg = '브라우저 팝업 차단 기능에 의해 로그인 창이 열리지 않았습니다. 브라우저 주소창 우측에서 팝업을 허용해 주시고 다시 시도해 주세요.';
       } else {
-        errorMsg = `로그인 오류: ${err?.message || err?.code || '알 수 없는 네트워크/프로젝트 에러입니다.'}`;
+        errorMsg = 'Google 로그인에 실패했습니다. 다시 시도해주세요.';
       }
       setLoginError(errorMsg);
     } finally {

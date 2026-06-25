@@ -1,84 +1,58 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  type Auth,
+} from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
-// Use environment variables if available (Vite standard), fallback to config file
-const finalConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId
+const firebaseConfig = {
+  apiKey: "AIzaSyD3xeVDFdoTZ-lh3erXR70CeHoTr7Aq0yk",
+  authDomain: "musicianlog.firebaseapp.com",
+  databaseURL: "https://musicianlog-default-rtdb.firebaseio.com",
+  projectId: "musicianlog",
+  storageBucket: "musicianlog.firebasestorage.app",
+  messagingSenderId: "325291971438",
+  appId: "1:325291971438:web:ff8b5fe3dd8681ec7aa77f"
 };
 
-console.log("Firebase initializing with Project ID:", finalConfig.projectId);
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
 
-let app: any = null;
-export let db: any = null;
-export let auth: any = null;
-export let isFirebaseReady = false;
-
-const hasRequiredConfig = Boolean(finalConfig.apiKey && finalConfig.projectId);
-
-if (hasRequiredConfig) {
-  try {
-    app = initializeApp(finalConfig);
-    db = getFirestore(app, firebaseConfig.firestoreDatabaseId); 
-    auth = getAuth(app);
-    isFirebaseReady = true;
-
-    // Use local persistence and wait for it
-    setPersistence(auth, browserLocalPersistence)
-      .then(() => console.log("Auth persistence set to local"))
-      .catch(err => {
-        console.error("Persistence error:", err);
-      });
-  } catch (err) {
-    console.warn("Firebase initialization failed (please check credentials):", err);
-  }
-} else {
-  console.warn("Firebase credentials are not set. MusicianLog will run in standard local-only fallback mode (localStorage).");
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (error) {
+  console.warn('Firebase 초기화 실패. localStorage 모드로 작동합니다.', error);
 }
 
-export const googleProvider = new GoogleAuthProvider();
+const googleProvider = new GoogleAuthProvider();
+
+export const isFirebaseReady = Boolean(app && auth && db);
+
+export { auth, db };
 
 export const signInWithGoogle = async () => {
-  if (!isFirebaseReady || !auth) {
-    throw new Error("Firebase가 준비되지 않았습니다. 현재 로컬 저장 모드로 동작 중입니다.");
+  if (!auth) {
+    throw new Error('Firebase Auth가 준비되지 않았습니다. 현재 로컬 저장 모드로 동작 중입니다.');
   }
-  try {
-    // Force prompt to ensure user can switch accounts easily
-    googleProvider.setCustomParameters({ prompt: 'select_account' });
-    await setPersistence(auth, browserLocalPersistence);
-    return await signInWithPopup(auth, googleProvider);
-  } catch (error) {
-    console.error("Auth Popup Error:", error);
-    throw error;
-  }
-};
 
-export const handleRedirectResult = async () => {
-  // Using popup, so redirect result is not used but kept for context compatibility
-  return null;
+  googleProvider.setCustomParameters({ prompt: 'select_account' });
+  await setPersistence(auth, browserLocalPersistence);
+  return signInWithPopup(auth, googleProvider);
 };
 
 export const logout = async () => {
-  if (isFirebaseReady && auth) {
-    return signOut(auth);
+  if (!auth) {
+    throw new Error('Firebase Auth가 준비되지 않았습니다.');
   }
-};
 
-// Test connection as required by integration instructions
-export async function testConnection() {
-  if (!isFirebaseReady || !db) return;
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
-  }
-}
+  return signOut(auth);
+};
 
