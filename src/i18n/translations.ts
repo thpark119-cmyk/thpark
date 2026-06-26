@@ -16,6 +16,7 @@ export const translations = {
       receivedLessons: '레슨 일지',
       teachingStudio: '학생 관리',
       repertoire: '악보함',
+      metronome: '메트로놈',
       tutor: 'AI 튜터'
     },
     common: {
@@ -260,6 +261,21 @@ export const translations = {
       advanced: '고급',
       professional: '전문',
       other: '기타'
+    },
+    metronome: {
+      title: '메트로놈',
+      start: '시작',
+      stop: '정지',
+      bpm: 'BPM',
+      timeSignature: '박자',
+      tapTempo: '탭 템포',
+      volume: '볼륨',
+      mute: '음소거',
+      accentFirstBeat: '첫 박 강조',
+      accent: '강박',
+      normal: '보통',
+      silent: '무음',
+      beatSettings: '박자 설정'
     }
   },
   en: {
@@ -277,6 +293,7 @@ export const translations = {
       receivedLessons: 'Lessons Received',
       teachingStudio: 'Teaching Studio',
       repertoire: 'Sheet Music',
+      metronome: 'Metronome',
       tutor: 'AI Tutor'
     },
     common: {
@@ -521,6 +538,21 @@ export const translations = {
       advanced: 'Advanced',
       professional: 'Professional',
       other: 'Other'
+    },
+    metronome: {
+      title: 'Metronome',
+      start: 'Start',
+      stop: 'Stop',
+      bpm: 'BPM',
+      timeSignature: 'Time Signature',
+      tapTempo: 'Tap Tempo',
+      volume: 'Volume',
+      mute: 'Mute',
+      accentFirstBeat: 'Accent first beat',
+      accent: 'Accent',
+      normal: 'Normal',
+      silent: 'Silent',
+      beatSettings: 'Beat settings'
     }
   },
   de: {
@@ -538,6 +570,7 @@ export const translations = {
       receivedLessons: 'Erhaltener Unterricht',
       teachingStudio: 'Unterrichtsraum',
       repertoire: 'Notenbibliothek',
+      metronome: 'Metronom',
       tutor: 'KI-Tutor'
     },
     common: {
@@ -782,6 +815,21 @@ export const translations = {
       advanced: 'Fortgeschritten',
       professional: 'Profi',
       other: 'Sonstiges'
+    },
+    metronome: {
+      title: 'Metronom',
+      start: 'Start',
+      stop: 'Stopp',
+      bpm: 'BPM',
+      timeSignature: 'Taktart',
+      tapTempo: 'Tempo tippen',
+      volume: 'Lautstärke',
+      mute: 'Stumm',
+      accentFirstBeat: 'Ersten Schlag betonen',
+      accent: 'Betont',
+      normal: 'Normal',
+      silent: 'Stumm',
+      beatSettings: 'Schlag-Einstellungen'
     }
   }
 } as const;

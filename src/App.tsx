@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import LanguageSelector from './components/LanguageSelector';
@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const MyLessons = lazy(() => import('./components/MyLessons'));
 const TeachingStudio = lazy(() => import('./components/TeachingStudio'));
 const Repertoire = lazy(() => import('./components/Repertoire'));
+const Metronome = lazy(() => import('./components/Metronome'));
 const AITutor = lazy(() => import('./components/AITutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
@@ -65,6 +66,7 @@ export default function App() {
     { id: 'mylessons', label: t('navigation.receivedLessons'), icon: BookOpen },
     { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
     { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
+    { id: 'metronome', label: t('navigation.metronome'), icon: Clock },
     { id: 'tutor', label: t('navigation.tutor'), icon: Sparkles }
   ];
 
@@ -234,6 +236,7 @@ export default function App() {
                 {activeTab === 'mylessons' && <MyLessons targetLessonId={targetLessonId} setTargetLessonId={setTargetLessonId} />}
                 {activeTab === 'repertoire' && <Repertoire />}
                 {activeTab === 'studio' && <TeachingStudio />}
+                {activeTab === 'metronome' && <Metronome />}
                 {activeTab === 'tutor' && <AITutor />}
                 {activeTab === 'admin' && isAdmin && <AdminPanel />}
               </motion.div>
