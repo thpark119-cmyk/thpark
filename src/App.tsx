@@ -229,7 +229,7 @@ export default function App() {
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
               >
-                {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
+                {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} user={user} />}
                 {activeTab === 'mylessons' && <MyLessons />}
                 {activeTab === 'repertoire' && <Repertoire />}
                 {activeTab === 'studio' && <TeachingStudio />}

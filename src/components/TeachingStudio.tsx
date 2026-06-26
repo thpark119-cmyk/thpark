@@ -137,7 +137,7 @@ export default function TeachingStudio() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.level')}</label>
-                  <select className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark" value={newStudent.level} onChange={e => setNewStudent({...newStudent, level: e.target.value})}>
+                  <select className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" style={{ colorScheme: 'dark' }} value={newStudent.level} onChange={e => setNewStudent({...newStudent, level: e.target.value})}>
                     <option value="Beginner">{t('levels.beginner')}</option>
                     <option value="Intermediate">{t('levels.intermediate')}</option>
                     <option value="Advanced">{t('levels.advanced')}</option>
@@ -191,7 +191,8 @@ export default function TeachingStudio() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.level')}</label>
                   <select 
-                    className="w-full bg-stone-855 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark" 
+                    className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" 
+                    style={{ colorScheme: 'dark' }}
                     value={editForm.level} 
                     onChange={e => setEditForm({...editForm, level: e.target.value})}
                   >

@@ -7,9 +7,10 @@ import { useLanguage } from '../context/LanguageContext';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
+  user?: any;
 }
 
-export default function Dashboard({ setActiveTab }: DashboardProps) {
+export default function Dashboard({ setActiveTab, user }: DashboardProps) {
   const [recentLessons, setRecentLessons] = useState<ReceivedLesson[]>([]);
   const { t } = useLanguage();
 
@@ -25,9 +26,9 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
         return 0;
       });
       setRecentLessons(sorted.slice(0, 1));
-    });
+    }, user);
     return unsubscribe;
-  }, []);
+  }, [user]);
 
   const quickActions = [
     { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand/10 text-brand border-brand/20', icon: PlusCircle },
