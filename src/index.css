@@ -16,6 +16,32 @@ body {
   @apply bg-bg-deep text-stone-200 font-sans antialiased selection:bg-brand/30;
 }
 
+/* Date Input Fixes for PC Browser */
+input[type="date"] {
+  color: #e5e7eb;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
+/* Select Option Styling Fixes */
+select option {
+  color: #e5e7eb;
+  background-color: #1c1917; /* stone-900 */
+}
+
+select:focus option:checked {
+  background-color: #B45309; /* brand */
+  color: white;
+}
+
+.color-scheme-dark {
+  color-scheme: dark;
+}
+
 .serif {
   @apply font-serif italic;
 }

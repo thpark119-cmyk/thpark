@@ -16,16 +16,7 @@ export default function Dashboard({ setActiveTab, user }: DashboardProps) {
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<ReceivedLesson>('received_lessons', (data) => {
-      const sorted = [...data].sort((a, b) => {
-        if (a.createdAt && b.createdAt) {
-          return b.createdAt - a.createdAt;
-        }
-        if (a.date && b.date) {
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
-        }
-        return 0;
-      });
-      setRecentLessons(sorted.slice(0, 1));
+      setRecentLessons(data.slice(0, 1));
     }, user);
     return unsubscribe;
   }, [user]);

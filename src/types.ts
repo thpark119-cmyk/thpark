@@ -15,6 +15,7 @@ export interface Student {
   name: string;
   level: string;
   currentPiece: string;
+  lessonDate?: string;
   createdAt?: number;
 }
 

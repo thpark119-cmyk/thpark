@@ -8,13 +8,13 @@ import { useLanguage } from '../context/LanguageContext';
 
 export default function TeachingStudio() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [students, setStudents] = useState<Student[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [newStudent, setNewStudent] = useState({ name: '', level: 'Beginner', currentPiece: '' });
+  const [newStudent, setNewStudent] = useState({ name: '', level: 'Beginner', currentPiece: '', lessonDate: new Date().toISOString().split('T')[0] });
 
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', level: 'Beginner', currentPiece: '' });
+  const [editForm, setEditForm] = useState({ name: '', level: 'Beginner', currentPiece: '', lessonDate: '' });
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<Student>('students', (data) => {
@@ -29,7 +29,7 @@ export default function TeachingStudio() {
     
     await addRecord('students', newStudent, user);
     setIsAdding(false);
-    setNewStudent({ name: '', level: 'Beginner', currentPiece: '' });
+    setNewStudent({ name: '', level: 'Beginner', currentPiece: '', lessonDate: new Date().toISOString().split('T')[0] });
   };
 
   const handleEditClick = (student: Student) => {
@@ -37,7 +37,8 @@ export default function TeachingStudio() {
     setEditForm({
       name: student.name,
       level: student.level || 'Beginner',
-      currentPiece: student.currentPiece || ''
+      currentPiece: student.currentPiece || '',
+      lessonDate: student.lessonDate || ''
     });
   };
 
@@ -66,6 +67,17 @@ export default function TeachingStudio() {
     return levelInput;
   };
 
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      const locales: Record<string, string> = { ko: 'ko-KR', en: 'en-US', de: 'de-DE' };
+      return new Intl.DateTimeFormat(locales[language] || 'ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    } catch (e) {
+      return dateStr.replace(/-/g, '.');
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative">
       <div className="flex justify-between items-center px-1">
@@ -87,6 +99,9 @@ export default function TeachingStudio() {
             <div className="space-y-1">
               <p className="text-lg font-bold text-white leading-tight">{student.name}</p>
               <p className="text-[10px] text-stone-600 uppercase tracking-widest font-bold mt-1">{mapLevel(student.level || '')}</p>
+              {student.lessonDate && (
+                <p className="text-[10px] font-mono text-stone-500 font-bold bg-white/5 px-2 py-0.5 rounded-full inline-block mt-1">{formatDate(student.lessonDate)}</p>
+              )}
               {student.currentPiece && (
                 <p className="text-xs text-stone-500 italic mt-1 font-serif truncate max-w-[150px]">
                   {student.currentPiece}
@@ -131,13 +146,19 @@ export default function TeachingStudio() {
               </div>
 
               <form onSubmit={handleAdd} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.name')}</label>
-                  <input required className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.name')}</label>
+                    <input required className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('lessons.date')}</label>
+                    <input type="date" className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm color-scheme-dark" value={newStudent.lessonDate} onChange={e => setNewStudent({...newStudent, lessonDate: e.target.value})} />
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.level')}</label>
-                  <select className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" style={{ colorScheme: 'dark' }} value={newStudent.level} onChange={e => setNewStudent({...newStudent, level: e.target.value})}>
+                  <select className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" style={{ colorScheme: 'dark' }} value={newStudent.level} onChange={e => setNewStudent({...newStudent, level: e.target.value})}>
                     <option value="Beginner">{t('levels.beginner')}</option>
                     <option value="Intermediate">{t('levels.intermediate')}</option>
                     <option value="Advanced">{t('levels.advanced')}</option>
@@ -179,19 +200,30 @@ export default function TeachingStudio() {
               </div>
 
               <form onSubmit={handleUpdate} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.name')}</label>
-                  <input 
-                    required 
-                    className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm" 
-                    value={editForm.name} 
-                    onChange={e => setEditForm({...editForm, name: e.target.value})} 
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.name')}</label>
+                    <input 
+                      required 
+                      className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm" 
+                      value={editForm.name} 
+                      onChange={e => setEditForm({...editForm, name: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('lessons.date')}</label>
+                    <input 
+                      type="date"
+                      className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm color-scheme-dark" 
+                      value={editForm.lessonDate} 
+                      onChange={e => setEditForm({...editForm, lessonDate: e.target.value})} 
+                    />
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.level')}</label>
                   <select 
-                    className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" 
+                    className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm [&>option]:bg-stone-900 [&>option]:text-white" 
                     style={{ colorScheme: 'dark' }}
                     value={editForm.level} 
                     onChange={e => setEditForm({...editForm, level: e.target.value})}
