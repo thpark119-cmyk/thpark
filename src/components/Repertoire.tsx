@@ -49,7 +49,7 @@ export default function Repertoire() {
   const uploadFile = async (file: File) => {
     if (!user || !storage) return null;
     const fileId = Date.now().toString() + '_' + file.name.replace(/[^a-zA-Z0-9.-]/g, '');
-    const storagePath = `users/${user.uid}/scores/${fileId}`;
+    const storagePath = `users/${user.uid}/repertoire/${fileId}`;
     const storageRef = ref(storage, storagePath);
     await uploadBytes(storageRef, file);
     const fileUrl = await getDownloadURL(storageRef);
@@ -98,7 +98,7 @@ export default function Repertoire() {
       });
     } catch (err) {
       console.error(err);
-      alert(t('tutor.error'));
+      alert(t('repertoire.uploadFailedDesc') || 'Upload failed.');
     } finally {
       setIsUploading(false);
     }
@@ -151,7 +151,7 @@ export default function Repertoire() {
       setEditingItem(null);
     } catch (err) {
       console.error(err);
-      alert(t('tutor.error'));
+      alert(t('repertoire.uploadFailedDesc') || 'Upload failed.');
     } finally {
       setIsUploading(false);
     }
@@ -370,7 +370,7 @@ export default function Repertoire() {
 
               <form onSubmit={handleAdd} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.pieceTitle')}</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.titleLabel')}</label>
                   <input 
                     required
                     type="text" 
@@ -381,7 +381,7 @@ export default function Repertoire() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composer')}</label>
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composerLabel')}</label>
                     <input 
                       required
                       type="text" 
@@ -456,7 +456,7 @@ export default function Repertoire() {
 
               <form onSubmit={handleUpdate} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.pieceTitle')}</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.titleLabel')}</label>
                   <input 
                     required
                     type="text" 
@@ -467,7 +467,7 @@ export default function Repertoire() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composer')}</label>
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composerLabel')}</label>
                     <input 
                       required
                       type="text" 
@@ -518,7 +518,7 @@ export default function Repertoire() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.status')}</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.statusLabel')}</label>
                   <select 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark"
                     value={editForm.status} 
@@ -531,7 +531,7 @@ export default function Repertoire() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.notes')}</label>
+                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.notesLabel')}</label>
                   <textarea 
                     rows={3}
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm resize-none"

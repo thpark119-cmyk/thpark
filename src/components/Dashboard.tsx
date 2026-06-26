@@ -7,10 +7,11 @@ import { useLanguage } from '../context/LanguageContext';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
+  setTargetLessonId: (id: string) => void;
   user?: any;
 }
 
-export default function Dashboard({ setActiveTab, user }: DashboardProps) {
+export default function Dashboard({ setActiveTab, setTargetLessonId, user }: DashboardProps) {
   const [recentLessons, setRecentLessons] = useState<ReceivedLesson[]>([]);
   const { t } = useLanguage();
 
@@ -96,7 +97,10 @@ export default function Dashboard({ setActiveTab, user }: DashboardProps) {
               <div 
                 key={lesson.id} 
                 className="bg-white/[0.02] p-5 rounded-[16px] border border-white/5 flex flex-col gap-3 relative group cursor-pointer hover:border-brand/30 transition-colors"
-                onClick={() => setActiveTab('mylessons')}
+                onClick={() => {
+                  setTargetLessonId(lesson.id);
+                  setActiveTab('mylessons');
+                }}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1 mr-4 overflow-hidden">

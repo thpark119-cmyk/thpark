@@ -27,6 +27,7 @@ const LoadingView = () => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [targetLessonId, setTargetLessonId] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const { user, loading, error } = useAuth();
@@ -229,8 +230,8 @@ export default function App() {
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
               >
-                {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} user={user} />}
-                {activeTab === 'mylessons' && <MyLessons />}
+                {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />}
+                {activeTab === 'mylessons' && <MyLessons targetLessonId={targetLessonId} setTargetLessonId={setTargetLessonId} />}
                 {activeTab === 'repertoire' && <Repertoire />}
                 {activeTab === 'studio' && <TeachingStudio />}
                 {activeTab === 'tutor' && <AITutor />}

@@ -6,10 +6,16 @@ import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '..
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
-export default function MyLessons() {
+interface MyLessonsProps {
+  targetLessonId?: string | null;
+  setTargetLessonId?: (id: string | null) => void;
+}
+
+export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLessonsProps = {}) {
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [logs, setLogs] = useState<ReceivedLesson[]>([]);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [newLog, setNewLog] = useState({ 
     teacher: '', 
@@ -85,6 +91,22 @@ export default function MyLessons() {
     }
   };
 
+  useEffect(() => {
+    if (targetLessonId && logs.length > 0) {
+      const element = document.getElementById(`lesson-${targetLessonId}`);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightedId(targetLessonId);
+          setTimeout(() => {
+            setHighlightedId(null);
+            if (setTargetLessonId) setTargetLessonId(null);
+          }, 2000);
+        }, 100);
+      }
+    }
+  }, [targetLessonId, logs, setTargetLessonId]);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative">
       <div className="flex justify-between items-center px-1">
@@ -99,7 +121,13 @@ export default function MyLessons() {
 
       <div className="space-y-4">
         {logs.map((log) => (
-          <div key={log.id} className="bg-bg-card border border-white/5 p-6 rounded-[32px] space-y-5 transition-colors">
+          <div 
+            key={log.id} 
+            id={`lesson-${log.id}`}
+            className={`bg-bg-card border p-6 rounded-[32px] space-y-5 transition-all duration-500 ${
+              highlightedId === log.id ? 'border-brand shadow-[0_0_15px_rgba(var(--brand),0.3)] bg-brand/5' : 'border-white/5'
+            }`}
+          >
             <div className="flex justify-between items-start">
               <div className="space-y-1">
                 <p className="text-[10px] text-stone-600 font-bold uppercase tracking-[0.2em]">{log.teacher}</p>
