@@ -27,6 +27,7 @@ export const translations = {
       close: '닫기',
       search: '검색',
       loading: '데이터 불러오는 중...',
+      uploading: '업로드 중...',
       confirmDelete: '정말 삭제하시겠습니까?'
     },
     error: {
@@ -75,6 +76,14 @@ export const translations = {
       statusLabel: '상태',
       notesLabel: '연주 메모 및 악보 링크',
       empty: '보관된 악보가 없습니다.',
+      dateLabel: '날짜',
+      addFile: '악보 파일 추가',
+      chooseFile: '파일 선택',
+      openScore: '악보 열기',
+      uploadedScore: '업로드된 악보',
+      fileTooLarge: '파일 용량이 너무 큽니다. 10MB 이하의 악보 파일만 업로드해주세요.',
+      loginRequiredForFile: '악보 파일 저장은 로그인 후 사용할 수 있습니다.',
+      invalidFileType: 'PDF 또는 이미지 파일만 업로드할 수 있습니다.',
       editPiece: '악보 정보 수정'
     },
     dashboard: {
@@ -277,6 +286,7 @@ export const translations = {
       close: 'Close',
       search: 'Search',
       loading: 'Loading data...',
+      uploading: 'Uploading...',
       confirmDelete: 'Are you sure you want to delete this?'
     },
     error: {
@@ -325,6 +335,14 @@ export const translations = {
       statusLabel: 'Status',
       notesLabel: 'Performance Notes & Links',
       empty: 'No scores saved yet.',
+      dateLabel: 'Date',
+      addFile: 'Add score file',
+      chooseFile: 'Choose file',
+      openScore: 'Open score',
+      uploadedScore: 'Uploaded score',
+      fileTooLarge: 'This file is too large. Please upload a score file under 10MB.',
+      loginRequiredForFile: 'Score file upload is available after login.',
+      invalidFileType: 'Only PDF or image files can be uploaded.',
       editPiece: 'Edit Piece Info'
     },
     dashboard: {
@@ -527,6 +545,7 @@ export const translations = {
       close: 'Schließen',
       search: 'Suchen',
       loading: 'Wird geladen...',
+      uploading: 'Hochladen...',
       confirmDelete: 'Möchten Sie diesen Eintrag wirklich löschen?'
     },
     error: {
@@ -575,6 +594,14 @@ export const translations = {
       statusLabel: 'Status',
       notesLabel: 'Notizen & Links',
       empty: 'Noch keine Noten gespeichert.',
+      dateLabel: 'Datum',
+      addFile: 'Notendatei hinzufügen',
+      chooseFile: 'Datei wählen',
+      openScore: 'Noten öffnen',
+      uploadedScore: 'Hochgeladene Noten',
+      fileTooLarge: 'Diese Datei ist zu groß. Bitte lade eine Notendatei unter 10MB hoch.',
+      loginRequiredForFile: 'Das Hochladen von Notendateien ist nach dem Login verfügbar.',
+      invalidFileType: 'Es können nur PDF- oder Bilddateien hochgeladen werden.',
       editPiece: 'Stück bearbeiten'
     },
     dashboard: {

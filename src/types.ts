@@ -39,6 +39,13 @@ export interface RepertoireItem {
   sheetMusicUrl?: string;
   notes: string;
   createdAt?: number;
+  date?: string;
+  fileName?: string;
+  fileSize?: number;
+  fileType?: string;
+  fileUrl?: string;
+  storagePath?: string;
+  uploadedAt?: number;
 }
 
 export interface ChatMessage {

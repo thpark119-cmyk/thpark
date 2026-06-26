@@ -84,6 +84,13 @@ service cloud.firestore {
         && data.status in ['Learning', 'Polishing', 'Completed']
         && (data.get('notes', '') == '' || (data.notes is string && data.notes.size() <= 1000))
         && (data.get('sheetMusicUrl', '') == '' || (data.sheetMusicUrl is string && data.sheetMusicUrl.size() <= 1000))
+        && (data.get('date', '') == '' || (data.date is string && data.date.size() <= 20))
+        && (data.get('fileName', '') == '' || data.fileName is string)
+        && (data.get('fileSize', 0) == 0 || data.fileSize is number)
+        && (data.get('fileType', '') == '' || data.fileType is string)
+        && (data.get('fileUrl', '') == '' || data.fileUrl is string)
+        && (data.get('storagePath', '') == '' || data.storagePath is string)
+        && (data.get('uploadedAt', 0) == 0 || data.uploadedAt is number)
         && data.keys().hasAll(['userId', 'composer', 'title', 'status']);
     }
 
@@ -140,7 +147,7 @@ service cloud.firestore {
         allow update: if isOwner(userId) 
           && isValidRepertoire(incoming())
           && incoming().userId == existing().userId
-          && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl', 'date', 'fileName', 'fileSize', 'fileType', 'fileUrl', 'storagePath', 'uploadedAt']);
         allow delete: if isOwner(userId);
       }
     }
@@ -175,7 +182,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid 
         && isValidRepertoire(incoming())
         && incoming().userId == existing().userId
-        && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl']));
+        && incoming().diff(existing()).affectedKeys().hasOnly(['composer', 'title', 'status', 'notes', 'sheetMusicUrl', 'date', 'fileName', 'fileSize', 'fileType', 'fileUrl', 'storagePath', 'uploadedAt']));
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
   }

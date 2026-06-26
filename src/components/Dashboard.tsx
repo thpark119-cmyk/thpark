@@ -93,7 +93,11 @@ export default function Dashboard({ setActiveTab, user }: DashboardProps) {
         <div className="space-y-3">
           {recentLessons.length > 0 ? (
             recentLessons.map((lesson) => (
-              <div key={lesson.id} className="bg-white/[0.02] p-5 rounded-[16px] border border-white/5 flex flex-col gap-3 relative group">
+              <div 
+                key={lesson.id} 
+                className="bg-white/[0.02] p-5 rounded-[16px] border border-white/5 flex flex-col gap-3 relative group cursor-pointer hover:border-brand/30 transition-colors"
+                onClick={() => setActiveTab('mylessons')}
+              >
                 <div className="flex justify-between items-start">
                   <div className="flex-1 mr-4 overflow-hidden">
                     <span className="text-base font-serif italic text-stone-200 block truncate">{lesson.topic || 'No Title'}</span>

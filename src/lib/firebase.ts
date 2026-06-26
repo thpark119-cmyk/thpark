@@ -9,6 +9,7 @@ import {
   type Auth,
 } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyD3xeVDFdoTZ-lh3erXR70CeHoTr7Aq0yk",
@@ -23,11 +24,13 @@ const firebaseConfig = {
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let storage: FirebaseStorage | null = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   console.warn('Firebase 초기화 실패. localStorage 모드로 작동합니다.', error);
 }
@@ -36,7 +39,7 @@ const googleProvider = new GoogleAuthProvider();
 
 export const isFirebaseReady = Boolean(app && auth && db);
 
-export { auth, db };
+export { auth, db, storage };
 
 export const signInWithGoogle = async () => {
   if (!auth) {
