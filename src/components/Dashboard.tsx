@@ -15,7 +15,16 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<ReceivedLesson>('received_lessons', (data) => {
-      setRecentLessons(data.slice(0, 3));
+      const sorted = [...data].sort((a, b) => {
+        if (a.createdAt && b.createdAt) {
+          return b.createdAt - a.createdAt;
+        }
+        if (a.date && b.date) {
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        }
+        return 0;
+      });
+      setRecentLessons(sorted.slice(0, 1));
     });
     return unsubscribe;
   }, []);
@@ -92,12 +101,27 @@ export default function Dashboard({ setActiveTab }: DashboardProps) {
         <div className="space-y-3">
           {recentLessons.length > 0 ? (
             recentLessons.map((lesson) => (
-              <div key={lesson.id} className="flex justify-between items-center bg-white/[0.02] p-4 rounded-[16px] border border-white/5">
-                <div className="flex-1 mr-4 overflow-hidden">
-                  <span className="text-sm font-serif italic text-stone-200 block truncate">{lesson.topic}</span>
-                  <span className="text-[10px] text-stone-500 uppercase font-bold tracking-widest block truncate mt-0.5">{lesson.teacher}</span>
+              <div key={lesson.id} className="bg-white/[0.02] p-5 rounded-[16px] border border-white/5 flex flex-col gap-3 relative group">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1 mr-4 overflow-hidden">
+                    <span className="text-base font-serif italic text-stone-200 block truncate">{lesson.topic || 'No Title'}</span>
+                    <span className="text-[10px] text-stone-500 uppercase font-bold tracking-widest block truncate mt-1">{lesson.teacher}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-stone-600 shrink-0">{lesson.date}</span>
                 </div>
-                <span className="text-[10px] font-mono text-stone-600 shrink-0">{lesson.date.split('-').slice(1).join('.')}</span>
+                
+                {lesson.feedback && (
+                  <div className="bg-stone-950/50 p-3 rounded-xl border border-white/[0.02]">
+                    <p className="text-xs text-stone-400 line-clamp-2 leading-relaxed">{lesson.feedback}</p>
+                  </div>
+                )}
+                
+                {lesson.nextExercises && (
+                  <div className="flex items-start gap-2 pt-1">
+                    <span className="text-[9px] text-brand font-bold uppercase tracking-widest mt-0.5 shrink-0">Next</span>
+                    <p className="text-xs text-stone-300 line-clamp-1">{lesson.nextExercises}</p>
+                  </div>
+                )}
               </div>
             ))
           ) : (

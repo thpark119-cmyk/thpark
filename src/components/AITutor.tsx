@@ -288,9 +288,9 @@ export default function AITutor() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="border-b border-white/5 bg-stone-900/50 overflow-hidden"
+            className="border-b border-white/5 bg-stone-900/50 overflow-hidden shrink-0"
           >
-            <div className="p-6 space-y-4">
+            <div className="p-4 md:p-6 space-y-4 max-h-[60vh] overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-white tracking-wide uppercase">{t('tutor.profileSettings')}</h3>
                 <button onClick={() => setShowProfile(false)} className="text-stone-500 hover:text-white transition-colors">
@@ -305,7 +305,8 @@ export default function AITutor() {
                     onChange={(e) => {
                       setProfile({ major: e.target.value as MajorCategory, specialty: '' });
                     }}
-                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40"
+                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 [&>option]:bg-stone-900 [&>option]:text-white"
+                    style={{ colorScheme: 'dark' }}
                   >
                     <option value="">{t('tutor.categoryPlaceholder')}</option>
                     {majorCategories.map((c) => {
@@ -326,7 +327,8 @@ export default function AITutor() {
                     onChange={(e) => {
                       setProfile({ ...profile, specialty: e.target.value });
                     }}
-                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-stone-800 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed [&>option]:bg-stone-900 [&>option]:text-white"
+                    style={{ colorScheme: 'dark' }}
                   >
                     <option value="">{t('tutor.specialtyPlaceholder')}</option>
                     {profile.major && specialtiesMap[profile.major]?.map((s) => {

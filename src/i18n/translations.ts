@@ -13,7 +13,7 @@ export const translations = {
     },
     navigation: {
       dashboard: '대시보드',
-      receivedLessons: '학습 일지',
+      receivedLessons: '레슨 일지',
       teachingStudio: '학생 관리',
       repertoire: '악보함',
       tutor: 'AI 튜터'
@@ -82,7 +82,7 @@ export const translations = {
       subtitle: '연주와 레슨 기록을 한 곳에서 관리하세요.',
       todayRecords: '오늘의 기록',
       whatToRecord: '무엇을 기록할까요?',
-      quickActionMyLessons: '학습 복기',
+      quickActionMyLessons: '레슨 복기',
       quickActionMyLessonsDesc: '레슨 내용 정리',
       quickActionStudio: '교습 일지',
       quickActionStudioDesc: '학생 지도 기록',
@@ -90,7 +90,7 @@ export const translations = {
       quickActionRepertoireDesc: '레파토리 보관함',
       quickActionTutor: 'AI 상담',
       quickActionTutorDesc: '연습 방법 조언',
-      recentLessons: '최근 학습 내역',
+      recentLessons: '최근 레슨 내역',
       noRecentLessons: '아직 기록된 레슨이 없습니다.',
       firstLesson: '첫 레슨 기록하기'
     },
@@ -244,9 +244,11 @@ export const translations = {
       completed: '완료'
     },
     levels: {
-      beginner: 'Beginner',
-      intermediate: 'Intermediate',
-      advanced: 'Advanced'
+      beginner: '초급',
+      intermediate: '중급',
+      advanced: '고급',
+      professional: '전문',
+      other: '기타'
     }
   },
   en: {
@@ -494,7 +496,9 @@ export const translations = {
     levels: {
       beginner: 'Beginner',
       intermediate: 'Intermediate',
-      advanced: 'Advanced'
+      advanced: 'Advanced',
+      professional: 'Professional',
+      other: 'Other'
     }
   },
   de: {
@@ -742,7 +746,9 @@ export const translations = {
     levels: {
       beginner: 'Anfänger',
       intermediate: 'Mittelstufe',
-      advanced: 'Fortgeschritten'
+      advanced: 'Fortgeschritten',
+      professional: 'Profi',
+      other: 'Sonstiges'
     }
   }
 } as const;

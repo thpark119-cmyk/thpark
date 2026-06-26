@@ -61,6 +61,8 @@ export default function TeachingStudio() {
     if (lv === 'beginner') return t('levels.beginner');
     if (lv === 'intermediate') return t('levels.intermediate');
     if (lv === 'advanced') return t('levels.advanced');
+    if (lv === 'professional') return t('levels.professional');
+    if (lv === 'other') return t('levels.other');
     return levelInput;
   };
 
@@ -136,9 +138,11 @@ export default function TeachingStudio() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.level')}</label>
                   <select className="w-full bg-stone-850 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark" value={newStudent.level} onChange={e => setNewStudent({...newStudent, level: e.target.value})}>
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
+                    <option value="Beginner">{t('levels.beginner')}</option>
+                    <option value="Intermediate">{t('levels.intermediate')}</option>
+                    <option value="Advanced">{t('levels.advanced')}</option>
+                    <option value="Professional">{t('levels.professional')}</option>
+                    <option value="Other">{t('levels.other')}</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -191,9 +195,11 @@ export default function TeachingStudio() {
                     value={editForm.level} 
                     onChange={e => setEditForm({...editForm, level: e.target.value})}
                   >
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
+                    <option value="Beginner">{t('levels.beginner')}</option>
+                    <option value="Intermediate">{t('levels.intermediate')}</option>
+                    <option value="Advanced">{t('levels.advanced')}</option>
+                    <option value="Professional">{t('levels.professional')}</option>
+                    <option value="Other">{t('levels.other')}</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
