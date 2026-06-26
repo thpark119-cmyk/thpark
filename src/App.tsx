@@ -94,25 +94,25 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F0D0C] text-stone-200 font-sans selection:bg-brand/30 pb-16">
+    <div className="min-h-screen bg-[#0F0D0C] text-stone-200 font-sans selection:bg-brand/30 pb-24 md:pb-16">
       {/* Background ambient glows optimized for wide desktop layout */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-30">
         <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-brand/10 blur-[150px] rounded-full"></div>
         <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand/5 blur-[150px] rounded-full"></div>
       </div>
 
-      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-6">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-6 pt-4 md:pt-6">
         {/* Desktop PC Nav Header Layout */}
-        <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-white/[0.05] pb-6 mb-10 sticky top-0 py-4 bg-bg-deep/90 backdrop-blur-md z-40 rounded-b-3xl px-2">
-          <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => setActiveTab('dashboard')}>
-             <div className="bg-brand h-10 w-10 rounded-2xl text-white shadow-xl shadow-brand/20 flex items-center justify-center">
-               <Music size={20} />
+        <header className="flex flex-row justify-between items-center gap-4 border-b border-white/[0.05] pb-4 md:pb-6 mb-6 md:mb-10 sticky top-0 py-2 md:py-4 bg-bg-deep/90 backdrop-blur-md z-40 rounded-b-3xl px-2">
+          <div className="flex items-center gap-2 md:gap-3 cursor-pointer select-none" onClick={() => setActiveTab('dashboard')}>
+             <div className="bg-brand h-8 w-8 md:h-10 md:w-10 rounded-xl md:rounded-2xl text-white shadow-xl shadow-brand/20 flex items-center justify-center shrink-0">
+               <Music size={18} className="md:w-5 md:h-5" />
              </div>
-             <h1 className="text-2xl font-bold tracking-tight serif italic text-white">{t('app.name')}</h1>
+             <h1 className="text-xl md:text-2xl font-bold tracking-tight serif italic text-white hidden sm:block">{t('app.name')}</h1>
           </div>
           
           {/* Top Integrated Desktop Navbar */}
-          <nav className="flex items-center gap-1 bg-stone-900/60 p-1.5 rounded-2xl border border-white/[0.03] shadow-lg shadow-black/40">
+          <nav className="hidden md:flex items-center gap-1 bg-stone-900/60 p-1.5 rounded-2xl border border-white/[0.03] shadow-lg shadow-black/40">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -139,42 +139,43 @@ export default function App() {
           </nav>
           
           {/* Auth State Panel */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <LanguageSelector />
             {loading ? (
-              <div className="flex items-center gap-2 text-stone-500 font-mono text-[10px] bg-white/[0.01] border border-white/5 px-4 py-2 rounded-xl">
+              <div className="flex items-center gap-2 text-stone-500 font-mono text-[10px] bg-white/[0.01] border border-white/5 px-3 py-1.5 md:px-4 md:py-2 rounded-xl">
                 <Loader2 size={12} className="animate-spin text-brand" />
-                <span>{t('app.syncing')}</span>
+                <span className="hidden sm:inline">{t('app.syncing')}</span>
               </div>
             ) : user ? (
-              <div className="flex items-center gap-3 bg-white/[0.02] border border-white/5 py-1.5 pl-3 pr-2.5 rounded-2xl shadow-xl shadow-black/10">
-                <div className="text-right">
+              <div className="flex items-center gap-2 md:gap-3 bg-white/[0.02] border border-white/5 py-1.5 pl-2 pr-1 md:pl-3 md:pr-2.5 rounded-xl md:rounded-2xl shadow-xl shadow-black/10">
+                <div className="text-right hidden sm:block">
                   <p className="text-xs font-bold text-stone-200">{user.displayName || '뮤지션'}</p>
                   <p className="text-[9px] text-stone-500 font-mono truncate max-w-[110px]">{user.email}</p>
                 </div>
-                <div className="w-8 h-8 rounded-xl overflow-hidden border border-white/10 ring-2 ring-white/5 bg-stone-900 shrink-0">
+                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg md:rounded-xl overflow-hidden border border-white/10 ring-2 ring-white/5 bg-stone-900 shrink-0">
                    <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 </div>
                 <button 
                   onClick={logout}
-                  className="p-2 text-stone-500 hover:text-red-400 transition-colors"
+                  className="p-1.5 md:p-2 text-stone-500 hover:text-red-400 transition-colors"
                   title={t('app.logout')}
                 >
-                  <LogOut size={16} />
+                  <LogOut size={14} className="md:w-4 md:h-4" />
                 </button>
               </div>
             ) : (
               <button 
                 onClick={handleGoogleLogin}
                 disabled={isLoggingIn}
-                className="bg-white text-stone-950 px-5 h-11 text-xs font-bold rounded-2xl flex items-center gap-2 shadow-xl shadow-white/5 hover:bg-stone-100 active:scale-[0.98] disabled:opacity-50 transition-all shrink-0 font-semibold"
+                className="bg-white text-stone-950 px-3 md:px-5 h-9 md:h-11 text-[11px] md:text-xs font-bold rounded-xl md:rounded-2xl flex items-center gap-1.5 md:gap-2 shadow-xl shadow-white/5 hover:bg-stone-100 active:scale-[0.98] disabled:opacity-50 transition-all shrink-0"
               >
                 {isLoggingIn ? (
                   <Loader2 size={14} className="animate-spin text-stone-600" />
                 ) : (
                   <LogIn size={14} />
                 )}
-                {isLoggingIn ? t('app.loggingIn') : t('app.login')}
+                <span className="hidden sm:inline">{isLoggingIn ? t('app.loggingIn') : t('app.login')}</span>
+                <span className="sm:hidden">{t('app.login')}</span>
               </button>
             )}
           </div>
@@ -239,6 +240,35 @@ export default function App() {
           </Suspense>
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav 
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-950/90 backdrop-blur-xl border-t border-white/5 z-50"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex items-center justify-around px-2 py-2">
+          {navItems.filter(item => item.id !== 'admin').map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-16 ${
+                  isActive ? 'text-brand' : 'text-stone-500 hover:text-stone-300'
+                }`}
+              >
+                <div className={`relative flex items-center justify-center w-8 h-8 rounded-full ${isActive ? 'bg-brand/10' : ''}`}>
+                  <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                </div>
+                <span className="text-[9px] font-bold tracking-tight line-clamp-1 truncate w-full text-center">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
