@@ -70,7 +70,7 @@ export default function Repertoire() {
   const handleImslpSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!imslpQuery.trim()) {
-      alert(t('repertoire.enterSearchTerm'));
+      alert(t('repertoire.imslpEmptyQuery'));
       return;
     }
     const query = encodeURIComponent(imslpQuery.trim());
@@ -109,8 +109,8 @@ export default function Repertoire() {
 
       <div className="bg-stone-900 border border-white/5 p-6 rounded-[28px] space-y-4 shadow-xl shadow-black/10">
         <div>
-          <h3 className="text-lg font-serif italic text-white leading-tight">{t('repertoire.imslpTitle')}</h3>
-          <p className="text-xs text-stone-500 mt-1">{t('repertoire.imslpDesc')}</p>
+          <h3 className="text-lg font-serif italic text-white leading-tight">{t('repertoire.findImslp')}</h3>
+          <p className="text-xs text-stone-500 mt-1">{t('repertoire.findImslpDesc')}</p>
         </div>
         
         <form onSubmit={handleImslpSearch} className="space-y-3">
@@ -126,21 +126,21 @@ export default function Repertoire() {
           </div>
           <div className="flex gap-2">
             <button type="submit" className="flex-1 bg-stone-200 text-stone-900 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
-              {t('repertoire.imslpSearchBtn')}
+              {t('repertoire.imslpSearch')}
             </button>
             <button type="button" onClick={handleImslpDirect} className="flex-1 bg-stone-800 text-stone-300 py-3 rounded-2xl text-sm font-bold active:scale-95 transition-all">
-              {t('repertoire.imslpDirectBtn')}
+              {t('repertoire.imslpDirect')}
             </button>
           </div>
         </form>
-        <p className="text-[10px] text-stone-600">{t('repertoire.imslpCopyright')}</p>
+        <p className="text-[10px] text-stone-600">{t('repertoire.imslpWarning')}</p>
       </div>
 
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600" size={16} />
         <input 
           type="text" 
-          placeholder={t('repertoire.searchPlaceholder')}
+          placeholder={t('repertoire.search')}
           className="w-full bg-stone-900/50 border border-white/5 rounded-2xl py-4 pl-11 pr-4 text-stone-200 placeholder:text-stone-700 outline-none focus:ring-1 focus:ring-brand/30 transition-all text-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
