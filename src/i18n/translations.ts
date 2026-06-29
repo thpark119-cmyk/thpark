@@ -295,7 +295,10 @@ export const translations = {
       micRequired: '마이크 권한이 필요합니다.',
       micBlocked: '마이크 접근이 차단되었습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.',
       micNotAvailable: '이 브라우저에서는 마이크 튜너를 사용할 수 없습니다.',
-      inputLevel: '입력 레벨'
+      inputLevel: '입력 레벨',
+      reactivateAudio: '오디오 다시 활성화',
+      reactivateAudioDesc: '모바일 브라우저에서 오디오가 일시 중지되었습니다. 아래 버튼을 눌러 다시 활성화해주세요.',
+      noInputSignal: '마이크 권한은 허용되었지만 입력 신호가 들어오지 않습니다. 브라우저 설정 확인 또는 이어폰을 해제해보세요.'
     },
     metronome: {
       title: '메트로놈',
@@ -677,7 +680,10 @@ export const translations = {
       micRequired: 'Microphone permission is required.',
       micBlocked: 'Microphone access was blocked. Please allow microphone access in your browser settings.',
       micNotAvailable: 'Microphone tuner is not available in this browser.',
-      inputLevel: 'Input Level'
+      inputLevel: 'Input Level',
+      reactivateAudio: 'Reactivate Audio',
+      reactivateAudioDesc: 'Audio is suspended on this mobile browser. Tap the button below to reactivate it.',
+      noInputSignal: 'Microphone permission is allowed, but no input signal is coming in. Please check settings or disconnect headset.'
     },
     metronome: {
       title: 'Metronome',
@@ -1059,7 +1065,10 @@ export const translations = {
       micRequired: 'Mikrofonberechtigung ist erforderlich.',
       micBlocked: 'Der Mikrofonzugriff wurde blockiert. Bitte erlaube den Mikrofonzugriff in den Browsereinstellungen.',
       micNotAvailable: 'Das Mikrofon-Stimmgerät ist in diesem Browser nicht verfügbar.',
-      inputLevel: 'Eingangspegel'
+      inputLevel: 'Eingangspegel',
+      reactivateAudio: 'Audio erneut aktivieren',
+      reactivateAudioDesc: 'Audio ist in diesem mobilen Browser pausiert. Tippe unten, um es erneut zu aktivieren.',
+      noInputSignal: 'Die Mikrofonberechtigung ist erlaubt, aber es kommt kein Eingangssignal an. Bitte prüfe die Einstellungen.'
     },
     metronome: {
       title: 'Metronom',

@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Mic, MicOff, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const isMobileLike = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const RMS_THRESHOLD = isMobileLike ? 0.003 : 0.005;
 
 function getNoteFromPitch(frequency: number): number {
   const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
@@ -27,7 +30,7 @@ function autoCorrelate(buf: Float32Array, sampleRate: number): number {
     rms += val * val;
   }
   rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.005) return -1; // Not enough signal
+  if (rms < RMS_THRESHOLD) return -1; // Not enough signal
 
   let r1 = 0, r2 = SIZE - 1, thres = 0.2;
   for (let i = 0; i < SIZE / 2; i++)
@@ -63,6 +66,14 @@ function autoCorrelate(buf: Float32Array, sampleRate: number): number {
   return sampleRate / T0;
 }
 
+const createAudioContext = () => {
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error('AUDIO_CONTEXT_NOT_SUPPORTED');
+  }
+  return new AudioContextClass();
+};
+
 export default function Tuner() {
   const { t } = useLanguage();
   const [isActive, setIsActive] = useState(false);
@@ -79,50 +90,85 @@ export default function Tuner() {
   const [audioCtxState, setAudioCtxState] = useState<string>('closed');
   const [debugMsg, setDebugMsg] = useState<string>('waiting');
   const [frameCount, setFrameCount] = useState<number>(0);
-
+  const [activeConstraintLabel, setActiveConstraintLabel] = useState<string>('');
+  const [trackInfo, setTrackInfo] = useState<any>({});
+  
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestRef = useRef<number>();
   const isListeningRef = useRef<boolean>(false);
-  const bufRef = useRef<Float32Array>(new Float32Array(2048));
+  const bufRef = useRef<Float32Array>(new Float32Array(isMobileLike ? 4096 : 2048));
 
-  const startTuner = async () => {
-    setError(null);
-    setDebugMsg('requesting_mic');
-    
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
+  const requestMicrophoneStream = async () => {
+    const constraintsList = [
+      {
+        label: 'music_constraints',
+        constraints: {
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1
+          }
         }
-      });
-    } catch {
+      },
+      {
+        label: 'mobile_simple_audio',
+        constraints: {
+          audio: {
+            channelCount: 1
+          }
+        }
+      },
+      {
+        label: 'plain_audio',
+        constraints: {
+          audio: true
+        }
+      }
+    ];
+
+    let lastError: unknown = null;
+
+    for (const item of constraintsList) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err: any) {
-        console.error(err);
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          setError(t('tuner.micBlocked') || 'Microphone access was blocked.');
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          setError(t('tuner.micNotAvailable') || 'Microphone not available.');
-        } else {
-          setError(t('tuner.micRequired') || 'Microphone permission is required.');
+        setDebugMsg(`trying_${item.label}`);
+        const stream = await navigator.mediaDevices.getUserMedia(item.constraints);
+        setActiveConstraintLabel(item.label);
+        
+        // Extract track info for debugging
+        if (stream.getAudioTracks().length > 0) {
+          const track = stream.getAudioTracks()[0];
+          const settings = track.getSettings();
+          setTrackInfo({
+            readyState: track.readyState,
+            enabled: track.enabled,
+            muted: track.muted,
+            label: track.label,
+            sampleRate: settings.sampleRate,
+            channelCount: settings.channelCount
+          });
         }
-        setIsActive(false);
-        setDebugMsg('mic_error');
-        return;
+        
+        return stream;
+      } catch (err) {
+        console.warn(`getUserMedia failed for ${item.label}`, err);
+        lastError = err;
       }
     }
 
+    throw lastError;
+  };
+
+  const startTuner = async () => {
+    setError(null);
+    setDebugMsg('starting_mobile_safe');
+    
     try {
-      streamRef.current = stream;
-      
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // 1. Create and resume AudioContext immediately on user touch
+      const audioCtx = audioContextRef.current ?? createAudioContext();
       audioContextRef.current = audioCtx;
       
       if (audioCtx.state === 'suspended') {
@@ -130,15 +176,23 @@ export default function Tuner() {
         await audioCtx.resume();
       }
       setAudioCtxState(audioCtx.state);
-      
+
+      // 2. Request mic permission
+      setDebugMsg('requesting_mic');
+      const stream = await requestMicrophoneStream();
+      streamRef.current = stream;
+
+      // 3. Setup analyser
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
+      analyser.fftSize = isMobileLike ? 4096 : 2048;
       analyserRef.current = analyser;
+      bufRef.current = new Float32Array(analyser.fftSize);
       
       const source = audioCtx.createMediaStreamSource(stream);
       source.connect(analyser);
       sourceRef.current = source;
       
+      // 4. Start loop
       isListeningRef.current = true;
       setIsActive(true);
       setDebugMsg('started');
@@ -146,9 +200,38 @@ export default function Tuner() {
       updatePitch();
     } catch (err: any) {
       console.error("Error setting up audio graph:", err);
-      setError("Audio setup failed: " + err.message);
+      if (err.message === 'AUDIO_CONTEXT_NOT_SUPPORTED') {
+        setError(t('tuner.micNotAvailable') || 'Microphone tuner is not available in this browser.');
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setError(t('tuner.micBlocked') || 'Microphone access was blocked.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setError(t('tuner.micNotAvailable') || 'Microphone not available.');
+      } else {
+        setError("Audio setup failed: " + err.message);
+      }
       setIsActive(false);
       setDebugMsg('setup_error');
+    }
+  };
+
+  const reactivateAudio = async () => {
+    const audioCtx = audioContextRef.current;
+    if (!audioCtx) return;
+
+    try {
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      setAudioCtxState(audioCtx.state);
+
+      if (!isListeningRef.current && analyserRef.current) {
+        isListeningRef.current = true;
+        requestRef.current = requestAnimationFrame(updatePitch);
+      }
+      setDebugMsg('audio_reactivated');
+    } catch (error) {
+      console.error('Audio reactivation failed:', error);
+      setDebugMsg('audio_reactivation_failed');
     }
   };
 
@@ -206,7 +289,7 @@ export default function Tuner() {
       
       setFrameCount(prev => prev + 1);
 
-      if (rms < 0.005) {
+      if (rms < RMS_THRESHOLD) {
         setDebugMsg('too_quiet');
       } else {
         const ac = autoCorrelate(buf, audioContextRef.current.sampleRate);
@@ -241,7 +324,7 @@ export default function Tuner() {
 
   const getStatusText = () => {
     if (!isActive) return '';
-    if (rmsVolume < 0.005) return t('tuner.playNote') || 'Play a note to detect pitch.';
+    if (rmsVolume < RMS_THRESHOLD) return t('tuner.playNote') || 'Play a note to detect pitch.';
     
     if (Math.abs(cents) <= 5) return t('tuner.inTune') || 'In tune';
     if (Math.abs(cents) <= 15) return t('tuner.almostInTune') || 'Almost in tune';
@@ -250,7 +333,7 @@ export default function Tuner() {
   };
 
   const getStatusColor = () => {
-    if (rmsVolume < 0.005) return 'text-stone-500';
+    if (rmsVolume < RMS_THRESHOLD) return 'text-stone-500';
     if (Math.abs(cents) <= 5) return 'text-green-500';
     if (Math.abs(cents) <= 15) return 'text-brand';
     if (cents < 0) return 'text-orange-500';
@@ -263,9 +346,11 @@ export default function Tuner() {
     return 'bg-white';
   };
 
-  // calculate rotation/position. Cents range -50 to 50
-  const gaugePercent = Math.max(-50, Math.min(50, cents)); // -50 to 50
-  const needleRotation = (gaugePercent / 50) * 45; // -45deg to 45deg
+  const gaugePercent = Math.max(-50, Math.min(50, cents));
+  const needleRotation = (gaugePercent / 50) * 45;
+
+  const showReactivateButton = isActive && audioCtxState === 'suspended';
+  const showNoSignalWarning = isActive && frameCount > 120 && rmsVolume === 0;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative max-w-2xl mx-auto">
@@ -284,7 +369,17 @@ export default function Tuner() {
           <span>Frames: {frameCount}</span>
         </div>
         <div className="flex justify-between">
-          <span>Last msg: {debugMsg}</span>
+          <span>Constraint: {activeConstraintLabel}</span>
+          <span>Mobile: {isMobileLike ? 'yes' : 'no'}</span>
+        </div>
+        <div className="flex flex-col border-t border-stone-800 mt-1 pt-1">
+          <span>Track readyState: {trackInfo.readyState}</span>
+          <span>Track enabled/muted: {trackInfo.enabled ? 'true' : 'false'} / {trackInfo.muted ? 'true' : 'false'}</span>
+          <span className="truncate">Track label: {trackInfo.label}</span>
+          <span>Sample rate: {trackInfo.sampleRate} (Channels: {trackInfo.channelCount})</span>
+        </div>
+        <div className="flex justify-between border-t border-stone-800 mt-1 pt-1">
+          <span className="text-stone-300">Last msg: {debugMsg}</span>
         </div>
       </div>
       
@@ -292,6 +387,26 @@ export default function Tuner() {
         <div className="bg-red-950/30 border border-red-500/20 p-4 rounded-2xl flex items-start gap-3">
           <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={18} />
           <p className="text-sm text-red-200">{error}</p>
+        </div>
+      )}
+
+      {showReactivateButton && (
+        <div className="bg-orange-950/30 border border-orange-500/20 p-4 rounded-2xl flex flex-col gap-3">
+          <p className="text-sm text-orange-200">{t('tuner.reactivateAudioDesc')}</p>
+          <button 
+            onClick={reactivateAudio}
+            className="self-start px-4 py-2 bg-orange-500/20 text-orange-300 rounded-lg flex items-center gap-2 text-sm font-bold"
+          >
+            <RefreshCw size={16} />
+            {t('tuner.reactivateAudio')}
+          </button>
+        </div>
+      )}
+
+      {showNoSignalWarning && (
+        <div className="bg-yellow-950/30 border border-yellow-500/20 p-4 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="text-yellow-500 shrink-0 mt-0.5" size={18} />
+          <p className="text-sm text-yellow-200">{t('tuner.noInputSignal')}</p>
         </div>
       )}
       
@@ -348,7 +463,7 @@ export default function Tuner() {
           {/* Needle */}
           <motion.div 
             className="absolute bottom-0 w-1 h-32 origin-bottom flex flex-col items-center justify-end z-10"
-            animate={{ rotate: isActive && rmsVolume > 0.005 ? needleRotation : 0 }}
+            animate={{ rotate: isActive && rmsVolume > RMS_THRESHOLD ? needleRotation : 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 20 }}
           >
             <div className={`w-1 h-24 rounded-full ${getPointerColor()} shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors`} />
