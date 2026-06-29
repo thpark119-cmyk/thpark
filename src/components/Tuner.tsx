@@ -8,17 +8,38 @@ const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#"
 const isMobileLike = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const RMS_THRESHOLD = isMobileLike ? 0.003 : 0.005;
 
-function getNoteFromPitch(frequency: number): number {
-  const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+const MIN_A4_FREQUENCY = 415;
+const MAX_A4_FREQUENCY = 466;
+const DEFAULT_A4_FREQUENCY = 440;
+
+const INSTRUMENT_PRESETS: Record<string, { note: string; octave: number }[]> = {
+  chromatic: [],
+  violin: [{note: 'G', octave: 3}, {note: 'D', octave: 4}, {note: 'A', octave: 4}, {note: 'E', octave: 5}],
+  viola: [{note: 'C', octave: 3}, {note: 'G', octave: 3}, {note: 'D', octave: 4}, {note: 'A', octave: 4}],
+  cello: [{note: 'C', octave: 2}, {note: 'G', octave: 2}, {note: 'D', octave: 3}, {note: 'A', octave: 3}],
+  doubleBass: [{note: 'E', octave: 1}, {note: 'A', octave: 1}, {note: 'D', octave: 2}, {note: 'G', octave: 2}],
+  guitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
+  bassGuitar: [{note: 'E', octave: 1}, {note: 'A', octave: 1}, {note: 'D', octave: 2}, {note: 'G', octave: 2}],
+  ukulele: [{note: 'G', octave: 4}, {note: 'C', octave: 4}, {note: 'E', octave: 4}, {note: 'A', octave: 4}],
+  flute: [{note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'B', octave: 4}, {note: 'C', octave: 5}],
+  clarinet: [{note: 'E', octave: 3}, {note: 'F', octave: 3}, {note: 'G', octave: 3}, {note: 'A', octave: 3}, {note: 'B', octave: 3}, {note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}],
+  saxophone: [{note: 'A#', octave: 3}, {note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'D#', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'A#', octave: 4}],
+  trumpet: [{note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'A#', octave: 4}, {note: 'C', octave: 5}],
+  trombone: [{note: 'A#', octave: 1}, {note: 'F', octave: 2}, {note: 'A#', octave: 2}, {note: 'D', octave: 3}, {note: 'F', octave: 3}, {note: 'A#', octave: 3}],
+  voice: []
+};
+
+function getNoteFromPitch(frequency: number, a4: number): number {
+  const noteNum = 12 * (Math.log(frequency / a4) / Math.log(2));
   return Math.round(noteNum) + 69;
 }
 
-function getFrequencyFromNoteNumber(note: number): number {
-  return 440 * Math.pow(2, (note - 69) / 12);
+function getFrequencyFromNoteNumber(note: number, a4: number): number {
+  return a4 * Math.pow(2, (note - 69) / 12);
 }
 
-function getCentsOffFromPitch(frequency: number, note: number): number {
-  return Math.floor(1200 * Math.log(frequency / getFrequencyFromNoteNumber(note)) / Math.log(2));
+function getCentsOffFromPitch(frequency: number, note: number, a4: number): number {
+  return Math.floor(1200 * Math.log(frequency / getFrequencyFromNoteNumber(note, a4)) / Math.log(2));
 }
 
 function autoCorrelate(buf: Float32Array, sampleRate: number): number {
@@ -76,6 +97,22 @@ const createAudioContext = () => {
 
 export default function Tuner() {
   const { t } = useLanguage();
+  
+  // Load settings from localStorage
+  const loadSettings = () => {
+    try {
+      const saved = localStorage.getItem('musicianlog_tuner_settings');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Failed to load tuner settings', e);
+    }
+    return {};
+  };
+
+  const initialSettings = loadSettings();
+
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -85,6 +122,31 @@ export default function Tuner() {
   const [cents, setCents] = useState<number>(0);
   const [targetFreq, setTargetFreq] = useState<number>(0);
   const [rmsVolume, setRmsVolume] = useState<number>(0);
+
+  // Settings
+  const [a4Frequency, setA4Frequency] = useState<number>(initialSettings.a4Frequency || DEFAULT_A4_FREQUENCY);
+  const [detectionMode, setDetectionMode] = useState<'fast' | 'standard' | 'stable'>(initialSettings.detectionMode || 'standard');
+  const [selectedInstrument, setSelectedInstrument] = useState<string>(initialSettings.selectedInstrument || 'chromatic');
+  const [toneGeneratorNote, setToneGeneratorNote] = useState<string>(initialSettings.toneGeneratorNote || 'A');
+  const [toneGeneratorOctave, setToneGeneratorOctave] = useState<string>(initialSettings.toneGeneratorOctave || '4');
+  const [toneGeneratorVolume, setToneGeneratorVolume] = useState<number>(initialSettings.toneGeneratorVolume ?? 0.5);
+  const [isPlayingTone, setIsPlayingTone] = useState<boolean>(false);
+  
+  // Save settings whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('musicianlog_tuner_settings', JSON.stringify({
+        a4Frequency,
+        detectionMode,
+        selectedInstrument,
+        toneGeneratorNote,
+        toneGeneratorOctave,
+        toneGeneratorVolume
+      }));
+    } catch (e) {
+      console.error('Failed to save tuner settings', e);
+    }
+  }, [a4Frequency, detectionMode, selectedInstrument, toneGeneratorNote, toneGeneratorOctave, toneGeneratorVolume]);
   
   // Debug states
   const [audioCtxState, setAudioCtxState] = useState<string>('closed');
@@ -94,11 +156,93 @@ export default function Tuner() {
   const [trackInfo, setTrackInfo] = useState<any>({});
   const [showDebug, setShowDebug] = useState<boolean>(false);
   
+  const pitchSmootherRef = useRef<number>(0);
+  const a4Ref = useRef<number>(a4Frequency);
+  const detectionModeRef = useRef<'fast' | 'standard' | 'stable'>(detectionMode);
+  
+  useEffect(() => {
+    a4Ref.current = a4Frequency;
+  }, [a4Frequency]);
+
+  useEffect(() => {
+    detectionModeRef.current = detectionMode;
+  }, [detectionMode]);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const toneOscillatorRef = useRef<OscillatorNode | null>(null);
+  const toneGainRef = useRef<GainNode | null>(null);
   const requestRef = useRef<number>();
+
+  const stopToneGenerator = () => {
+    if (toneOscillatorRef.current) {
+      toneOscillatorRef.current.stop();
+      toneOscillatorRef.current.disconnect();
+      toneOscillatorRef.current = null;
+    }
+    if (toneGainRef.current) {
+      toneGainRef.current.disconnect();
+      toneGainRef.current = null;
+    }
+    setIsPlayingTone(false);
+  };
+
+  const playToneGenerator = async () => {
+    try {
+      const audioCtx = audioContextRef.current ?? createAudioContext();
+      audioContextRef.current = audioCtx;
+      
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      setAudioCtxState(audioCtx.state);
+
+      stopToneGenerator();
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      
+      const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
+      const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
+      const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      
+      gain.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(toneGeneratorVolume, audioCtx.currentTime + 0.1);
+      
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      osc.start();
+      
+      toneOscillatorRef.current = osc;
+      toneGainRef.current = gain;
+      setIsPlayingTone(true);
+    } catch (err) {
+      console.error("Tone generator failed:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isPlayingTone && toneOscillatorRef.current && toneGainRef.current && audioContextRef.current) {
+      const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
+      const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
+      const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
+      
+      toneOscillatorRef.current.frequency.setValueAtTime(freq, audioContextRef.current.currentTime);
+      toneGainRef.current.gain.setValueAtTime(toneGeneratorVolume, audioContextRef.current.currentTime);
+    }
+  }, [toneGeneratorNote, toneGeneratorOctave, toneGeneratorVolume, a4Frequency, isPlayingTone]);
+
+  useEffect(() => {
+    return () => {
+      stopToneGenerator();
+    };
+  }, []);
   const isListeningRef = useRef<boolean>(false);
   const bufRef = useRef<Float32Array>(new Float32Array(isMobileLike ? 4096 : 2048));
 
@@ -296,16 +440,25 @@ export default function Tuner() {
         const ac = autoCorrelate(buf, audioContextRef.current.sampleRate);
         
         if (ac !== -1 && ac >= 35 && ac <= 2000) {
-          const pitchValue = ac;
-          setPitch(pitchValue);
-          const noteNum = getNoteFromPitch(pitchValue);
+          let smoothingFactor = 0.5; // standard
+          if (detectionModeRef.current === 'fast') smoothingFactor = 0.8;
+          else if (detectionModeRef.current === 'stable') smoothingFactor = 0.2;
+
+          let smoothedPitch = ac;
+          if (pitchSmootherRef.current !== 0 && Math.abs(ac - pitchSmootherRef.current) < 50) {
+             smoothedPitch = pitchSmootherRef.current * (1 - smoothingFactor) + ac * smoothingFactor;
+          }
+          pitchSmootherRef.current = smoothedPitch;
+          
+          setPitch(smoothedPitch);
+          const noteNum = getNoteFromPitch(smoothedPitch, a4Ref.current);
           const noteStr = NOTE_STRINGS[noteNum % 12];
           const oct = Math.floor(noteNum / 12) - 1;
           
           setNote(noteStr);
           setOctave(oct.toString());
-          setCents(getCentsOffFromPitch(pitchValue, noteNum));
-          setTargetFreq(getFrequencyFromNoteNumber(noteNum));
+          setCents(getCentsOffFromPitch(smoothedPitch, noteNum, a4Ref.current));
+          setTargetFreq(getFrequencyFromNoteNumber(noteNum, a4Ref.current));
           setDebugMsg(`detected_pitch`);
         } else if (ac !== -1) {
           setDebugMsg('out_of_range');
@@ -352,6 +505,32 @@ export default function Tuner() {
 
   const showReactivateButton = isActive && audioCtxState === 'suspended';
   const showNoSignalWarning = isActive && frameCount > 120 && rmsVolume === 0;
+
+  const getNearestReferenceNote = (currentPitch: number) => {
+    if (selectedInstrument === 'chromatic' || currentPitch === 0) return null;
+    const presets = INSTRUMENT_PRESETS[selectedInstrument];
+    if (!presets || presets.length === 0) return null;
+    
+    let minDiff = Infinity;
+    let nearest = presets[0];
+    let targetFreq = 0;
+    
+    presets.forEach(p => {
+      const noteIndex = NOTE_STRINGS.indexOf(p.note);
+      const noteNum = noteIndex + (p.octave + 1) * 12;
+      const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
+      const diff = Math.abs(currentPitch - freq);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = p;
+        targetFreq = freq;
+      }
+    });
+    
+    return { ...nearest, freq: targetFreq };
+  };
+
+  const nearestNote = getNearestReferenceNote(pitch);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative max-w-2xl mx-auto">
@@ -495,6 +674,150 @@ export default function Tuner() {
                 transition={{ type: 'tween', ease: 'linear', duration: 0.1 }}
               />
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Instrument & Reference Notes */}
+        <div className="bg-stone-900/40 border border-stone-800 rounded-2xl p-6 flex flex-col gap-6">
+          <div>
+            <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 block">{t('tuner.chooseInstrument') || 'Choose Instrument'}</label>
+            <select
+              value={selectedInstrument}
+              onChange={e => setSelectedInstrument(e.target.value)}
+              className="w-full h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none"
+            >
+              {Object.keys(INSTRUMENT_PRESETS).map(inst => (
+                <option key={inst} value={inst}>{t(`tuner.${inst}`) || inst}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedInstrument !== 'chromatic' && INSTRUMENT_PRESETS[selectedInstrument].length > 0 && (
+            <div>
+              <div className="flex justify-between items-baseline mb-3">
+                <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">{t('tuner.referenceNotes') || 'Reference Notes'}</label>
+                {nearestNote && (
+                  <span className="text-[10px] text-brand bg-brand/10 px-2 py-0.5 rounded">
+                    {t('tuner.nearestRefNote') || 'Nearest'}: {nearestNote.note}{nearestNote.octave} ({nearestNote.freq.toFixed(1)}Hz)
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {INSTRUMENT_PRESETS[selectedInstrument].map((p, i) => {
+                  const isNearest = nearestNote && nearestNote.note === p.note && nearestNote.octave === p.octave;
+                  const noteIndex = NOTE_STRINGS.indexOf(p.note);
+                  const noteNum = noteIndex + (p.octave + 1) * 12;
+                  const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
+                  
+                  return (
+                    <div 
+                      key={i} 
+                      className={`px-3 py-1.5 rounded-lg border flex flex-col items-center ${isNearest ? 'bg-brand/10 border-brand text-brand' : 'bg-stone-950 border-stone-800 text-stone-400'}`}
+                    >
+                      <span className="font-bold text-sm">{p.note}{p.octave}</span>
+                      <span className="text-[9px] opacity-70">{freq.toFixed(1)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {/* A4 & Detection Mode */}
+          <div className="bg-stone-900/40 border border-stone-800 rounded-2xl p-6 flex flex-col gap-6">
+             {/* A4 Frequency */}
+             <div>
+               <div className="flex justify-between items-center mb-3">
+                 <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">{t('tuner.a4Ref') || 'A4 Reference'}</label>
+                 <button 
+                   onClick={() => setA4Frequency(DEFAULT_A4_FREQUENCY)}
+                   className="text-[10px] text-stone-500 hover:text-stone-300 transition-colors bg-stone-800/50 px-2 py-1 rounded"
+                 >
+                   {t('tuner.resetToDefault') || 'Reset'}
+                 </button>
+               </div>
+               <div className="flex items-center gap-3">
+                 <button onClick={() => setA4Frequency(prev => Math.max(MIN_A4_FREQUENCY, prev - 1))} className="w-10 h-10 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 flex items-center justify-center transition-colors font-mono">-1</button>
+                 <input 
+                   type="number" 
+                   value={a4Frequency || ''} 
+                   onChange={e => {
+                     const val = e.target.value;
+                     setA4Frequency(val ? parseInt(val) : 0);
+                   }}
+                   onBlur={() => {
+                     if (a4Frequency < MIN_A4_FREQUENCY) setA4Frequency(MIN_A4_FREQUENCY);
+                     if (a4Frequency > MAX_A4_FREQUENCY) setA4Frequency(MAX_A4_FREQUENCY);
+                   }}
+                   className="flex-1 h-10 bg-stone-950 border border-stone-800 rounded-xl text-center text-white font-mono"
+                 />
+                 <button onClick={() => setA4Frequency(prev => Math.min(MAX_A4_FREQUENCY, prev + 1))} className="w-10 h-10 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 flex items-center justify-center transition-colors font-mono">+1</button>
+               </div>
+             </div>
+
+             {/* Detection Settings */}
+             <div>
+               <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 block">{t('tuner.detectionSettings') || 'Detection Settings'}</label>
+               <div className="flex gap-2 bg-stone-950 p-1 rounded-xl border border-stone-800">
+                  {(['fast', 'standard', 'stable'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setDetectionMode(mode)}
+                      className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-all ${detectionMode === mode ? 'bg-stone-800 text-white' : 'text-stone-500 hover:text-stone-300'}`}
+                    >
+                      {t(`tuner.${mode}`) || mode}
+                    </button>
+                  ))}
+               </div>
+             </div>
+          </div>
+
+          {/* Tone Generator */}
+          <div className="bg-stone-900/40 border border-stone-800 rounded-2xl p-6 flex flex-col gap-6">
+             <div>
+               <div className="flex justify-between items-center mb-3">
+                 <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">{t('tuner.toneGenerator') || 'Tone Generator'}</label>
+                 {isPlayingTone && <span className="text-orange-400 text-[9px] bg-orange-950/50 border border-orange-500/20 px-2 py-0.5 rounded">{t('tuner.toneGenWarning') || 'Mic inaccurate'}</span>}
+               </div>
+               <div className="flex gap-2 mb-3">
+                 <select 
+                   value={toneGeneratorNote}
+                   onChange={e => setToneGeneratorNote(e.target.value)}
+                   className="flex-1 h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-center"
+                 >
+                   {NOTE_STRINGS.map(n => <option key={n} value={n}>{n}</option>)}
+                 </select>
+                 <select
+                   value={toneGeneratorOctave}
+                   onChange={e => setToneGeneratorOctave(e.target.value)}
+                   className="flex-1 h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-center"
+                 >
+                   {['1', '2', '3', '4', '5', '6'].map(o => <option key={o} value={o}>{o}</option>)}
+                 </select>
+               </div>
+               
+               <div className="flex items-center gap-3 mb-4">
+                 <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest w-12">{t('tuner.volume') || 'Volume'}</label>
+                 <input 
+                   type="range" 
+                   min="0" max="1" step="0.01"
+                   value={toneGeneratorVolume}
+                   onChange={e => setToneGeneratorVolume(parseFloat(e.target.value))}
+                   className="flex-1 h-2 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-brand"
+                 />
+               </div>
+
+               <button
+                 onClick={isPlayingTone ? stopToneGenerator : playToneGenerator}
+                 className={`w-full h-10 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${isPlayingTone ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}
+               >
+                 {isPlayingTone ? (t('tuner.stopRefTone') || 'Stop Tone') : (t('tuner.playRefTone') || 'Play Tone')}
+               </button>
+             </div>
           </div>
         </div>
       </div>
