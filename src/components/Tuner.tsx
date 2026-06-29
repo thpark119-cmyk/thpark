@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Mic, MicOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -12,21 +13,38 @@ const MIN_A4_FREQUENCY = 415;
 const MAX_A4_FREQUENCY = 466;
 const DEFAULT_A4_FREQUENCY = 440;
 
+const TUNER_MAJORS: Record<string, string[]> = {
+  strings: ['violin', 'viola', 'cello', 'doubleBass', 'harp', 'classicGuitar', 'otherStrings'],
+  winds: ['flute', 'oboe', 'clarinet', 'bassoon', 'saxophone', 'recorder', 'horn', 'trumpet', 'trombone', 'tuba', 'euphonium', 'otherWinds'],
+  voice: ['soprano', 'mezzoSoprano', 'contralto', 'countertenor', 'tenor', 'baritone', 'bassBaritone', 'bass', 'voiceUnspecified', 'otherVoice'],
+  keyboard: ['piano', 'organ', 'harpsichord', 'accordion', 'accompaniment', 'otherKeyboard'],
+  percussion: ['timpani', 'mallets', 'drumSet', 'otherPercussion'],
+  koreanTraditional: ['gayageum', 'geomungo', 'haegeum', 'ajaeng', 'daegeum', 'sogeum', 'piri', 'taepyeongso', 'koreanPercussion', 'pansori', 'jeongga', 'minyo', 'otherKorean'],
+  practical: ['vocal', 'jazzVocal', 'popVocal', 'musicalVocal', 'practicalPiano', 'jazzPiano', 'practicalGuitar', 'electricGuitar', 'acousticGuitar', 'bassGuitar', 'drums', 'jazz', 'musical', 'otherPractical'],
+  other: ['otherInstrument', 'chromatic']
+};
+
 const INSTRUMENT_PRESETS: Record<string, { note: string; octave: number }[]> = {
-  chromatic: [],
   violin: [{note: 'G', octave: 3}, {note: 'D', octave: 4}, {note: 'A', octave: 4}, {note: 'E', octave: 5}],
   viola: [{note: 'C', octave: 3}, {note: 'G', octave: 3}, {note: 'D', octave: 4}, {note: 'A', octave: 4}],
   cello: [{note: 'C', octave: 2}, {note: 'G', octave: 2}, {note: 'D', octave: 3}, {note: 'A', octave: 3}],
   doubleBass: [{note: 'E', octave: 1}, {note: 'A', octave: 1}, {note: 'D', octave: 2}, {note: 'G', octave: 2}],
-  guitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
+  classicGuitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
+  practicalGuitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
+  electricGuitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
+  acousticGuitar: [{note: 'E', octave: 2}, {note: 'A', octave: 2}, {note: 'D', octave: 3}, {note: 'G', octave: 3}, {note: 'B', octave: 3}, {note: 'E', octave: 4}],
   bassGuitar: [{note: 'E', octave: 1}, {note: 'A', octave: 1}, {note: 'D', octave: 2}, {note: 'G', octave: 2}],
-  ukulele: [{note: 'G', octave: 4}, {note: 'C', octave: 4}, {note: 'E', octave: 4}, {note: 'A', octave: 4}],
   flute: [{note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'B', octave: 4}, {note: 'C', octave: 5}],
+  oboe: [{note: 'A#', octave: 3}, {note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'B', octave: 4}],
   clarinet: [{note: 'E', octave: 3}, {note: 'F', octave: 3}, {note: 'G', octave: 3}, {note: 'A', octave: 3}, {note: 'B', octave: 3}, {note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}],
+  bassoon: [{note: 'A#', octave: 1}, {note: 'C', octave: 2}, {note: 'D', octave: 2}, {note: 'E', octave: 2}, {note: 'F', octave: 2}, {note: 'G', octave: 2}, {note: 'A', octave: 2}],
   saxophone: [{note: 'A#', octave: 3}, {note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'D#', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'A#', octave: 4}],
+  horn: [{note: 'F', octave: 2}, {note: 'A#', octave: 2}, {note: 'D', octave: 3}, {note: 'F', octave: 3}, {note: 'A', octave: 3}, {note: 'C', octave: 4}],
   trumpet: [{note: 'C', octave: 4}, {note: 'D', octave: 4}, {note: 'E', octave: 4}, {note: 'F', octave: 4}, {note: 'G', octave: 4}, {note: 'A', octave: 4}, {note: 'A#', octave: 4}, {note: 'C', octave: 5}],
   trombone: [{note: 'A#', octave: 1}, {note: 'F', octave: 2}, {note: 'A#', octave: 2}, {note: 'D', octave: 3}, {note: 'F', octave: 3}, {note: 'A#', octave: 3}],
-  voice: []
+  tuba: [{note: 'A#', octave: 0}, {note: 'F', octave: 1}, {note: 'A#', octave: 1}, {note: 'D', octave: 2}, {note: 'F', octave: 2}],
+  euphonium: [{note: 'A#', octave: 1}, {note: 'F', octave: 2}, {note: 'A#', octave: 2}, {note: 'D', octave: 3}, {note: 'F', octave: 3}],
+  timpani: [{note: 'F', octave: 2}, {note: 'G', octave: 2}, {note: 'A', octave: 2}, {note: 'A#', octave: 2}, {note: 'C', octave: 3}, {note: 'D', octave: 3}, {note: 'E', octave: 3}]
 };
 
 function getNoteFromPitch(frequency: number, a4: number): number {
@@ -97,13 +115,33 @@ const createAudioContext = () => {
 
 export default function Tuner() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const isAdmin = user?.email === 'thpark119@gmail.com';
   
   // Load settings from localStorage
   const loadSettings = () => {
     try {
       const saved = localStorage.getItem('musicianlog_tuner_settings');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Migration from old single-level selectedInstrument
+        if (parsed.selectedInstrument) {
+          let foundMajor = 'other';
+          let foundSpecialty = 'chromatic';
+          
+          for (const [major, specialties] of Object.entries(TUNER_MAJORS)) {
+            if (specialties.includes(parsed.selectedInstrument)) {
+              foundMajor = major;
+              foundSpecialty = parsed.selectedInstrument;
+              break;
+            }
+          }
+          
+          parsed.selectedMajor = foundMajor;
+          parsed.selectedSpecialty = foundSpecialty;
+          delete parsed.selectedInstrument;
+        }
+        return parsed;
       }
     } catch (e) {
       console.error('Failed to load tuner settings', e);
@@ -126,7 +164,8 @@ export default function Tuner() {
   // Settings
   const [a4Frequency, setA4Frequency] = useState<number>(initialSettings.a4Frequency || DEFAULT_A4_FREQUENCY);
   const [detectionMode, setDetectionMode] = useState<'fast' | 'standard' | 'stable'>(initialSettings.detectionMode || 'standard');
-  const [selectedInstrument, setSelectedInstrument] = useState<string>(initialSettings.selectedInstrument || 'chromatic');
+  const [selectedMajor, setSelectedMajor] = useState<string>(initialSettings.selectedMajor || 'other');
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>(initialSettings.selectedSpecialty || 'chromatic');
   const [toneGeneratorNote, setToneGeneratorNote] = useState<string>(initialSettings.toneGeneratorNote || 'A');
   const [toneGeneratorOctave, setToneGeneratorOctave] = useState<string>(initialSettings.toneGeneratorOctave || '4');
   const [toneGeneratorVolume, setToneGeneratorVolume] = useState<number>(initialSettings.toneGeneratorVolume ?? 0.5);
@@ -138,7 +177,8 @@ export default function Tuner() {
       localStorage.setItem('musicianlog_tuner_settings', JSON.stringify({
         a4Frequency,
         detectionMode,
-        selectedInstrument,
+        selectedMajor,
+        selectedSpecialty,
         toneGeneratorNote,
         toneGeneratorOctave,
         toneGeneratorVolume
@@ -146,7 +186,7 @@ export default function Tuner() {
     } catch (e) {
       console.error('Failed to save tuner settings', e);
     }
-  }, [a4Frequency, detectionMode, selectedInstrument, toneGeneratorNote, toneGeneratorOctave, toneGeneratorVolume]);
+  }, [a4Frequency, detectionMode, selectedMajor, selectedSpecialty, toneGeneratorNote, toneGeneratorOctave, toneGeneratorVolume]);
   
   // Debug states
   const [audioCtxState, setAudioCtxState] = useState<string>('closed');
@@ -507,8 +547,8 @@ export default function Tuner() {
   const showNoSignalWarning = isActive && frameCount > 120 && rmsVolume === 0;
 
   const getNearestReferenceNote = (currentPitch: number) => {
-    if (selectedInstrument === 'chromatic' || currentPitch === 0) return null;
-    const presets = INSTRUMENT_PRESETS[selectedInstrument];
+    if (selectedSpecialty === 'chromatic' || currentPitch === 0) return null;
+    const presets = INSTRUMENT_PRESETS[selectedSpecialty];
     if (!presets || presets.length === 0) return null;
     
     let minDiff = Infinity;
@@ -681,20 +721,38 @@ export default function Tuner() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Instrument & Reference Notes */}
         <div className="bg-stone-900/40 border border-stone-800 rounded-2xl p-6 flex flex-col gap-6">
-          <div>
-            <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 block">{t('tuner.chooseInstrument') || 'Choose Instrument'}</label>
-            <select
-              value={selectedInstrument}
-              onChange={e => setSelectedInstrument(e.target.value)}
-              className="w-full h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none"
-            >
-              {Object.keys(INSTRUMENT_PRESETS).map(inst => (
-                <option key={inst} value={inst}>{t(`tuner.${inst}`) || inst}</option>
-              ))}
-            </select>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 block">{t('tuner.major') || 'Major'}</label>
+              <select
+                value={selectedMajor}
+                onChange={e => {
+                  const newMajor = e.target.value;
+                  setSelectedMajor(newMajor);
+                  setSelectedSpecialty(TUNER_MAJORS[newMajor][0]);
+                }}
+                className="w-full h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-sm"
+              >
+                {Object.keys(TUNER_MAJORS).map(major => (
+                  <option key={major} value={major}>{t(`tuner.${major}`) || major}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 block">{t('tuner.specialty') || 'Specialty'}</label>
+              <select
+                value={selectedSpecialty}
+                onChange={e => setSelectedSpecialty(e.target.value)}
+                className="w-full h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-sm"
+              >
+                {TUNER_MAJORS[selectedMajor]?.map(spec => (
+                  <option key={spec} value={spec}>{t(`tuner.${spec}`) || spec}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {selectedInstrument !== 'chromatic' && INSTRUMENT_PRESETS[selectedInstrument].length > 0 && (
+          {selectedSpecialty !== 'chromatic' && INSTRUMENT_PRESETS[selectedSpecialty]?.length > 0 ? (
             <div>
               <div className="flex justify-between items-baseline mb-3">
                 <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">{t('tuner.referenceNotes') || 'Reference Notes'}</label>
@@ -705,7 +763,7 @@ export default function Tuner() {
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
-                {INSTRUMENT_PRESETS[selectedInstrument].map((p, i) => {
+                {INSTRUMENT_PRESETS[selectedSpecialty].map((p, i) => {
                   const isNearest = nearestNote && nearestNote.note === p.note && nearestNote.octave === p.octave;
                   const noteIndex = NOTE_STRINGS.indexOf(p.note);
                   const noteNum = noteIndex + (p.octave + 1) * 12;
@@ -721,6 +779,13 @@ export default function Tuner() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 block">{t('tuner.referenceNotes') || 'Reference Notes'}</label>
+              <div className="text-sm font-bold text-stone-500 bg-stone-950 border border-stone-800 rounded-xl px-4 py-3 text-center">
+                {t('tuner.chromaticMode') || 'Chromatic Mode'}
               </div>
             </div>
           )}
@@ -783,24 +848,60 @@ export default function Tuner() {
                  <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">{t('tuner.toneGenerator') || 'Tone Generator'}</label>
                  {isPlayingTone && <span className="text-orange-400 text-[9px] bg-orange-950/50 border border-orange-500/20 px-2 py-0.5 rounded">{t('tuner.toneGenWarning') || 'Mic inaccurate'}</span>}
                </div>
-               <div className="flex gap-2 mb-3">
-                 <select 
-                   value={toneGeneratorNote}
-                   onChange={e => setToneGeneratorNote(e.target.value)}
-                   className="flex-1 h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-center"
-                 >
-                   {NOTE_STRINGS.map(n => <option key={n} value={n}>{n}</option>)}
-                 </select>
-                 <select
-                   value={toneGeneratorOctave}
-                   onChange={e => setToneGeneratorOctave(e.target.value)}
-                   className="flex-1 h-10 bg-stone-950 border border-stone-800 rounded-xl px-3 text-white font-bold appearance-none text-center"
-                 >
-                   {['1', '2', '3', '4', '5', '6'].map(o => <option key={o} value={o}>{o}</option>)}
-                 </select>
-               </div>
                
-               <div className="flex items-center gap-3 mb-4">
+               <div className="grid grid-cols-4 gap-2 mb-4">
+                 {NOTE_STRINGS.map(n => {
+                    const isCurrent = isPlayingTone && toneGeneratorNote === n;
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => {
+                          if (isCurrent) {
+                            stopToneGenerator();
+                          } else {
+                            setToneGeneratorNote(n);
+                            setToneGeneratorOctave('4');
+                            // Delay slightly to ensure state is set before playing
+                            setTimeout(() => playToneGenerator(), 0);
+                          }
+                        }}
+                        className={`h-10 rounded-xl font-bold transition-colors text-sm ${isCurrent ? 'bg-brand text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]' : 'bg-stone-950 border border-stone-800 text-stone-300 hover:bg-stone-800'}`}
+                      >
+                        {n}
+                      </button>
+                    )
+                 })}
+               </div>
+
+               {selectedSpecialty !== 'chromatic' && INSTRUMENT_PRESETS[selectedSpecialty]?.length > 0 && (
+                 <div className="mb-4">
+                   <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2 block">{t('tuner.selectedSpecialtyNotes') || 'Selected Specialty Notes'}</label>
+                   <div className="flex flex-wrap gap-2">
+                     {INSTRUMENT_PRESETS[selectedSpecialty].map(p => {
+                        const isCurrent = isPlayingTone && toneGeneratorNote === p.note && toneGeneratorOctave === p.octave.toString();
+                        return (
+                          <button
+                            key={p.note + p.octave}
+                            onClick={() => {
+                              if (isCurrent) {
+                                stopToneGenerator();
+                              } else {
+                                setToneGeneratorNote(p.note);
+                                setToneGeneratorOctave(p.octave.toString());
+                                setTimeout(() => playToneGenerator(), 0);
+                              }
+                            }}
+                            className={`flex-1 min-w-[3rem] h-10 rounded-xl font-bold transition-colors text-xs ${isCurrent ? 'bg-brand text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]' : 'bg-stone-900 border border-stone-700 text-stone-300 hover:bg-stone-700'}`}
+                          >
+                            {p.note}{p.octave}
+                          </button>
+                        )
+                     })}
+                   </div>
+                 </div>
+               )}
+               
+               <div className="flex items-center gap-3">
                  <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest w-12">{t('tuner.volume') || 'Volume'}</label>
                  <input 
                    type="range" 
@@ -810,27 +911,22 @@ export default function Tuner() {
                    className="flex-1 h-2 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-brand"
                  />
                </div>
-
-               <button
-                 onClick={isPlayingTone ? stopToneGenerator : playToneGenerator}
-                 className={`w-full h-10 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${isPlayingTone ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}
-               >
-                 {isPlayingTone ? (t('tuner.stopRefTone') || 'Stop Tone') : (t('tuner.playRefTone') || 'Play Tone')}
-               </button>
              </div>
           </div>
         </div>
       </div>
       
-      <div className="flex justify-center mt-4">
-        <button
-          type="button"
-          onClick={() => setShowDebug((prev) => !prev)}
-          className="text-stone-500 hover:text-stone-300 text-xs transition-colors py-2 px-4 rounded-full border border-stone-800/50 bg-stone-900/30"
-        >
-          {showDebug ? t('tuner.hideDebug') || 'Hide Debug' : t('tuner.showDebug') || 'Show Debug'}
-        </button>
-      </div>
+      {isAdmin && (
+        <div className="flex justify-center mt-4">
+          <button
+            type="button"
+            onClick={() => setShowDebug((prev) => !prev)}
+            className="text-stone-500 hover:text-stone-300 text-xs transition-colors py-2 px-4 rounded-full border border-stone-800/50 bg-stone-900/30"
+          >
+            {showDebug ? t('tuner.hideDebug') || 'Hide Debug' : t('tuner.showDebug') || 'Show Debug'}
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 }

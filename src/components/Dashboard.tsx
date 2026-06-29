@@ -70,15 +70,15 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
           {tools.map((tool) => (
             <button
               key={tool.id}
-              disabled
-              className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-stone-900/50 opacity-60 text-left relative overflow-hidden"
+              onClick={() => setActiveTab(tool.id)}
+              className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-stone-900/50 hover:bg-stone-800 transition-colors text-left relative overflow-hidden active:scale-[0.98]"
             >
               <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-stone-400">
                 <tool.icon size={16} />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-stone-300">{tool.label}</h3>
-                <p className="text-[9px] text-brand font-bold uppercase tracking-widest">Coming Soon</p>
+                <p className="text-[9px] text-brand font-bold uppercase tracking-widest">{t(`dashboard.open${tool.id.charAt(0).toUpperCase() + tool.id.slice(1)}`) || `Open ${tool.label}`}</p>
               </div>
             </button>
           ))}
