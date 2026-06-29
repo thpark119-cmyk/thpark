@@ -27,7 +27,7 @@ function autoCorrelate(buf: Float32Array, sampleRate: number): number {
     rms += val * val;
   }
   rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.01) return -1; // Not enough signal
+  if (rms < 0.005) return -1; // Not enough signal
 
   let r1 = 0, r2 = SIZE - 1, thres = 0.2;
   for (let i = 0; i < SIZE / 2; i++)
@@ -74,22 +74,62 @@ export default function Tuner() {
   const [cents, setCents] = useState<number>(0);
   const [targetFreq, setTargetFreq] = useState<number>(0);
   const [rmsVolume, setRmsVolume] = useState<number>(0);
+  
+  // Debug states
+  const [audioCtxState, setAudioCtxState] = useState<string>('closed');
+  const [debugMsg, setDebugMsg] = useState<string>('waiting');
+  const [frameCount, setFrameCount] = useState<number>(0);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestRef = useRef<number>();
+  const isListeningRef = useRef<boolean>(false);
   const bufRef = useRef<Float32Array>(new Float32Array(2048));
 
   const startTuner = async () => {
     setError(null);
+    setDebugMsg('requesting_mic');
+    
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
+    } catch {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err: any) {
+        console.error(err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setError(t('tuner.micBlocked') || 'Microphone access was blocked.');
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          setError(t('tuner.micNotAvailable') || 'Microphone not available.');
+        } else {
+          setError(t('tuner.micRequired') || 'Microphone permission is required.');
+        }
+        setIsActive(false);
+        setDebugMsg('mic_error');
+        return;
+      }
+    }
+
+    try {
       streamRef.current = stream;
       
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioContextRef.current = audioCtx;
+      
+      if (audioCtx.state === 'suspended') {
+        setDebugMsg('resuming_audio_context');
+        await audioCtx.resume();
+      }
+      setAudioCtxState(audioCtx.state);
       
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
@@ -99,24 +139,24 @@ export default function Tuner() {
       source.connect(analyser);
       sourceRef.current = source;
       
+      isListeningRef.current = true;
       setIsActive(true);
+      setDebugMsg('started');
+      setFrameCount(0);
       updatePitch();
     } catch (err: any) {
-      console.error(err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError(t('tuner.micBlocked') || 'Microphone access was blocked.');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setError(t('tuner.micNotAvailable') || 'Microphone not available.');
-      } else {
-        setError(t('tuner.micRequired') || 'Microphone permission is required.');
-      }
+      console.error("Error setting up audio graph:", err);
+      setError("Audio setup failed: " + err.message);
       setIsActive(false);
+      setDebugMsg('setup_error');
     }
   };
 
   const stopTuner = () => {
+    isListeningRef.current = false;
     if (requestRef.current) {
       cancelAnimationFrame(requestRef.current);
+      requestRef.current = undefined;
     }
     if (sourceRef.current) {
       sourceRef.current.disconnect();
@@ -131,6 +171,8 @@ export default function Tuner() {
       audioContextRef.current = null;
     }
     setIsActive(false);
+    setAudioCtxState('closed');
+    setDebugMsg('stopped');
     setPitch(0);
     setNote('--');
     setOctave('');
@@ -146,45 +188,60 @@ export default function Tuner() {
   }, []);
 
   const updatePitch = () => {
-    if (!analyserRef.current || !audioContextRef.current) return;
-    
-    const analyser = analyserRef.current;
-    const buf = bufRef.current;
-    analyser.getFloatTimeDomainData(buf);
-    
-    let rms = 0;
-    for (let i = 0; i < buf.length; i++) {
-      rms += buf[i] * buf[i];
-    }
-    rms = Math.sqrt(rms / buf.length);
-    setRmsVolume(rms);
-    
-    const ac = autoCorrelate(buf, audioContextRef.current.sampleRate);
-    
-    if (ac !== -1 && ac > 40 && ac < 2000) {
-      const pitchValue = ac;
-      setPitch(pitchValue);
-      const noteNum = getNoteFromPitch(pitchValue);
-      const noteStr = NOTE_STRINGS[noteNum % 12];
-      const oct = Math.floor(noteNum / 12) - 1;
-      
-      setNote(noteStr);
-      setOctave(oct.toString());
-      setCents(getCentsOffFromPitch(pitchValue, noteNum));
-      setTargetFreq(getFrequencyFromNoteNumber(noteNum));
-    } else {
-      // If noise, we don't clear it immediately to avoid jitter, but if it stays silent we could.
-      // We will let it stay as last note, just low volume
-    }
+    if (!isListeningRef.current) return;
 
-    if (isActive) {
-      requestRef.current = requestAnimationFrame(updatePitch);
+    try {
+      if (!analyserRef.current || !audioContextRef.current) return;
+      
+      const analyser = analyserRef.current;
+      const buf = bufRef.current;
+      analyser.getFloatTimeDomainData(buf);
+      
+      let rms = 0;
+      for (let i = 0; i < buf.length; i++) {
+        rms += buf[i] * buf[i];
+      }
+      rms = Math.sqrt(rms / buf.length);
+      setRmsVolume(rms);
+      
+      setFrameCount(prev => prev + 1);
+
+      if (rms < 0.005) {
+        setDebugMsg('too_quiet');
+      } else {
+        const ac = autoCorrelate(buf, audioContextRef.current.sampleRate);
+        
+        if (ac !== -1 && ac >= 35 && ac <= 2000) {
+          const pitchValue = ac;
+          setPitch(pitchValue);
+          const noteNum = getNoteFromPitch(pitchValue);
+          const noteStr = NOTE_STRINGS[noteNum % 12];
+          const oct = Math.floor(noteNum / 12) - 1;
+          
+          setNote(noteStr);
+          setOctave(oct.toString());
+          setCents(getCentsOffFromPitch(pitchValue, noteNum));
+          setTargetFreq(getFrequencyFromNoteNumber(noteNum));
+          setDebugMsg(`detected_pitch`);
+        } else if (ac !== -1) {
+          setDebugMsg('out_of_range');
+        } else {
+          setDebugMsg('pitch_not_found');
+        }
+      }
+    } catch (error) {
+      console.error('Tuner updatePitch failed:', error);
+      setDebugMsg('analysis_error');
+    } finally {
+      if (isListeningRef.current) {
+        requestRef.current = requestAnimationFrame(updatePitch);
+      }
     }
   };
 
   const getStatusText = () => {
     if (!isActive) return '';
-    if (rmsVolume < 0.01) return t('tuner.playNote') || 'Play a note to detect pitch.';
+    if (rmsVolume < 0.005) return t('tuner.playNote') || 'Play a note to detect pitch.';
     
     if (Math.abs(cents) <= 5) return t('tuner.inTune') || 'In tune';
     if (Math.abs(cents) <= 15) return t('tuner.almostInTune') || 'Almost in tune';
@@ -193,7 +250,7 @@ export default function Tuner() {
   };
 
   const getStatusColor = () => {
-    if (rmsVolume < 0.01) return 'text-stone-500';
+    if (rmsVolume < 0.005) return 'text-stone-500';
     if (Math.abs(cents) <= 5) return 'text-green-500';
     if (Math.abs(cents) <= 15) return 'text-brand';
     if (cents < 0) return 'text-orange-500';
@@ -214,6 +271,21 @@ export default function Tuner() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 relative max-w-2xl mx-auto">
       <div className="flex justify-between items-center px-1">
         <h2 className="text-3xl font-serif italic text-white leading-none">{t('tuner.title') || 'Tuner'}</h2>
+      </div>
+      
+      {/* Debug Panel */}
+      <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-1">
+        <div className="flex justify-between">
+          <span>Mic State: {isActive ? 'active' : 'inactive'}</span>
+          <span>AudioCtx: {audioCtxState}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Level RMS: {(rmsVolume * 100).toFixed(2)}%</span>
+          <span>Frames: {frameCount}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Last msg: {debugMsg}</span>
+        </div>
       </div>
       
       {error && (
@@ -276,7 +348,7 @@ export default function Tuner() {
           {/* Needle */}
           <motion.div 
             className="absolute bottom-0 w-1 h-32 origin-bottom flex flex-col items-center justify-end z-10"
-            animate={{ rotate: isActive && rmsVolume > 0.01 ? needleRotation : 0 }}
+            animate={{ rotate: isActive && rmsVolume > 0.005 ? needleRotation : 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 20 }}
           >
             <div className={`w-1 h-24 rounded-full ${getPointerColor()} shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors`} />
