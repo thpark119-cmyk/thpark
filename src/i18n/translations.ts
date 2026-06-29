@@ -17,6 +17,7 @@ export const translations = {
       teachingStudio: '학생 관리',
       repertoire: '악보함',
       metronome: '메트로놈',
+      tuner: '튜너',
       tutor: 'AI 튜터'
     },
     common: {
@@ -276,6 +277,26 @@ export const translations = {
       professional: '전문',
       other: '기타'
     },
+    tuner: {
+      title: '튜너',
+      start: '튜너 시작',
+      stop: '튜너 정지',
+      microphone: '마이크',
+      micPermission: '마이크 권한',
+      currentNote: '현재 음',
+      currentFreq: '현재 주파수',
+      targetFreq: '목표 주파수',
+      pitchDiff: '음정 차이',
+      flat: '낮음',
+      almostInTune: '거의 맞음',
+      inTune: '맞음',
+      sharp: '높음',
+      playNote: '소리를 내면 음정을 표시합니다.',
+      micRequired: '마이크 권한이 필요합니다.',
+      micBlocked: '마이크 접근이 차단되었습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.',
+      micNotAvailable: '이 브라우저에서는 마이크 튜너를 사용할 수 없습니다.',
+      inputLevel: '입력 레벨'
+    },
     metronome: {
       title: '메트로놈',
       start: '시작',
@@ -378,6 +399,7 @@ export const translations = {
       teachingStudio: 'Teaching Studio',
       repertoire: 'Sheet Music',
       metronome: 'Metronome',
+      tuner: 'Tuner',
       tutor: 'AI Tutor'
     },
     common: {
@@ -637,6 +659,26 @@ export const translations = {
       professional: 'Professional',
       other: 'Other'
     },
+    tuner: {
+      title: 'Tuner',
+      start: 'Start Tuner',
+      stop: 'Stop Tuner',
+      microphone: 'Microphone',
+      micPermission: 'Microphone Permission',
+      currentNote: 'Current Note',
+      currentFreq: 'Current Frequency',
+      targetFreq: 'Target Frequency',
+      pitchDiff: 'Pitch Difference',
+      flat: 'Flat',
+      almostInTune: 'Almost in tune',
+      inTune: 'In tune',
+      sharp: 'Sharp',
+      playNote: 'Play a note to detect pitch.',
+      micRequired: 'Microphone permission is required.',
+      micBlocked: 'Microphone access was blocked. Please allow microphone access in your browser settings.',
+      micNotAvailable: 'Microphone tuner is not available in this browser.',
+      inputLevel: 'Input Level'
+    },
     metronome: {
       title: 'Metronome',
       start: 'Start',
@@ -739,6 +781,7 @@ export const translations = {
       teachingStudio: 'Unterrichtsraum',
       repertoire: 'Notenbibliothek',
       metronome: 'Metronom',
+      tuner: 'Stimmgerät',
       tutor: 'KI-Tutor'
     },
     common: {
@@ -997,6 +1040,26 @@ export const translations = {
       advanced: 'Fortgeschritten',
       professional: 'Profi',
       other: 'Sonstiges'
+    },
+    tuner: {
+      title: 'Stimmgerät',
+      start: 'Stimmgerät starten',
+      stop: 'Stimmgerät stoppen',
+      microphone: 'Mikrofon',
+      micPermission: 'Mikrofonberechtigung',
+      currentNote: 'Aktueller Ton',
+      currentFreq: 'Aktuelle Frequenz',
+      targetFreq: 'Zielfrequenz',
+      pitchDiff: 'Tonhöhenabweichung',
+      flat: 'Zu tief',
+      almostInTune: 'Fast gestimmt',
+      inTune: 'Gestimmt',
+      sharp: 'Zu hoch',
+      playNote: 'Spiele einen Ton, um die Tonhöhe zu erkennen.',
+      micRequired: 'Mikrofonberechtigung ist erforderlich.',
+      micBlocked: 'Der Mikrofonzugriff wurde blockiert. Bitte erlaube den Mikrofonzugriff in den Browsereinstellungen.',
+      micNotAvailable: 'Das Mikrofon-Stimmgerät ist in diesem Browser nicht verfügbar.',
+      inputLevel: 'Eingangspegel'
     },
     metronome: {
       title: 'Metronom',
