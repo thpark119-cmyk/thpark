@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Square, Plus, Minus, Volume2, VolumeX, Hand, Save, ListMusic, Timer, TrendingUp, Ear, ChevronDown, ChevronUp, Trash2, Edit2, Check } from 'lucide-react';
+import { Play, Square, Plus, Minus, Volume2, VolumeX, Hand, Save, ListMusic, Timer, TrendingUp, Ear, ChevronDown, ChevronUp, Trash2, Edit2, Check, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -9,7 +9,20 @@ const STORAGE_KEY = 'musicianlog_metronome_settings';
 const PRESETS_STORAGE_KEY = 'musicianlog_metronome_presets';
 const SETLISTS_STORAGE_KEY = 'musicianlog_metronome_setlists';
 
+const getTempoMarking = (bpm: number) => {
+  if (bpm <= 40) return 'Grave';
+  if (bpm <= 60) return 'Largo';
+  if (bpm <= 76) return 'Adagio';
+  if (bpm <= 108) return 'Andante';
+  if (bpm <= 120) return 'Moderato';
+  if (bpm <= 168) return 'Allegro';
+  return 'Presto';
+};
+
 type BeatState = 'accent' | 'normal' | 'mute';
+
+export type MetronomeMode = 'basic' | 'preset' | 'setlist' | 'practice' | 'gig';
+export type SoundType = 'classic' | 'woodblock' | 'digital' | 'soft' | 'drum';
 
 interface MetronomeSettings {
   bpm: number;
@@ -18,6 +31,13 @@ interface MetronomeSettings {
   beatStates: BeatState[];
   volume: number;
   isMuted: boolean;
+  currentMode?: MetronomeMode;
+  ledEnabled?: boolean;
+  flashEnabled?: boolean;
+  pendulumEnabled?: boolean;
+  focusViewEnabled?: boolean;
+  normalSound?: SoundType;
+  accentSound?: SoundType;
 }
 
 interface MetronomePreset extends MetronomeSettings {
@@ -62,6 +82,13 @@ const defaultSettings: MetronomeSettings = {
   beatStates: ['accent', 'normal', 'normal', 'normal'],
   volume: 0.8,
   isMuted: false,
+  currentMode: 'basic',
+  ledEnabled: true,
+  flashEnabled: false,
+  pendulumEnabled: false,
+  focusViewEnabled: false,
+  normalSound: 'classic',
+  accentSound: 'classic',
 };
 
 export default function Metronome() {
@@ -100,6 +127,8 @@ export default function Metronome() {
   const [isPracticeExpanded, setIsPracticeExpanded] = useState(false);
   const [isAutoTempoExpanded, setIsAutoTempoExpanded] = useState(false);
   const [isCoachExpanded, setIsCoachExpanded] = useState(false);
+  const [isVisualsExpanded, setIsVisualsExpanded] = useState(false);
+  const [isSoundsExpanded, setIsSoundsExpanded] = useState(false);
 
   const [practiceSettings, setPracticeSettings] = useState<PracticeSettings>({
     targetTime: 0,
@@ -253,20 +282,48 @@ export default function Metronome() {
     osc.connect(gainNode);
     gainNode.connect(ctx.destination);
 
-    if (beatState === 'accent') {
-      osc.frequency.value = 880.0;
-    } else {
-      osc.frequency.value = 440.0;
+    const isAccent = beatState === 'accent';
+    const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
+    const vol = settingsRef.current.volume;
+
+    if (type === 'classic') {
+      osc.type = 'sine';
+      osc.frequency.value = isAccent ? 880 : 440;
+      gainNode.gain.setValueAtTime(vol, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+      osc.start(time);
+      osc.stop(time + 0.1);
+    } else if (type === 'digital') {
+      osc.type = 'square';
+      osc.frequency.value = isAccent ? 1200 : 800;
+      gainNode.gain.setValueAtTime(vol * 0.5, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      osc.start(time);
+      osc.stop(time + 0.15);
+    } else if (type === 'woodblock') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
+      osc.frequency.exponentialRampToValueAtTime(isAccent ? 800 : 400, time + 0.05);
+      gainNode.gain.setValueAtTime(vol * 0.8, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      osc.start(time);
+      osc.stop(time + 0.05);
+    } else if (type === 'soft') {
+      osc.type = 'sine';
+      osc.frequency.value = isAccent ? 600 : 400;
+      gainNode.gain.setValueAtTime(vol * 0.4, time);
+      gainNode.gain.linearRampToValueAtTime(0.001, time + 0.05);
+      osc.start(time);
+      osc.stop(time + 0.05);
+    } else if (type === 'drum') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(isAccent ? 150 : 100, time);
+      osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
+      gainNode.gain.setValueAtTime(vol * 0.8, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+      osc.start(time);
+      osc.stop(time + 0.1);
     }
-
-    gainNode.gain.value = settingsRef.current.volume;
-    
-    // Envelope to avoid clicks
-    gainNode.gain.setValueAtTime(gainNode.gain.value, time);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-
-    osc.start(time);
-    osc.stop(time + 0.1);
   };
 
   const scheduler = () => {
@@ -552,7 +609,86 @@ export default function Metronome() {
         </div>
       </div>
 
-      <div className="bg-bg-card border border-white/5 p-6 md:p-8 rounded-[32px] space-y-8">
+      {/* Mode Selector */}
+      <div className="flex overflow-x-auto pb-2 gap-2 px-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {(['basic', 'preset', 'setlist', 'practice', 'gig'] as MetronomeMode[]).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setSettings(s => ({ ...s, currentMode: mode }))}
+            className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-colors ${
+              settings.currentMode === mode ? 'bg-white text-black' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'
+            }`}
+          >
+            {t(`metronome.mode${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any) || mode}
+          </button>
+        ))}
+      </div>
+
+      {settings.currentMode === 'gig' || settings.focusViewEnabled ? (
+        <div className="bg-bg-card border border-white/5 p-6 md:p-12 rounded-[32px] space-y-12 min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden">
+          {settings.flashEnabled && isPlaying && currentBeat === 0 && !isSilentPhase && (
+            <motion.div initial={{opacity:0.3}} animate={{opacity:0}} transition={{duration:0.5}} className="absolute inset-0 bg-white z-0 pointer-events-none" />
+          )}
+          
+          {settings.currentMode === 'gig' && activeSetlistId && (
+            <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10">
+              <span className="text-sm font-bold text-stone-500 uppercase tracking-widest">{setlists.find(s=>s.id===activeSetlistId)?.name}</span>
+              {setlists.find(s=>s.id===activeSetlistId)?.presetIds.length ? (
+                <span className="text-white font-bold">{presets.find(p => p.id === setlists.find(s=>s.id===activeSetlistId)?.presetIds[activePresetIndex])?.name}</span>
+              ) : null}
+            </div>
+          )}
+
+          <div className="z-10 text-center space-y-4">
+            <p className="text-stone-500 font-bold uppercase tracking-widest text-sm">{getTempoMarking(settings.bpm)}</p>
+            <div className="text-[120px] md:text-[160px] font-bold text-white leading-none tracking-tighter">
+              {settings.bpm}
+            </div>
+            <p className="text-stone-500 font-bold uppercase tracking-widest">{settings.numerator} / {settings.denominator}</p>
+          </div>
+
+          <div className="z-10 flex flex-col items-center gap-8 w-full max-w-sm">
+            {settings.ledEnabled && (
+              <div className="flex gap-4">
+                {Array.from({ length: settings.numerator }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-4 h-4 rounded-full transition-all duration-75 ${
+                      isPlaying && currentBeat === i && !isSilentPhase
+                        ? settings.beatStates[i] === 'accent' ? 'bg-brand scale-125 shadow-[0_0_15px_rgba(var(--brand),0.5)]' : 'bg-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]'
+                        : 'bg-stone-800'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+            
+            <button
+              onClick={togglePlay}
+              className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${
+                isPlaying ? 'bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.3)]' : 'bg-brand text-white shadow-[0_0_30px_rgba(var(--brand),0.3)]'
+              }`}
+            >
+              {isPlaying ? <Square fill="currentColor" size={48} /> : <Play fill="currentColor" size={48} className="ml-2" />}
+            </button>
+
+            {settings.currentMode === 'gig' && (
+              <div className="flex w-full gap-2">
+                <button onClick={goSetlistPrev} className="flex-1 py-4 bg-stone-800 rounded-2xl text-xs font-bold text-white uppercase tracking-widest flex items-center justify-center gap-2"><ListMusic size={14}/> {t('metronome.prevSong')}</button>
+                <button onClick={goSetlistNext} className="flex-1 py-4 bg-stone-800 rounded-2xl text-xs font-bold text-white uppercase tracking-widest flex items-center justify-center gap-2">{t('metronome.nextSong')} <ListMusic size={14}/></button>
+              </div>
+            )}
+            
+            {settings.currentMode === 'gig' && (
+              <p className="text-xs text-stone-500 flex items-center justify-center gap-2 mt-4"><Check size={14}/> {t('metronome.editLocked')}. {t('metronome.switchToBasic')}</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-bg-card border border-white/5 p-6 md:p-8 rounded-[32px] space-y-8 relative overflow-hidden">
+          {settings.flashEnabled && isPlaying && currentBeat === 0 && !isSilentPhase && (
+            <motion.div initial={{opacity:0.2}} animate={{opacity:0}} transition={{duration:0.4}} className="absolute inset-0 bg-white z-0 pointer-events-none" />
+          )}
         
         {/* BPM Display and Controls */}
         <div className="flex flex-col items-center space-y-6">
@@ -567,6 +703,7 @@ export default function Metronome() {
               max={MAX_BPM}
             />
             <p className="text-stone-500 font-bold uppercase tracking-widest text-sm">{t('metronome.bpm')}</p>
+            <p className="text-brand font-bold uppercase tracking-widest text-xs mt-2">{getTempoMarking(settings.bpm)}</p>
           </div>
 
           <div className="w-full flex items-center gap-4">
@@ -653,6 +790,43 @@ export default function Metronome() {
           <p className="text-center text-[10px] text-stone-600">{t('metronome.beatSettings')}</p>
         </div>
 
+        <div className="flex flex-col items-center gap-6">
+          {/* LED Display */}
+          {settings.ledEnabled && (
+            <div className="flex gap-4">
+              {settings.beatStates.map((state, i) => (
+                <div
+                  key={i}
+                  className={`w-4 h-4 rounded-full transition-all duration-75 ${
+                    isPlaying && currentBeat === i && !isSilentPhase
+                      ? state === 'accent' ? 'bg-brand scale-125 shadow-[0_0_15px_rgba(var(--brand),0.5)]' : 'bg-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]'
+                      : 'bg-stone-800'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Pendulum Display */}
+          {settings.pendulumEnabled && (
+            <div className="w-full max-w-[300px] h-2 bg-stone-800 rounded-full relative overflow-hidden mt-4">
+              <motion.div
+                initial={false}
+                animate={{
+                  x: isPlaying ? (currentBeat % 2 === 0 ? '-100%' : '100%') : '0%',
+                }}
+                transition={{
+                  duration: 60 / settings.bpm,
+                  ease: 'easeInOut',
+                  repeat: isPlaying ? Infinity : 0,
+                  repeatType: "reverse"
+                }}
+                className="absolute top-0 bottom-0 left-1/2 w-4 bg-brand rounded-full -ml-2"
+              />
+            </div>
+          )}
+        </div>
+
         <hr className="border-white/5" />
 
         {/* Volume */}
@@ -676,10 +850,12 @@ export default function Metronome() {
         </div>
 
       </div>
+      )}
 
       {/* Advanced Features */}
       <div className="space-y-4">
         {/* Presets & Setlists */}
+        {(settings.currentMode === 'preset' || settings.currentMode === 'setlist') && (
         <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
           <button 
             onClick={() => setIsPresetsExpanded(!isPresetsExpanded)}
@@ -814,8 +990,11 @@ export default function Metronome() {
             )}
           </AnimatePresence>
         </div>
+        )}
 
         {/* Practice Mode */}
+        {settings.currentMode === 'practice' && (
+        <>
         <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
           <button 
             onClick={() => setIsPracticeExpanded(!isPracticeExpanded)}
@@ -983,6 +1162,124 @@ export default function Metronome() {
             )}
           </AnimatePresence>
         </div>
+        </>
+        )}
+
+        {/* Visual Options */}
+        {settings.currentMode === 'basic' && (
+        <>
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+          <button 
+            onClick={() => setIsVisualsExpanded(!isVisualsExpanded)}
+            className="w-full p-6 flex justify-between items-center text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
+                <Eye size={20} />
+              </div>
+              <span className="font-bold text-white">{t('metronome.focusView')} & Visuals</span>
+            </div>
+            {isVisualsExpanded ? <ChevronUp size={20} className="text-stone-500" /> : <ChevronDown size={20} className="text-stone-500" />}
+          </button>
+          <AnimatePresence>
+            {isVisualsExpanded && (
+              <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
+                <div className="p-6 pt-0 space-y-4 border-t border-white/5 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white">{t('metronome.focusView')}</span>
+                    <button 
+                      onClick={() => setSettings(s => ({...s, focusViewEnabled: !s.focusViewEnabled}))}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${settings.focusViewEnabled ? 'bg-brand' : 'bg-stone-700'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.focusViewEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white">{t('metronome.ledDisplay')}</span>
+                    <button 
+                      onClick={() => setSettings(s => ({...s, ledEnabled: !s.ledEnabled}))}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${settings.ledEnabled ? 'bg-brand' : 'bg-stone-700'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.ledEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white">{t('metronome.screenFlash')}</span>
+                    <button 
+                      onClick={() => setSettings(s => ({...s, flashEnabled: !s.flashEnabled}))}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${settings.flashEnabled ? 'bg-brand' : 'bg-stone-700'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.flashEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white">{t('metronome.pendulumView')}</span>
+                    <button 
+                      onClick={() => setSettings(s => ({...s, pendulumEnabled: !s.pendulumEnabled}))}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${settings.pendulumEnabled ? 'bg-brand' : 'bg-stone-700'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.pendulumEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Sound Options */}
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+          <button 
+            onClick={() => setIsSoundsExpanded(!isSoundsExpanded)}
+            className="w-full p-6 flex justify-between items-center text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-500 flex items-center justify-center">
+                <Volume2 size={20} />
+              </div>
+              <span className="font-bold text-white">{t('metronome.soundType')}</span>
+            </div>
+            {isSoundsExpanded ? <ChevronUp size={20} className="text-stone-500" /> : <ChevronDown size={20} className="text-stone-500" />}
+          </button>
+          <AnimatePresence>
+            {isSoundsExpanded && (
+              <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
+                <div className="p-6 pt-0 space-y-4 border-t border-white/5 mt-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.normalSound')}</label>
+                    <select 
+                      className="w-full bg-stone-900 border border-white/5 rounded-xl px-3 py-3 text-sm text-white outline-none"
+                      value={settings.normalSound || 'classic'}
+                      onChange={(e) => setSettings(s => ({...s, normalSound: e.target.value as SoundType}))}
+                    >
+                      <option value="classic">{t('metronome.classicClick')}</option>
+                      <option value="woodblock">{t('metronome.woodBlock')}</option>
+                      <option value="digital">{t('metronome.digitalBeep')}</option>
+                      <option value="soft">{t('metronome.softTick')}</option>
+                      <option value="drum">{t('metronome.drumClick')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.accentSound')}</label>
+                    <select 
+                      className="w-full bg-stone-900 border border-white/5 rounded-xl px-3 py-3 text-sm text-white outline-none"
+                      value={settings.accentSound || 'classic'}
+                      onChange={(e) => setSettings(s => ({...s, accentSound: e.target.value as SoundType}))}
+                    >
+                      <option value="classic">{t('metronome.classicClick')}</option>
+                      <option value="woodblock">{t('metronome.woodBlock')}</option>
+                      <option value="digital">{t('metronome.digitalBeep')}</option>
+                      <option value="soft">{t('metronome.softTick')}</option>
+                      <option value="drum">{t('metronome.drumClick')}</option>
+                    </select>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        </>
+        )}
 
       </div>
 
