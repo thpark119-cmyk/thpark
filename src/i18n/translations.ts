@@ -323,7 +323,11 @@ export const translations = {
       editLocked: '편집 잠김',
       switchToBasic: '설정을 바꾸려면 기본 모드로 이동하세요.',
       prevSong: '이전 곡',
-      nextSong: '다음 곡'
+      nextSong: '다음 곡',
+      presetsAndSetlists: '프리셋/세트리스트',
+      practice: '연습',
+      holdToChange: '길게 눌러 빠르게 변경',
+      basicMetronome: '기본 메트로놈'
     }
   },
   en: {
@@ -648,7 +652,11 @@ export const translations = {
       editLocked: 'Editing locked',
       switchToBasic: 'Switch to Basic Mode to change settings.',
       prevSong: 'Previous Song',
-      nextSong: 'Next Song'
+      nextSong: 'Next Song',
+      presetsAndSetlists: 'Presets & Setlists',
+      practice: 'Practice',
+      holdToChange: 'Press and hold to change quickly',
+      basicMetronome: 'Basic Metronome'
     }
   },
   de: {
@@ -973,7 +981,11 @@ export const translations = {
       editLocked: 'Bearbeitung gesperrt',
       switchToBasic: 'Wechsle zum Basismodus, um Einstellungen zu ändern.',
       prevSong: 'Vorheriges Stück',
-      nextSong: 'Nächstes Stück'
+      nextSong: 'Nächstes Stück',
+      presetsAndSetlists: 'Presets & Setlists',
+      practice: 'Üben',
+      holdToChange: 'Gedrückt halten, um schnell zu ändern',
+      basicMetronome: 'Basis-Metronom'
     }
   }
 } as const;

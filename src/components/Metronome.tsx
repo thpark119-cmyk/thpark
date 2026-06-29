@@ -9,6 +9,76 @@ const STORAGE_KEY = 'musicianlog_metronome_settings';
 const PRESETS_STORAGE_KEY = 'musicianlog_metronome_presets';
 const SETLISTS_STORAGE_KEY = 'musicianlog_metronome_setlists';
 
+function NumberInput({
+  value,
+  onChange,
+  onBlur,
+  min,
+  max,
+  className,
+  placeholder,
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  onBlur?: (val: number) => void;
+  min: number;
+  max: number;
+  className?: string;
+  placeholder?: string;
+}) {
+  const [localValue, setLocalValue] = useState(value.toString());
+
+  useEffect(() => {
+    const localNum = localValue === '' ? 0 : parseInt(localValue, 10);
+    if (localNum !== value) {
+      setLocalValue(value.toString());
+    }
+  }, [value]); // intentional: don't put localValue in dependency to avoid infinite loop, just run when prop 'value' changes
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value;
+    // If the visible value was '0' (either localValue was '0' or '') and we typed something
+    if ((localValue === '0' || localValue === '') && raw.length > 1 && raw.startsWith('0')) {
+      raw = raw.substring(1);
+    }
+    
+    const onlyDigits = raw.replace(/\D/g, '');
+    
+    setLocalValue(onlyDigits);
+    
+    if (onlyDigits === '') {
+      onChange(0);
+    } else {
+      let num = parseInt(onlyDigits, 10);
+      onChange(num);
+    }
+  };
+
+  const handleBlur = () => {
+    let num = localValue === '' ? 0 : parseInt(localValue, 10);
+    num = Math.max(min, Math.min(max, num));
+    setLocalValue(num.toString());
+    if (onBlur) {
+      onBlur(num);
+    } else {
+      onChange(num);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={localValue === '' ? '0' : localValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
+}
+
 const getTempoMarking = (bpm: number) => {
   if (bpm <= 40) return 'Grave';
   if (bpm <= 60) return 'Largo';
@@ -428,6 +498,36 @@ export default function Metronome() {
     setSettings(s => ({ ...s, bpm: clamped }));
   };
 
+  const holdTimeoutRef = useRef<number | null>(null);
+  const holdIntervalRef = useRef<number | null>(null);
+
+  const stopHoldChange = () => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (holdIntervalRef.current !== null) {
+      window.clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  };
+
+  const startHoldChange = (delta: number) => {
+    stopHoldChange();
+    setSettings(s => ({ ...s, bpm: Math.max(MIN_BPM, Math.min(MAX_BPM, s.bpm + delta)) }));
+
+    holdTimeoutRef.current = window.setTimeout(() => {
+      holdIntervalRef.current = window.setInterval(() => {
+        setSettings(s => ({ ...s, bpm: Math.max(MIN_BPM, Math.min(MAX_BPM, s.bpm + delta)) }));
+      }, 120);
+    }, 350);
+  };
+
+  // Cleanup hold on unmount
+  useEffect(() => {
+    return () => stopHoldChange();
+  }, []);
+
   const handleTap = () => {
     const now = performance.now();
     const times = tapTimesRef.current;
@@ -602,7 +702,7 @@ export default function Metronome() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 max-w-2xl mx-auto">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-12 max-w-5xl mx-auto">
       <div className="flex justify-between items-center px-1">
         <div>
           <h2 className="text-3xl font-serif italic text-white leading-none">{t('metronome.title')}</h2>
@@ -611,7 +711,7 @@ export default function Metronome() {
 
       {/* Mode Selector */}
       <div className="flex overflow-x-auto pb-2 gap-2 px-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        {(['basic', 'preset', 'setlist', 'practice', 'gig'] as MetronomeMode[]).map((mode) => (
+        {(['basic', 'gig'] as MetronomeMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => setSettings(s => ({ ...s, currentMode: mode }))}
@@ -619,13 +719,15 @@ export default function Metronome() {
               settings.currentMode === mode ? 'bg-white text-black' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'
             }`}
           >
-            {t(`metronome.mode${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any) || mode}
+            {mode === 'basic' ? t('metronome.basicMetronome') : t(`metronome.mode${mode.charAt(0).toUpperCase() + mode.slice(1)}` as any)}
           </button>
         ))}
       </div>
 
-      {settings.currentMode === 'gig' || settings.focusViewEnabled ? (
-        <div className="bg-bg-card border border-white/5 p-6 md:p-12 rounded-[32px] space-y-12 min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden">
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+        <div className="space-y-6">
+          {settings.currentMode === 'gig' || settings.focusViewEnabled ? (
+            <div className="bg-bg-card border border-white/5 p-6 md:p-12 rounded-[32px] space-y-12 min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden">
           {settings.flashEnabled && isPlaying && currentBeat === 0 && !isSilentPhase && (
             <motion.div initial={{opacity:0.3}} animate={{opacity:0}} transition={{duration:0.5}} className="absolute inset-0 bg-white z-0 pointer-events-none" />
           )}
@@ -693,11 +795,10 @@ export default function Metronome() {
         {/* BPM Display and Controls */}
         <div className="flex flex-col items-center space-y-6">
           <div className="text-center w-full">
-            <input
-              type="number"
+            <NumberInput
               value={settings.bpm}
-              onChange={(e) => updateBpm(parseInt(e.target.value) || MIN_BPM)}
-              onBlur={(e) => updateBpm(parseInt(e.target.value) || MIN_BPM)}
+              onChange={(val) => setSettings(s => ({ ...s, bpm: val }))}
+              onBlur={(val) => updateBpm(val)}
               className="text-7xl font-bold text-center bg-transparent text-white outline-none w-full max-w-[200px]"
               min={MIN_BPM}
               max={MAX_BPM}
@@ -718,8 +819,18 @@ export default function Metronome() {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4 w-full justify-center">
-            <button onClick={() => updateBpm(settings.bpm - 5)} className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all text-sm font-bold">-5</button>
-            <button onClick={() => updateBpm(settings.bpm - 1)} className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all"><Minus size={20} /></button>
+            <button 
+              onPointerDown={(e) => { e.preventDefault(); startHoldChange(-5); }}
+              onPointerUp={stopHoldChange}
+              onPointerLeave={stopHoldChange}
+              onPointerCancel={stopHoldChange}
+              className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all text-sm font-bold select-none touch-manipulation">-5</button>
+            <button 
+              onPointerDown={(e) => { e.preventDefault(); startHoldChange(-1); }}
+              onPointerUp={stopHoldChange}
+              onPointerLeave={stopHoldChange}
+              onPointerCancel={stopHoldChange}
+              className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all select-none touch-manipulation"><Minus size={20} /></button>
             <button
               onClick={togglePlay}
               className={`w-20 h-20 flex items-center justify-center rounded-full text-white shadow-xl active:scale-95 transition-all ${
@@ -728,9 +839,21 @@ export default function Metronome() {
             >
               {isPlaying ? <Square size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-2" />}
             </button>
-            <button onClick={() => updateBpm(settings.bpm + 1)} className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all"><Plus size={20} /></button>
-            <button onClick={() => updateBpm(settings.bpm + 5)} className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all text-sm font-bold">+5</button>
+            <button 
+              onPointerDown={(e) => { e.preventDefault(); startHoldChange(1); }}
+              onPointerUp={stopHoldChange}
+              onPointerLeave={stopHoldChange}
+              onPointerCancel={stopHoldChange}
+              className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all select-none touch-manipulation"><Plus size={20} /></button>
+            <button 
+              onPointerDown={(e) => { e.preventDefault(); startHoldChange(5); }}
+              onPointerUp={stopHoldChange}
+              onPointerLeave={stopHoldChange}
+              onPointerCancel={stopHoldChange}
+              className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all text-sm font-bold select-none touch-manipulation">+5</button>
           </div>
+          
+          <p className="text-[10px] text-stone-600 mt-2">{t('metronome.holdToChange')}</p>
           
           <button 
             onClick={handleTap}
@@ -851,12 +974,12 @@ export default function Metronome() {
 
       </div>
       )}
+      </div>
 
-      {/* Advanced Features */}
-      <div className="space-y-4">
+      {settings.currentMode !== 'gig' && !settings.focusViewEnabled && (
+      <div className="space-y-4 mt-6 lg:mt-0 flex flex-col">
         {/* Presets & Setlists */}
-        {(settings.currentMode === 'preset' || settings.currentMode === 'setlist') && (
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-4">
           <button 
             onClick={() => setIsPresetsExpanded(!isPresetsExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -865,7 +988,7 @@ export default function Metronome() {
               <div className="w-10 h-10 rounded-xl bg-brand/10 text-brand flex items-center justify-center">
                 <ListMusic size={20} />
               </div>
-              <span className="font-bold text-white">{t('metronome.preset')} & {t('metronome.setlist')}</span>
+              <span className="font-bold text-white">{t('metronome.presetsAndSetlists')}</span>
             </div>
             {isPresetsExpanded ? <ChevronUp size={20} className="text-stone-500" /> : <ChevronDown size={20} className="text-stone-500" />}
           </button>
@@ -990,12 +1113,9 @@ export default function Metronome() {
             )}
           </AnimatePresence>
         </div>
-        )}
 
         {/* Practice Mode */}
-        {settings.currentMode === 'practice' && (
-        <>
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-1">
           <button 
             onClick={() => setIsPracticeExpanded(!isPracticeExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1026,11 +1146,11 @@ export default function Metronome() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.targetTime')} (min)</label>
-                        <input type="number" min="0" value={practiceSettings.targetTime} onChange={e => setPracticeSettings(s => ({...s, targetTime: parseInt(e.target.value)||0}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={0} max={999} value={practiceSettings.targetTime} onChange={val => setPracticeSettings(s => ({...s, targetTime: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.targetBars')}</label>
-                        <input type="number" min="0" value={practiceSettings.targetBars} onChange={e => setPracticeSettings(s => ({...s, targetBars: parseInt(e.target.value)||0}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={0} max={9999} value={practiceSettings.targetBars} onChange={val => setPracticeSettings(s => ({...s, targetBars: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                     </div>
 
@@ -1055,7 +1175,7 @@ export default function Metronome() {
         </div>
 
         {/* Auto Tempo */}
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-2">
           <button 
             onClick={() => setIsAutoTempoExpanded(!isAutoTempoExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1091,18 +1211,17 @@ export default function Metronome() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increaseInterval')} ({autoTempo.mode === 'bars' ? 'Bars' : 'Sec'})</label>
-                        <input type="number" min="1" value={autoTempo.mode === 'bars' ? autoTempo.intervalBars : autoTempo.intervalSeconds} onChange={e => {
-                          const val = parseInt(e.target.value) || 1;
+                        <NumberInput min={1} max={9999} value={autoTempo.mode === 'bars' ? autoTempo.intervalBars : autoTempo.intervalSeconds} onChange={val => {
                           setAutoTempo(s => s.mode === 'bars' ? {...s, intervalBars: val} : {...s, intervalSeconds: val});
                         }} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increment')}</label>
-                        <input type="number" min="1" value={autoTempo.increment} onChange={e => setAutoTempo(s => ({...s, increment: parseInt(e.target.value)||1}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={1} max={100} value={autoTempo.increment} onChange={val => setAutoTempo(s => ({...s, increment: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                       <div className="col-span-2">
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.maxBpm')}</label>
-                        <input type="number" min="10" max="400" value={autoTempo.maxBpm} onChange={e => setAutoTempo(s => ({...s, maxBpm: parseInt(e.target.value)||400}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={10} max={400} value={autoTempo.maxBpm} onChange={val => setAutoTempo(s => ({...s, maxBpm: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                     </div>
                   </div>
@@ -1113,7 +1232,7 @@ export default function Metronome() {
         </div>
 
         {/* Coach Mode */}
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-3">
           <button 
             onClick={() => setIsCoachExpanded(!isCoachExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1144,11 +1263,11 @@ export default function Metronome() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.soundBars')}</label>
-                        <input type="number" min="1" value={coachMode.soundBars} onChange={e => setCoachMode(s => ({...s, soundBars: parseInt(e.target.value)||1}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={1} max={999} value={coachMode.soundBars} onChange={val => setCoachMode(s => ({...s, soundBars: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.silentBars')}</label>
-                        <input type="number" min="1" value={coachMode.silentBars} onChange={e => setCoachMode(s => ({...s, silentBars: parseInt(e.target.value)||1}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                        <NumberInput min={1} max={999} value={coachMode.silentBars} onChange={val => setCoachMode(s => ({...s, silentBars: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
                       </div>
                     </div>
                     {isPlaying && coachMode.enabled && (
@@ -1162,13 +1281,9 @@ export default function Metronome() {
             )}
           </AnimatePresence>
         </div>
-        </>
-        )}
 
         {/* Visual Options */}
-        {settings.currentMode === 'basic' && (
-        <>
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-5">
           <button 
             onClick={() => setIsVisualsExpanded(!isVisualsExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1228,7 +1343,7 @@ export default function Metronome() {
         </div>
 
         {/* Sound Options */}
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden">
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-6">
           <button 
             onClick={() => setIsSoundsExpanded(!isSoundsExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1278,8 +1393,9 @@ export default function Metronome() {
             )}
           </AnimatePresence>
         </div>
-        </>
-        )}
+
+      </div>
+      )}
 
       </div>
 
