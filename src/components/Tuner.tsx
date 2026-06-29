@@ -92,6 +92,7 @@ export default function Tuner() {
   const [frameCount, setFrameCount] = useState<number>(0);
   const [activeConstraintLabel, setActiveConstraintLabel] = useState<string>('');
   const [trackInfo, setTrackInfo] = useState<any>({});
+  const [showDebug, setShowDebug] = useState<boolean>(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -358,30 +359,31 @@ export default function Tuner() {
         <h2 className="text-3xl font-serif italic text-white leading-none">{t('tuner.title') || 'Tuner'}</h2>
       </div>
       
-      {/* Debug Panel */}
-      <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-1">
-        <div className="flex justify-between">
-          <span>Mic State: {isActive ? 'active' : 'inactive'}</span>
-          <span>AudioCtx: {audioCtxState}</span>
+      {showDebug && (
+        <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-1">
+          <div className="flex justify-between">
+            <span>Mic State: {isActive ? 'active' : 'inactive'}</span>
+            <span>AudioCtx: {audioCtxState}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Level RMS: {(rmsVolume * 100).toFixed(2)}%</span>
+            <span>Frames: {frameCount}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Constraint: {activeConstraintLabel}</span>
+            <span>Mobile: {isMobileLike ? 'yes' : 'no'}</span>
+          </div>
+          <div className="flex flex-col border-t border-stone-800 mt-1 pt-1">
+            <span>Track readyState: {trackInfo.readyState}</span>
+            <span>Track enabled/muted: {trackInfo.enabled ? 'true' : 'false'} / {trackInfo.muted ? 'true' : 'false'}</span>
+            <span className="truncate">Track label: {trackInfo.label}</span>
+            <span>Sample rate: {trackInfo.sampleRate} (Channels: {trackInfo.channelCount})</span>
+          </div>
+          <div className="flex justify-between border-t border-stone-800 mt-1 pt-1">
+            <span className="text-stone-300">Last msg: {debugMsg}</span>
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span>Level RMS: {(rmsVolume * 100).toFixed(2)}%</span>
-          <span>Frames: {frameCount}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Constraint: {activeConstraintLabel}</span>
-          <span>Mobile: {isMobileLike ? 'yes' : 'no'}</span>
-        </div>
-        <div className="flex flex-col border-t border-stone-800 mt-1 pt-1">
-          <span>Track readyState: {trackInfo.readyState}</span>
-          <span>Track enabled/muted: {trackInfo.enabled ? 'true' : 'false'} / {trackInfo.muted ? 'true' : 'false'}</span>
-          <span className="truncate">Track label: {trackInfo.label}</span>
-          <span>Sample rate: {trackInfo.sampleRate} (Channels: {trackInfo.channelCount})</span>
-        </div>
-        <div className="flex justify-between border-t border-stone-800 mt-1 pt-1">
-          <span className="text-stone-300">Last msg: {debugMsg}</span>
-        </div>
-      </div>
+      )}
       
       {error && (
         <div className="bg-red-950/30 border border-red-500/20 p-4 rounded-2xl flex items-start gap-3">
@@ -495,6 +497,16 @@ export default function Tuner() {
             </div>
           </div>
         </div>
+      </div>
+      
+      <div className="flex justify-center mt-4">
+        <button
+          type="button"
+          onClick={() => setShowDebug((prev) => !prev)}
+          className="text-stone-500 hover:text-stone-300 text-xs transition-colors py-2 px-4 rounded-full border border-stone-800/50 bg-stone-900/30"
+        >
+          {showDebug ? t('tuner.hideDebug') || 'Hide Debug' : t('tuner.showDebug') || 'Show Debug'}
+        </button>
       </div>
     </motion.div>
   );
