@@ -86,8 +86,29 @@ const getTempoMarking = (bpm: number) => {
   if (bpm <= 108) return 'Andante';
   if (bpm <= 120) return 'Moderato';
   if (bpm <= 168) return 'Allegro';
-  return 'Presto';
+  if (bpm <= 200) return 'Presto';
+  return 'Prestissimo';
 };
+
+const TEMPO_MARKINGS = [
+  { name: 'Grave', bpm: 40 },
+  { name: 'Largo', bpm: 50 },
+  { name: 'Lento', bpm: 55 },
+  { name: 'Adagio', bpm: 66 },
+  { name: 'Andante', bpm: 84 },
+  { name: 'Moderato', bpm: 108 },
+  { name: 'Allegretto', bpm: 116 },
+  { name: 'Allegro', bpm: 132 },
+  { name: 'Vivace', bpm: 160 },
+  { name: 'Presto', bpm: 184 },
+  { name: 'Prestissimo', bpm: 208 }
+];
+
+const STANDARD_TIME_SIGNATURES = [
+  '1/4', '2/4', '3/4', '4/4', '5/4', '6/4', '7/4',
+  '3/8', '4/8', '5/8', '6/8', '7/8', '9/8', '12/8',
+  '2/2', '3/2', '4/2'
+];
 
 type BeatState = 'accent' | 'normal' | 'mute';
 
@@ -556,7 +577,7 @@ export default function Metronome() {
     }
   };
 
-  const updateNumerator = (num: number) => {
+  const updateTimeSignature = (num: number, den: number) => {
     setSettings(s => {
       const newStates = [...s.beatStates];
       if (num > newStates.length) {
@@ -566,7 +587,10 @@ export default function Metronome() {
       } else if (num < newStates.length) {
         newStates.length = num;
       }
-      return { ...s, numerator: num, beatStates: newStates };
+      if (newStates.length > 0) {
+        newStates[0] = 'accent';
+      }
+      return { ...s, numerator: num, denominator: den, beatStates: newStates };
     });
   };
 
@@ -742,7 +766,29 @@ export default function Metronome() {
           )}
 
           <div className="z-10 text-center space-y-4">
-            <p className="text-stone-500 font-bold uppercase tracking-widest text-sm">{getTempoMarking(settings.bpm)}</p>
+            <div className="relative inline-flex flex-col items-center">
+              <div className="relative">
+                <select
+                  value={getTempoMarking(settings.bpm)}
+                  onChange={(e) => {
+                    const selectedMarking = TEMPO_MARKINGS.find(m => m.name === e.target.value);
+                    if (selectedMarking) {
+                      updateBpm(selectedMarking.bpm);
+                    }
+                  }}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                >
+                  <option disabled>{t('metronome.chooseTempo')}</option>
+                  {TEMPO_MARKINGS.map(m => (
+                    <option key={m.name} value={m.name}>{m.name}</option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1 justify-center cursor-pointer">
+                  <p className="text-stone-500 font-bold uppercase tracking-widest text-sm">{getTempoMarking(settings.bpm)}</p>
+                  <ChevronDown size={14} className="text-stone-500" />
+                </div>
+              </div>
+            </div>
             <div className="text-[120px] md:text-[160px] font-bold text-white leading-none tracking-tighter">
               {settings.bpm}
             </div>
@@ -804,7 +850,30 @@ export default function Metronome() {
               max={MAX_BPM}
             />
             <p className="text-stone-500 font-bold uppercase tracking-widest text-sm">{t('metronome.bpm')}</p>
-            <p className="text-brand font-bold uppercase tracking-widest text-xs mt-2">{getTempoMarking(settings.bpm)}</p>
+            <div className="relative inline-flex flex-col items-center mt-2">
+              <div className="relative">
+                <select
+                  value={getTempoMarking(settings.bpm)}
+                  onChange={(e) => {
+                    const selectedMarking = TEMPO_MARKINGS.find(m => m.name === e.target.value);
+                    if (selectedMarking) {
+                      updateBpm(selectedMarking.bpm);
+                    }
+                  }}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                >
+                  <option disabled>{t('metronome.chooseTempo')}</option>
+                  {TEMPO_MARKINGS.map(m => (
+                    <option key={m.name} value={m.name}>{m.name}</option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1 justify-center cursor-pointer">
+                  <p className="text-brand font-bold uppercase tracking-widest text-xs">{getTempoMarking(settings.bpm)}</p>
+                  <ChevronDown size={12} className="text-brand" />
+                </div>
+              </div>
+              <p className="text-[9px] text-stone-600 mt-1">{t('metronome.tempoReference')}</p>
+            </div>
           </div>
 
           <div className="w-full flex items-center gap-4">
@@ -870,24 +939,22 @@ export default function Metronome() {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-xs font-bold text-stone-500 uppercase tracking-widest">{t('metronome.timeSignature')}</p>
-            <div className="flex items-center gap-2 bg-stone-800/50 p-1 rounded-xl">
+            <div className="flex items-center gap-2 bg-stone-800/50 p-1 rounded-xl relative">
               <select 
-                value={settings.numerator}
-                onChange={(e) => updateNumerator(parseInt(e.target.value))}
-                className="bg-transparent text-white font-bold outline-none text-center appearance-none px-2"
+                value={`${settings.numerator}/${settings.denominator}`}
+                onChange={(e) => {
+                  const [num, den] = e.target.value.split('/').map(Number);
+                  updateTimeSignature(num, den);
+                }}
+                className="bg-transparent text-white font-bold outline-none text-center appearance-none px-4 py-1 cursor-pointer w-full"
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
-                  <option key={n} value={n} className="bg-stone-900">{n}</option>
-                ))}
-              </select>
-              <span className="text-stone-500 font-bold">/</span>
-              <select
-                value={settings.denominator}
-                onChange={(e) => setSettings({...settings, denominator: parseInt(e.target.value)})}
-                className="bg-transparent text-white font-bold outline-none text-center appearance-none px-2"
-              >
-                {[4, 8].map(n => (
-                  <option key={n} value={n} className="bg-stone-900">{n}</option>
+                {!STANDARD_TIME_SIGNATURES.includes(`${settings.numerator}/${settings.denominator}`) && (
+                  <option value={`${settings.numerator}/${settings.denominator}`} className="bg-stone-900">
+                    {settings.numerator}/{settings.denominator} ({t('metronome.custom') || 'Custom'})
+                  </option>
+                )}
+                {STANDARD_TIME_SIGNATURES.map(ts => (
+                  <option key={ts} value={ts} className="bg-stone-900">{ts}</option>
                 ))}
               </select>
             </div>
@@ -1114,8 +1181,80 @@ export default function Metronome() {
           </AnimatePresence>
         </div>
 
-        {/* Practice Mode */}
+        {/* Auto Tempo */}
         <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-1">
+          <button 
+            onClick={() => setIsAutoTempoExpanded(!isAutoTempoExpanded)}
+            className="w-full p-6 flex justify-between items-center text-left"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-brand/10 text-brand flex items-center justify-center">
+                <TrendingUp size={20} />
+              </div>
+              <span className="font-bold text-white">{t('metronome.autoTempo')}</span>
+            </div>
+            {isAutoTempoExpanded ? <ChevronUp size={20} className="text-stone-500" /> : <ChevronDown size={20} className="text-stone-500" />}
+          </button>
+          
+          <AnimatePresence>
+            {isAutoTempoExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="p-6 pt-0 space-y-6 border-t border-white/5 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-stone-300">{t('metronome.enableAutoTempo')}</span>
+                    <button 
+                      onClick={() => setAutoTempo(s => ({...s, enabled: !s.enabled}))}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${autoTempo.enabled ? 'bg-brand' : 'bg-stone-700'}`}
+                    >
+                      <div className={`absolute top-1 bottom-1 w-4 bg-white rounded-full transition-all ${autoTempo.enabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className={`space-y-4 transition-opacity ${autoTempo.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <div className="flex gap-2 p-1 bg-stone-900 rounded-xl">
+                      {(['bars', 'seconds'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => setAutoTempo(s => ({...s, mode}))}
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${
+                            autoTempo.mode === mode ? 'bg-stone-800 text-white' : 'text-stone-500'
+                          }`}
+                        >
+                          {mode === 'bars' ? t('metronome.bars') : t('metronome.seconds')}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increaseInterval')} ({autoTempo.mode === 'bars' ? 'Bars' : 'Sec'})</label>
+                        <NumberInput min={1} max={9999} value={autoTempo.mode === 'bars' ? autoTempo.intervalBars : autoTempo.intervalSeconds} onChange={val => {
+                          setAutoTempo(s => s.mode === 'bars' ? {...s, intervalBars: val} : {...s, intervalSeconds: val});
+                        }} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increment')}</label>
+                        <NumberInput min={1} max={100} value={autoTempo.increment} onChange={val => setAutoTempo(s => ({...s, increment: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.maxBpm')}</label>
+                        <NumberInput min={10} max={400} value={autoTempo.maxBpm} onChange={val => setAutoTempo(s => ({...s, maxBpm: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Practice Mode */}
+        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-2">
           <button 
             onClick={() => setIsPracticeExpanded(!isPracticeExpanded)}
             className="w-full p-6 flex justify-between items-center text-left"
@@ -1167,63 +1306,6 @@ export default function Metronome() {
                     </div>
                     
                     <button onClick={() => setPracticeState(s => ({...s, elapsedTime: 0, barCount: 0}))} className="w-full py-3 bg-stone-800 rounded-2xl text-xs font-bold text-white uppercase tracking-widest">{t('metronome.reset')}</button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Auto Tempo */}
-        <div className="bg-bg-card border border-white/5 rounded-[32px] overflow-hidden order-2">
-          <button 
-            onClick={() => setIsAutoTempoExpanded(!isAutoTempoExpanded)}
-            className="w-full p-6 flex justify-between items-center text-left"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
-                <TrendingUp size={20} />
-              </div>
-              <span className="font-bold text-white">{t('metronome.autoTempoIncrease')}</span>
-            </div>
-            {isAutoTempoExpanded ? <ChevronUp size={20} className="text-stone-500" /> : <ChevronDown size={20} className="text-stone-500" />}
-          </button>
-          <AnimatePresence>
-            {isAutoTempoExpanded && (
-              <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-                <div className="p-6 pt-0 space-y-6 border-t border-white/5 mt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-white">Enable Auto Tempo</span>
-                    <button 
-                      onClick={() => setAutoTempo(s => ({...s, enabled: !s.enabled}))}
-                      className={`w-12 h-6 rounded-full transition-colors relative ${autoTempo.enabled ? 'bg-purple-500' : 'bg-stone-700'}`}
-                    >
-                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${autoTempo.enabled ? 'left-7' : 'left-1'}`} />
-                    </button>
-                  </div>
-
-                  <div className={`space-y-4 transition-opacity ${autoTempo.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                    <div className="flex gap-2 p-1 bg-stone-800/50 rounded-xl">
-                      <button onClick={() => setAutoTempo(s => ({...s, mode: 'bars'}))} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${autoTempo.mode === 'bars' ? 'bg-stone-700 text-white' : 'text-stone-500'}`}>Bars</button>
-                      <button onClick={() => setAutoTempo(s => ({...s, mode: 'time'}))} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${autoTempo.mode === 'time' ? 'bg-stone-700 text-white' : 'text-stone-500'}`}>Time</button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increaseInterval')} ({autoTempo.mode === 'bars' ? 'Bars' : 'Sec'})</label>
-                        <NumberInput min={1} max={9999} value={autoTempo.mode === 'bars' ? autoTempo.intervalBars : autoTempo.intervalSeconds} onChange={val => {
-                          setAutoTempo(s => s.mode === 'bars' ? {...s, intervalBars: val} : {...s, intervalSeconds: val});
-                        }} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increment')}</label>
-                        <NumberInput min={1} max={100} value={autoTempo.increment} onChange={val => setAutoTempo(s => ({...s, increment: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.maxBpm')}</label>
-                        <NumberInput min={10} max={400} value={autoTempo.maxBpm} onChange={val => setAutoTempo(s => ({...s, maxBpm: val}))} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />
-                      </div>
-                    </div>
                   </div>
                 </div>
               </motion.div>
