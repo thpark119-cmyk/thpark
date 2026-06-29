@@ -1232,7 +1232,7 @@ export default function Metronome() {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increaseInterval')} ({autoTempo.mode === 'bars' ? 'Bars' : 'Sec'})</label>
+                        <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block mb-2">{t('metronome.increaseInterval')} ({autoTempo.mode === 'bars' ? t('metronome.bars') : t('metronome.seconds')})</label>
                         <NumberInput min={1} max={9999} value={autoTempo.mode === 'bars' ? autoTempo.intervalBars : autoTempo.intervalSeconds} onChange={val => {
                           setAutoTempo(s => s.mode === 'bars' ? {...s, intervalBars: val} : {...s, intervalSeconds: val});
                         }} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl p-3 text-white outline-none text-sm" />

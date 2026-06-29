@@ -9,6 +9,17 @@ export interface ReceivedLesson {
   createdAt?: number;
 }
 
+export interface StudentLessonEntry {
+  id: string;
+  date: string;
+  content: string;
+  homework?: string;
+  nextGoal?: string;
+  memo?: string;
+  createdAt?: string | number;
+  updatedAt?: string | number;
+}
+
 export interface Student {
   id: string;
   userId: string;
@@ -16,7 +27,11 @@ export interface Student {
   level: string;
   currentPiece: string;
   lessonDate?: string;
+  instrument?: string;
+  memo?: string;
+  lessons?: StudentLessonEntry[];
   createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface TeachingLog {
