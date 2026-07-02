@@ -506,19 +506,19 @@ export default function Metronome() {
 
     const isAccent = beatState === 'accent';
     const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
-    const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 1.0);
-    const peak = isAccent ? volume * 0.45 : volume * 0.35;
+    const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 0.75);
+    const peak = isAccent ? Math.min(volume * 0.48, 0.36) : Math.min(volume * 0.32, 0.24);
 
     if (type === 'classic') {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(isAccent ? 1050 : 760, time);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.006);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.09);
+      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.008);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.10);
       osc.connect(gainNode);
       gainNode.connect(masterGainNode);
       osc.start(time);
-      osc.stop(time + 0.12);
+      osc.stop(time + 0.13);
     } else if (type === 'digital') {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
@@ -572,7 +572,24 @@ export default function Metronome() {
   };
 
   const scheduler = () => {
-    while (isPlayingRef.current && audioCtxRef.current && nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime) {
+    if (!isPlayingRef.current || !audioCtxRef.current) return;
+    
+    const now = audioCtxRef.current.currentTime;
+    
+    if (nextNoteTimeRef.current < now - 0.15) {
+      nextNoteTimeRef.current = now + 0.05;
+      updateDebugMsg('metronome_resynced_after_scroll');
+    }
+
+    let scheduledCount = 0;
+    const MAX_SCHEDULE_PER_LOOP = 8;
+
+    while (
+      isPlayingRef.current && 
+      audioCtxRef.current && 
+      nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime &&
+      scheduledCount < MAX_SCHEDULE_PER_LOOP
+    ) {
       // Ensure we stay in bounds if numerator was just decreased
       currentBeatInBarRef.current = currentBeatInBarRef.current % settingsRef.current.numerator;
       
@@ -594,6 +611,7 @@ export default function Metronome() {
       }
 
       nextNote();
+      scheduledCount++;
     }
     
     if (isPlayingRef.current) {

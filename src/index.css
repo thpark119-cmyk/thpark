@@ -89,9 +89,19 @@ select:focus option:checked {
     box-shadow: none !important;
   }
   
+  .backdrop-blur-md, .backdrop-blur-lg {
+    backdrop-filter: none !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    contain: layout paint;
+  }
+
   /* Optimize container scrolling */
   main {
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 }

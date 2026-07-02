@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
-import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes } from '../utils/audioOutput';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes, getToneOutputNode } from '../utils/audioOutput';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -229,8 +229,8 @@ export default function Tuner() {
 
       if (osc && gain) {
         gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(Math.max(gain.gain.value || 0.0001, 0.0001), now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        gain.gain.setValueAtTime(Math.max(gain.gain.value || 0.00001, 0.00001), now);
+        gain.gain.linearRampToValueAtTime(0.00001, now + 0.12);
         osc.stop(now + 0.14);
         osc.onended = () => {
           try { osc.disconnect(); } catch {}
@@ -275,24 +275,28 @@ export default function Tuner() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
-      const { masterGainNode } = getOutputNodes(ctx);
+      const toneOutput = getToneOutputNode(ctx);
       
       const noteIndex = NOTE_STRINGS.indexOf(note);
       const noteNum = noteIndex + (parseInt(oct) + 1) * 12;
       const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
       
+      const now = ctx.currentTime;
+      const safeStartTime = now + 0.01;
+      
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.setValueAtTime(freq, safeStartTime);
       
-      const targetGain = Math.min(0.22, Math.max(0.05, toneGeneratorVolume || 0.16));
+      const targetGain = Math.min(0.12, Math.max(0.03, toneGeneratorVolume * 0.5 || 0.08));
       
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(targetGain, ctx.currentTime + 0.035);
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(0.00001, now);
+      gain.gain.linearRampToValueAtTime(targetGain, safeStartTime + 0.08);
       
       osc.connect(gain);
-      gain.connect(masterGainNode);
+      gain.connect(toneOutput);
       
-      osc.start(ctx.currentTime);
+      osc.start(safeStartTime);
       
       toneOscillatorRef.current = osc;
       toneGainRef.current = gain;
@@ -328,8 +332,10 @@ export default function Tuner() {
         const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
         const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
         
+        const targetGain = Math.min(0.12, Math.max(0.03, toneGeneratorVolume * 0.5 || 0.08));
+        
         toneOscillatorRef.current.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        toneGainRef.current.gain.setValueAtTime(toneGeneratorVolume, audioCtx.currentTime);
+        toneGainRef.current.gain.setValueAtTime(targetGain, audioCtx.currentTime);
       } catch (e) {
         console.error(e);
       }

@@ -75,6 +75,7 @@ export async function prepareOutputAudioFromGesture(): Promise<{
 
 let masterGainNode: GainNode | null = null;
 let compressorNode: DynamicsCompressorNode | null = null;
+let toneMasterGainNode: GainNode | null = null;
 
 export function getOutputNodes(ctx: AudioContext) {
   if (!masterGainNode || !compressorNode) {
@@ -92,6 +93,15 @@ export function getOutputNodes(ctx: AudioContext) {
     compressorNode.connect(ctx.destination);
   }
   return { masterGainNode, compressorNode };
+}
+
+export function getToneOutputNode(ctx: AudioContext): GainNode {
+  if (!toneMasterGainNode) {
+    toneMasterGainNode = ctx.createGain();
+    toneMasterGainNode.gain.setValueAtTime(0.45, ctx.currentTime);
+    toneMasterGainNode.connect(ctx.destination);
+  }
+  return toneMasterGainNode;
 }
 
 export async function playAudibleTestBeep(): Promise<{
