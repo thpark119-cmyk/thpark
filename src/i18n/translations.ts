@@ -47,7 +47,9 @@ export const translations = {
       requiresRecentLogin: '보안을 위해 다시 로그인한 후 계정 삭제를 시도해주세요.',
       clearLocalData: '이 기기의 로컬 데이터 삭제',
       clearLocalDataWarning: '이 기기에 저장된 학생관리 사진 및 로컬 데이터를 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
-      clearLocalDataSuccess: '로컬 데이터가 정리되었습니다.'
+      clearLocalDataSuccess: '로컬 데이터가 정리되었습니다.',
+      openPublicPrivacyPolicy: '공개 개인정보처리방침 보기',
+      openPublicAccountDeletion: '공개 계정 삭제 안내 보기'
     },
     common: {
       add: '추가',
@@ -596,7 +598,9 @@ export const translations = {
       requiresRecentLogin: 'For security, please sign in again before deleting your account.',
       clearLocalData: 'Clear Local Data on This Device',
       clearLocalDataWarning: 'Are you sure you want to clear all student photos and local data stored on this device?\nThis action cannot be undone.',
-      clearLocalDataSuccess: 'Local data has been cleared.'
+      clearLocalDataSuccess: 'Local data has been cleared.',
+      openPublicPrivacyPolicy: 'Open Public Privacy Policy',
+      openPublicAccountDeletion: 'Open Public Account Deletion Guide'
     },
     common: {
       add: 'Add',
@@ -1145,7 +1149,9 @@ export const translations = {
       requiresRecentLogin: 'Melde dich aus Sicherheitsgründen erneut an, bevor du dein Konto löschst.',
       clearLocalData: 'Lokale Daten auf diesem Gerät löschen',
       clearLocalDataWarning: 'Möchten Sie wirklich alle Schülerfotos und lokalen Daten auf diesem Gerät löschen?\nDiese Aktion kann nicht rückgängig gemacht werden.',
-      clearLocalDataSuccess: 'Lokale Daten wurden gelöscht.'
+      clearLocalDataSuccess: 'Lokale Daten wurden gelöscht.',
+      openPublicPrivacyPolicy: 'Öffentliche Datenschutzerklärung öffnen',
+      openPublicAccountDeletion: 'Öffentliche Anleitung zur Kontolöschung öffnen'
     },
     common: {
       add: 'Hinzufügen',

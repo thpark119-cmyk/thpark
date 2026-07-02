@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { 
   User, Globe, Database, ShieldAlert, Mail, Info, 
-  LogOut, Trash2, AlertTriangle, Check, X, ShieldCheck
+  LogOut, Trash2, AlertTriangle, Check, X, ShieldCheck, ExternalLink
 } from 'lucide-react';
 import { signInWithGoogle, logout } from '../lib/firebase';
 import { clearLocalData, deleteUserAccountData } from '../lib/firestore';
@@ -244,6 +244,12 @@ export default function Settings() {
                       </div>
                     </div>
                   )}
+
+                  <div className="pt-4 border-t border-white/5 mt-4">
+                    <a href="/account-deletion.html" target="_blank" rel="noopener noreferrer" className="text-xs text-brand hover:underline inline-flex items-center gap-1">
+                      {t('settings.openPublicAccountDeletion')} <ExternalLink size={10} />
+                    </a>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -263,7 +269,7 @@ export default function Settings() {
               className="overflow-hidden"
             >
               <div className="p-4 mx-2 bg-stone-900/30 rounded-xl border border-white/5">
-                <div className="prose prose-invert prose-sm max-w-none text-stone-400 font-sans leading-relaxed whitespace-pre-line text-xs">
+                <div className="prose prose-invert prose-sm max-w-none text-stone-400 font-sans leading-relaxed whitespace-pre-line text-xs mb-4">
 {`개인정보처리방침
 
 Music In One(Mio)은 음악가의 레슨 기록, 학생 관리, 악보 메모, 튜너 및 메트로놈 사용을 돕기 위한 앱입니다.
@@ -305,6 +311,11 @@ Google 로그인 및 Firebase 기능 제공을 위해 Google/Firebase 서비스�
 ${CONTACT_EMAIL}
 
 마지막 업데이트: 2026년 7월`}
+                </div>
+                <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
+                  <a href="/privacy.html" target="_blank" rel="noopener noreferrer" className="text-xs text-brand hover:underline inline-flex items-center gap-1">
+                    {t('settings.openPublicPrivacyPolicy')} <ExternalLink size={10} />
+                  </a>
                 </div>
               </div>
             </motion.div>
