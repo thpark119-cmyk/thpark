@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
-import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture } from '../utils/audioOutput';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes } from '../utils/audioOutput';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -229,9 +229,9 @@ export default function Tuner() {
 
       if (osc && gain) {
         gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
-        osc.stop(now + 0.1);
+        gain.gain.setValueAtTime(Math.max(gain.gain.value || 0.0001, 0.0001), now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        osc.stop(now + 0.14);
         osc.onended = () => {
           try { osc.disconnect(); } catch {}
           try { gain.disconnect(); } catch {}
@@ -239,6 +239,8 @@ export default function Tuner() {
       }
     } catch (e) {
       console.warn('Tone stop cleanup failed:', e);
+      try { toneOscillatorRef.current?.disconnect(); } catch {}
+      try { toneGainRef.current?.disconnect(); } catch {}
     }
 
     toneOscillatorRef.current = null;
@@ -273,6 +275,8 @@ export default function Tuner() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
+      const { masterGainNode } = getOutputNodes(ctx);
+      
       const noteIndex = NOTE_STRINGS.indexOf(note);
       const noteNum = noteIndex + (parseInt(oct) + 1) * 12;
       const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
@@ -280,11 +284,13 @@ export default function Tuner() {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
       
+      const targetGain = Math.min(0.22, Math.max(0.05, toneGeneratorVolume || 0.16));
+      
       gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(Math.min(0.35, Math.max(0.08, toneGeneratorVolume || 0.25)), ctx.currentTime + 0.03);
+      gain.gain.exponentialRampToValueAtTime(targetGain, ctx.currentTime + 0.035);
       
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(masterGainNode);
       
       osc.start(ctx.currentTime);
       

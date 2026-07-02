@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
-import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture } from '../utils/audioOutput';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes } from '../utils/audioOutput';
 
 const MIN_BPM = 10;
 const MAX_BPM = 400;
@@ -502,63 +502,65 @@ export default function Metronome() {
     const osc = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
+    const { masterGainNode } = getOutputNodes(ctx);
+
     const isAccent = beatState === 'accent';
     const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
-    const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 0.8);
-    const peak = isAccent ? volume * 0.65 : volume * 0.45;
+    const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 1.0);
+    const peak = isAccent ? volume * 0.45 : volume * 0.35;
 
     if (type === 'classic') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(isAccent ? 1200 : 850, time);
+      osc.frequency.setValueAtTime(isAccent ? 1050 : 760, time);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.008);
+      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.006);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.09);
       osc.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      gainNode.connect(masterGainNode);
       osc.start(time);
-      osc.stop(time + 0.11);
+      osc.stop(time + 0.12);
     } else if (type === 'digital') {
-      osc.type = 'square';
+      osc.type = 'sine';
       osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.exponentialRampToValueAtTime(peak * 0.6, time + 0.01);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.12);
+      gainNode.gain.exponentialRampToValueAtTime(peak * 0.8, time + 0.005);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.08);
       osc.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      gainNode.connect(masterGainNode);
       osc.start(time);
-      osc.stop(time + 0.13);
+      osc.stop(time + 0.1);
     } else if (type === 'woodblock') {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
       osc.frequency.exponentialRampToValueAtTime(isAccent ? 800 : 400, time + 0.05);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.005);
+      gainNode.gain.exponentialRampToValueAtTime(peak * 0.9, time + 0.005);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
       osc.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      gainNode.connect(masterGainNode);
       osc.start(time);
       osc.stop(time + 0.07);
     } else if (type === 'soft') {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(isAccent ? 600 : 400, time);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.linearRampToValueAtTime(peak * 0.5, time + 0.015);
-      gainNode.gain.linearRampToValueAtTime(0.0001, time + 0.06);
+      gainNode.gain.linearRampToValueAtTime(peak * 0.6, time + 0.015);
+      gainNode.gain.linearRampToValueAtTime(0.0001, time + 0.08);
       osc.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      gainNode.connect(masterGainNode);
       osc.start(time);
-      osc.stop(time + 0.07);
+      osc.stop(time + 0.1);
     } else if (type === 'drum') {
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(isAccent ? 150 : 100, time);
-      osc.frequency.exponentialRampToValueAtTime(10, time + 0.1);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(isAccent ? 250 : 180, time);
+      osc.frequency.exponentialRampToValueAtTime(40, time + 0.08);
       gainNode.gain.setValueAtTime(0.0001, time);
-      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(peak * 1.2, time + 0.005);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.1);
       osc.connect(gainNode);
-      gainNode.connect(ctx.destination);
+      gainNode.connect(masterGainNode);
       osc.start(time);
-      osc.stop(time + 0.11);
+      osc.stop(time + 0.12);
     }
 
     osc.onended = () => {

@@ -73,6 +73,27 @@ export async function prepareOutputAudioFromGesture(): Promise<{
   };
 }
 
+let masterGainNode: GainNode | null = null;
+let compressorNode: DynamicsCompressorNode | null = null;
+
+export function getOutputNodes(ctx: AudioContext) {
+  if (!masterGainNode || !compressorNode) {
+    masterGainNode = ctx.createGain();
+    masterGainNode.gain.setValueAtTime(0.8, ctx.currentTime);
+
+    compressorNode = ctx.createDynamicsCompressor();
+    compressorNode.threshold.setValueAtTime(-12, ctx.currentTime);
+    compressorNode.knee.setValueAtTime(20, ctx.currentTime);
+    compressorNode.ratio.setValueAtTime(4, ctx.currentTime);
+    compressorNode.attack.setValueAtTime(0.003, ctx.currentTime);
+    compressorNode.release.setValueAtTime(0.08, ctx.currentTime);
+
+    masterGainNode.connect(compressorNode);
+    compressorNode.connect(ctx.destination);
+  }
+  return { masterGainNode, compressorNode };
+}
+
 export async function playAudibleTestBeep(): Promise<{
   state: string;
   sampleRate: number;
@@ -86,6 +107,8 @@ export async function playAudibleTestBeep(): Promise<{
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
 
+  const { masterGainNode } = getOutputNodes(ctx);
+
   osc.type = 'sine';
   osc.frequency.setValueAtTime(440, now);
 
@@ -94,7 +117,7 @@ export async function playAudibleTestBeep(): Promise<{
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
 
   osc.connect(gain);
-  gain.connect(ctx.destination);
+  gain.connect(masterGainNode);
 
   osc.start(now);
   osc.stop(now + 0.22);
