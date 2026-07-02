@@ -24,6 +24,54 @@ export async function ensureOutputAudioRunning(): Promise<AudioContext> {
   return ctx;
 }
 
+const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+let iosUnlockAudioElement: HTMLAudioElement | null = null;
+
+function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+export async function unlockIOSAudioElement(): Promise<boolean> {
+  if (!isIOSDevice()) return true;
+
+  try {
+    if (!iosUnlockAudioElement) {
+      iosUnlockAudioElement = new Audio();
+      iosUnlockAudioElement.src = SILENT_AUDIO_DATA_URI;
+      iosUnlockAudioElement.loop = true;
+      iosUnlockAudioElement.playsInline = true;
+      iosUnlockAudioElement.preload = 'auto';
+      iosUnlockAudioElement.volume = 0.001;
+    }
+
+    await iosUnlockAudioElement.play();
+    return true;
+  } catch (error) {
+    console.warn('iOS HTMLAudioElement unlock failed:', error);
+    return false;
+  }
+}
+
+export async function prepareOutputAudioFromGesture(): Promise<{
+  ctx: AudioContext;
+  iosUnlockOk: boolean;
+  state: string;
+  sampleRate: number;
+}> {
+  const iosUnlockOk = await unlockIOSAudioElement();
+  const ctx = await ensureOutputAudioRunning();
+
+  return {
+    ctx,
+    iosUnlockOk,
+    state: ctx.state,
+    sampleRate: ctx.sampleRate,
+  };
+}
+
 export async function playAudibleTestBeep(): Promise<{
   state: string;
   sampleRate: number;
@@ -31,7 +79,7 @@ export async function playAudibleTestBeep(): Promise<{
   startedAt: number;
   stoppedAt: number;
 }> {
-  const ctx = await ensureOutputAudioRunning();
+  const { ctx } = await prepareOutputAudioFromGesture();
 
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();

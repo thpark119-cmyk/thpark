@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
-import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep } from '../utils/audioOutput';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture } from '../utils/audioOutput';
 
 const MIN_BPM = 10;
 const MAX_BPM = 400;
@@ -193,6 +193,24 @@ export default function Metronome() {
 
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [debugMsg, setDebugMsg] = useState<string>('waiting');
+  const lastDebugRenderRef = useRef<number>(0);
+  const latestDebugMsgRef = useRef<string>('waiting');
+
+  const updateDebugMsg = (msg: string) => {
+    latestDebugMsgRef.current = msg;
+    const now = performance.now();
+    if (!showDebug) return;
+    if (now - lastDebugRenderRef.current > 700) {
+      lastDebugRenderRef.current = now;
+      setDebugMsg(msg);
+    }
+  };
+
+  useEffect(() => {
+    if (showDebug) {
+      setDebugMsg(latestDebugMsgRef.current);
+    }
+  }, [showDebug]);
 
   const [settings, setSettings] = useState<MetronomeSettings>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -313,13 +331,13 @@ export default function Metronome() {
   // Init audio context
   const startMetronome = async () => {
     try {
-      setDebugMsg('metronome_start_pressed');
+      updateDebugMsg('metronome_start_pressed');
       
-      const ctx = await ensureOutputAudioRunning();
+      const { ctx, iosUnlockOk } = await prepareOutputAudioFromGesture();
       audioCtxRef.current = ctx;
 
       if (ctx.state !== 'running') {
-        setDebugMsg(`metronome_context_not_running_${ctx.state}`);
+        updateDebugMsg(`metronome_context_not_running_${ctx.state}`);
         return;
       }
 
@@ -378,10 +396,10 @@ export default function Metronome() {
         }
       }, 1000);
 
-      setDebugMsg(`metronome_started_${ctx.state}`);
+      updateDebugMsg(`metronome_started_${ctx.state}`);
     } catch (e) {
       console.error(e);
-      setDebugMsg(`audio_start_failed: ${String(e)}`);
+      updateDebugMsg(`audio_start_failed: ${String(e)}`);
       isPlayingRef.current = false;
       setIsPlaying(false);
       alert(t('tutor.audioStartFailed') || 'Unable to start output audio.');
@@ -402,16 +420,16 @@ export default function Metronome() {
     }
     
     setCurrentBeat(0);
-    setDebugMsg('metronome_stopped');
+    updateDebugMsg('metronome_stopped');
   };
 
   const handleAudioTest = async () => {
     try {
       const res = await playAudibleTestBeep();
-      setDebugMsg(`audio_test_success: ${res.state}`);
+      updateDebugMsg(`audio_test_success: ${res.state}`);
     } catch (e) {
       console.error('Audio test failed:', e);
-      setDebugMsg(`audio_test_failed: ${String(e)}`);
+      updateDebugMsg(`audio_test_failed: ${String(e)}`);
     }
   };
 
@@ -458,12 +476,12 @@ export default function Metronome() {
 
   const scheduleMetronomeClick = (time: number, beatState: BeatState) => {
     if (settingsRef.current.isMuted) {
-      setDebugMsg('metronome_muted_global');
+      updateDebugMsg('metronome_muted_global');
       return;
     }
 
     if (beatState === 'mute') {
-      setDebugMsg('metronome_beat_muted');
+      updateDebugMsg('metronome_beat_muted');
       return;
     }
 
@@ -484,53 +502,71 @@ export default function Metronome() {
     const osc = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
-    osc.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
     const isAccent = beatState === 'accent';
     const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
-    const vol = Math.max(0.05, settingsRef.current.volume);
+    const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 0.8);
+    const peak = isAccent ? volume * 0.65 : volume * 0.45;
 
     if (type === 'classic') {
       osc.type = 'sine';
-      osc.frequency.value = isAccent ? 880 : 440;
-      gainNode.gain.setValueAtTime(vol, time);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+      osc.frequency.setValueAtTime(isAccent ? 1200 : 850, time);
+      gainNode.gain.setValueAtTime(0.0001, time);
+      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.008);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.09);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
       osc.start(time);
-      osc.stop(time + 0.1);
+      osc.stop(time + 0.11);
     } else if (type === 'digital') {
       osc.type = 'square';
-      osc.frequency.value = isAccent ? 1200 : 800;
-      gainNode.gain.setValueAtTime(vol * 0.5, time);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
+      gainNode.gain.setValueAtTime(0.0001, time);
+      gainNode.gain.exponentialRampToValueAtTime(peak * 0.6, time + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.12);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
       osc.start(time);
-      osc.stop(time + 0.15);
+      osc.stop(time + 0.13);
     } else if (type === 'woodblock') {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
       osc.frequency.exponentialRampToValueAtTime(isAccent ? 800 : 400, time + 0.05);
-      gainNode.gain.setValueAtTime(vol * 0.8, time);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      gainNode.gain.setValueAtTime(0.0001, time);
+      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.005);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
       osc.start(time);
-      osc.stop(time + 0.05);
+      osc.stop(time + 0.07);
     } else if (type === 'soft') {
       osc.type = 'sine';
-      osc.frequency.value = isAccent ? 600 : 400;
-      gainNode.gain.setValueAtTime(vol * 0.4, time);
-      gainNode.gain.linearRampToValueAtTime(0.001, time + 0.05);
+      osc.frequency.setValueAtTime(isAccent ? 600 : 400, time);
+      gainNode.gain.setValueAtTime(0.0001, time);
+      gainNode.gain.linearRampToValueAtTime(peak * 0.5, time + 0.015);
+      gainNode.gain.linearRampToValueAtTime(0.0001, time + 0.06);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
       osc.start(time);
-      osc.stop(time + 0.05);
+      osc.stop(time + 0.07);
     } else if (type === 'drum') {
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(isAccent ? 150 : 100, time);
-      osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
-      gainNode.gain.setValueAtTime(vol * 0.8, time);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+      osc.frequency.exponentialRampToValueAtTime(10, time + 0.1);
+      gainNode.gain.setValueAtTime(0.0001, time);
+      gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.1);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
       osc.start(time);
-      osc.stop(time + 0.1);
+      osc.stop(time + 0.11);
     }
 
-    setDebugMsg(`metronome_click_scheduled_${Math.round(osc.frequency.value)}Hz_${ctx.state}`);
+    osc.onended = () => {
+      try { osc.disconnect(); } catch {}
+      try { gainNode.disconnect(); } catch {}
+    };
+
+    updateDebugMsg(`metronome_click_scheduled_${Math.round(osc.frequency.value)}Hz_${ctx.state}`);
   };
 
   const scheduler = () => {
@@ -845,7 +881,16 @@ export default function Metronome() {
 
             <span className="text-stone-500">Is mobile:</span>
             <span className="text-right text-brand">{/Mobi|Android/i.test(navigator.userAgent) ? 'Yes' : 'No'}</span>
+            
+            <span className="text-stone-500">Is iOS:</span>
+            <span className="text-right text-brand">{/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'Yes' : 'No'}</span>
           </div>
+
+          {(/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) && (
+            <div className="bg-orange-900/30 border border-orange-800/50 rounded-lg p-2 mt-2 text-orange-200">
+              {t('tutor.iosAudioWarning') || 'On iPhone Silent Mode, web app audio may be limited...'}
+            </div>
+          )}
 
           <div className="flex flex-col text-orange-300 border-t border-stone-800 mt-2 pt-2 gap-1">
             <span className="text-stone-500">{t('tutor.lastAudioAction') || 'Last audio action'}:</span>

@@ -71,3 +71,27 @@ select:focus option:checked {
 .glow-element {
   animation: pulse-glow 8s infinite ease-in-out;
 }
+
+@media (max-width: 768px) {
+  .shadow-\[0_0_15px_rgba\(var\(--brand\)\,0\.5\)\] {
+    box-shadow: none !important;
+  }
+  .shadow-\[0_0_10px_rgba\(255\,255\,255\,0\.5\)\] {
+    box-shadow: none !important;
+  }
+  .shadow-\[0_0_30px_rgba\(239\,68\,68\,0\.3\)\] {
+    box-shadow: none !important;
+  }
+  .shadow-\[0_0_30px_rgba\(var\(--brand\)\,0\.3\)\] {
+    box-shadow: none !important;
+  }
+  .shadow-xl {
+    box-shadow: none !important;
+  }
+  
+  /* Optimize container scrolling */
+  main {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+}

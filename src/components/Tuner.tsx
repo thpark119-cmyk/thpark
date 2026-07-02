@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
-import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep } from '../utils/audioOutput';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture } from '../utils/audioOutput';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -213,17 +213,28 @@ export default function Tuner() {
   const requestRef = useRef<number>();
 
   const stopToneGenerator = () => {
-    if (toneOscillatorRef.current) {
-      try {
-        toneOscillatorRef.current.stop();
-      } catch (e) {}
-      toneOscillatorRef.current.disconnect();
-      toneOscillatorRef.current = null;
+    try {
+      const ctx = getOutputAudioContext();
+      const now = ctx.currentTime;
+      const osc = toneOscillatorRef.current;
+      const gain = toneGainRef.current;
+
+      if (osc && gain) {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        osc.stop(now + 0.1);
+        osc.onended = () => {
+          try { osc.disconnect(); } catch {}
+          try { gain.disconnect(); } catch {}
+        };
+      }
+    } catch (e) {
+      console.warn('Tone stop cleanup failed:', e);
     }
-    if (toneGainRef.current) {
-      toneGainRef.current.disconnect();
-      toneGainRef.current = null;
-    }
+
+    toneOscillatorRef.current = null;
+    toneGainRef.current = null;
     playingToneRef.current = null;
     setIsPlayingTone(false);
   };
@@ -232,9 +243,9 @@ export default function Tuner() {
     const toneKey = `${note}${octave}`;
 
     try {
-      const audioCtx = await ensureOutputAudioRunning();
+      const { ctx, iosUnlockOk } = await prepareOutputAudioFromGesture();
       
-      setAudioCtxState(audioCtx.state);
+      setAudioCtxState(ctx.state);
 
       if (playingToneRef.current === toneKey) {
         stopToneGenerator();
@@ -244,23 +255,23 @@ export default function Tuner() {
 
       stopToneGenerator();
 
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       
       const noteIndex = NOTE_STRINGS.indexOf(note);
       const noteNum = noteIndex + (parseInt(oct) + 1) * 12;
       const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
       
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
       
-      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.05, toneGeneratorVolume), audioCtx.currentTime + 0.03);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(Math.min(0.35, Math.max(0.05, toneGeneratorVolume)), ctx.currentTime + 0.03);
       
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
       
-      osc.start(audioCtx.currentTime);
+      osc.start(ctx.currentTime);
       
       toneOscillatorRef.current = osc;
       toneGainRef.current = gain;
@@ -269,7 +280,7 @@ export default function Tuner() {
       setToneGeneratorOctave(oct);
       setIsPlayingTone(true);
       
-      setDebugMsg(`tone_started_${toneKey}_${Math.round(freq)}Hz_${audioCtx.state}`);
+      setDebugMsg(`tone_started_${toneKey}_${Math.round(freq)}Hz_${ctx.state}`);
     } catch (err) {
       console.error("Tone generator failed:", err);
       setDebugMsg(`tone_failed_${String(err)}`);
@@ -617,6 +628,9 @@ export default function Tuner() {
             <span className="text-stone-500">Is mobile:</span>
             <span className="text-right text-brand">{isMobileLike ? 'Yes' : 'No'}</span>
             
+            <span className="text-stone-500">Is iOS:</span>
+            <span className="text-right text-brand">{/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'Yes' : 'No'}</span>
+            
             <span className="text-stone-500">Mic State:</span>
             <span className="text-right text-brand">{isActive ? 'Active' : 'Inactive'}</span>
             
@@ -626,6 +640,12 @@ export default function Tuner() {
             <span className="text-stone-500">Frames:</span>
             <span className="text-right text-brand">{frameCount}</span>
           </div>
+
+          {(/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) && (
+            <div className="bg-orange-900/30 border border-orange-800/50 rounded-lg p-2 mt-2 text-orange-200">
+              {t('tutor.iosAudioWarning') || 'On iPhone Silent Mode, web app audio may be limited...'}
+            </div>
+          )}
 
           <div className="flex flex-col border-t border-stone-800 mt-1 pt-2 gap-1 text-stone-400">
             <span className="text-stone-500">Mic track info:</span>
