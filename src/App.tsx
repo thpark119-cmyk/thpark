@@ -5,6 +5,7 @@ import { useLanguage } from './context/LanguageContext';
 import LanguageSelector from './components/LanguageSelector';
 import { signInWithGoogle, logout } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
+import { BrandLogo } from './components/BrandLogo';
 
 // Lazy load components for performance optimization
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -113,7 +114,16 @@ export default function App() {
              <div className="bg-brand h-8 w-8 md:h-10 md:w-10 rounded-xl md:rounded-2xl text-white shadow-xl shadow-brand/20 flex items-center justify-center shrink-0">
                <Music size={18} className="md:w-5 md:h-5" />
              </div>
-             <h1 className="text-xl md:text-2xl font-bold tracking-tight serif italic text-white hidden sm:block">{t('app.name')}</h1>
+             
+             {/* Desktop Full Logo */}
+             <h1 className="text-xl md:text-2xl font-bold tracking-tight serif text-white hidden md:block">
+               <BrandLogo />
+             </h1>
+             
+             {/* Mobile Compact Logo */}
+             <h1 className="text-lg font-bold tracking-tight serif text-white md:hidden">
+               <BrandLogo compact />
+             </h1>
           </div>
           
           {/* Top Integrated Desktop Navbar */}
