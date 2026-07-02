@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Play, Square, Plus, Minus, Volume2, VolumeX, Hand, Save, ListMusic, Timer, TrendingUp, Ear, ChevronDown, ChevronUp, Trash2, Edit2, Check, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
-import { ensureAudioContextRunning, getAudioContext } from '../utils/audioContext';
+import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
 
 const MIN_BPM = 10;
 const MAX_BPM = 400;
@@ -186,6 +187,11 @@ const defaultSettings: MetronomeSettings = {
 
 export default function Metronome() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const isAdmin = user?.email === 'thpark119@gmail.com';
+
+  const [showDebug, setShowDebug] = useState<boolean>(false);
+  const [debugMsg, setDebugMsg] = useState<string>('waiting');
 
   const [settings, setSettings] = useState<MetronomeSettings>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -259,8 +265,8 @@ export default function Metronome() {
   const nextNoteTimeRef = useRef(0);
   const currentBeatInBarRef = useRef(0);
   const timerIDRef = useRef<number | null>(null);
-  const lookahead = 25.0; // ms
-  const scheduleAheadTime = 0.5; // s
+  const lookahead = 50.0; // ms
+  const scheduleAheadTime = 1.0; // s
 
   // Settings refs for audio callback
   const settingsRef = useRef(settings);
@@ -304,10 +310,29 @@ export default function Metronome() {
   // Init audio context
   const initAudio = async () => {
     try {
-      audioCtxRef.current = await ensureAudioContextRunning();
+      setDebugMsg('init_audio_started');
+      const res = await unlockAudioForMobile();
+      audioCtxRef.current = getSharedAudioContext();
+      if (audioCtxRef.current.state === 'suspended') {
+        console.warn('AudioContext is still suspended after unlock');
+        setDebugMsg('context_suspended');
+      } else {
+        setDebugMsg('context_running');
+      }
     } catch (e) {
       console.error(e);
+      setDebugMsg(`audio_start_failed: ${String(e)}`);
       alert(t('tutor.audioStartFailed') || 'Unable to start audio.');
+    }
+  };
+
+  const handleAudioTest = async () => {
+    try {
+      const res = await unlockAudioForMobile();
+      setDebugMsg(`audio_test_success: ${res.state}`);
+    } catch (e) {
+      console.error('Audio test failed:', e);
+      setDebugMsg(`audio_test_failed: ${String(e)}`);
     }
   };
 
@@ -753,6 +778,30 @@ export default function Metronome() {
           </button>
         ))}
       </div>
+
+      {isAdmin && showDebug && (
+        <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-2">
+          <div className="flex justify-between font-bold text-white mb-2">
+            <span>{t('tutor.adminAudioDiagnostics') || 'Admin Audio Diagnostics'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>AudioCtx: {audioCtxRef.current?.state || 'none'}</span>
+            <span>IsPlaying: {isPlaying ? 'yes' : 'no'}</span>
+          </div>
+          <div className="flex justify-between text-orange-300 border-t border-stone-800 mt-1 pt-1">
+            <span>{t('tutor.lastAudioAction') || 'Last audio action'}:</span>
+            <span className="truncate ml-2">{debugMsg}</span>
+          </div>
+          <div className="flex gap-2 border-t border-stone-800 mt-2 pt-2">
+            <button 
+              onClick={handleAudioTest}
+              className="flex-1 bg-stone-800 hover:bg-stone-700 text-stone-300 py-1.5 rounded transition-colors text-xs font-sans font-bold"
+            >
+              {t('tutor.audioTest') || 'Audio Test'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
         <div className="space-y-6">
@@ -1486,6 +1535,18 @@ export default function Metronome() {
       )}
 
       </div>
+      
+      {isAdmin && (
+        <div className="flex justify-center mt-4">
+          <button
+            type="button"
+            onClick={() => setShowDebug((prev) => !prev)}
+            className="text-stone-500 hover:text-stone-300 text-xs transition-colors py-2 px-4 rounded-full border border-stone-800/50 bg-stone-900/30"
+          >
+            {showDebug ? t('tuner.hideDebug') || 'Hide Debug' : t('tuner.showDebug') || 'Show Debug'}
+          </button>
+        </div>
+      )}
 
     </motion.div>
   );

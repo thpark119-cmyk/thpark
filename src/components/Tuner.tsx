@@ -4,7 +4,7 @@ import { Mic, MicOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
-import { ensureAudioContextRunning, getAudioContext } from '../utils/audioContext';
+import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
 
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -225,7 +225,8 @@ export default function Tuner() {
 
   const playToneGenerator = async (note = toneGeneratorNote, oct = toneGeneratorOctave) => {
     try {
-      const audioCtx = await ensureAudioContextRunning();
+      const res = await unlockAudioForMobile();
+      const audioCtx = getSharedAudioContext();
       
       setAudioCtxState(audioCtx.state);
 
@@ -241,28 +242,42 @@ export default function Tuner() {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
       
-      gain.gain.setValueAtTime(0, audioCtx.currentTime);
-      gain.gain.linearRampToValueAtTime(toneGeneratorVolume, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, toneGeneratorVolume), audioCtx.currentTime + 0.03);
       
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       
-      osc.start();
+      osc.start(audioCtx.currentTime);
       
       toneOscillatorRef.current = osc;
       toneGainRef.current = gain;
       setToneGeneratorNote(note);
       setToneGeneratorOctave(oct);
       setIsPlayingTone(true);
+      
+      setDebugMsg('tone_started');
     } catch (err) {
       console.error("Tone generator failed:", err);
+      setDebugMsg(`tone_failed: ${String(err)}`);
+    }
+  };
+
+  const handleAudioTest = async () => {
+    try {
+      const res = await unlockAudioForMobile();
+      setAudioCtxState(res.state);
+      setDebugMsg('audio_test_success');
+    } catch (e) {
+      console.error('Audio test failed:', e);
+      setDebugMsg(`audio_test_failed: ${String(e)}`);
     }
   };
 
   useEffect(() => {
     if (isPlayingTone && toneOscillatorRef.current && toneGainRef.current) {
       try {
-        const audioCtx = getAudioContext();
+        const audioCtx = getSharedAudioContext();
         const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
         const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
         const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
@@ -350,7 +365,8 @@ export default function Tuner() {
     
     try {
       // 1. Create and resume AudioContext immediately on user touch
-      const audioCtx = await ensureAudioContextRunning();
+      const res = await unlockAudioForMobile();
+      const audioCtx = getSharedAudioContext();
       audioContextRef.current = audioCtx;
       
       setAudioCtxState(audioCtx.state);
@@ -570,8 +586,11 @@ export default function Tuner() {
         <h2 className="text-3xl font-serif italic text-white leading-none">{t('tuner.title') || 'Tuner'}</h2>
       </div>
       
-      {showDebug && (
-        <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-1">
+      {isAdmin && showDebug && (
+        <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-2">
+          <div className="flex justify-between font-bold text-white mb-2">
+            <span>{t('tutor.adminAudioDiagnostics') || 'Admin Audio Diagnostics'}</span>
+          </div>
           <div className="flex justify-between">
             <span>Mic State: {isActive ? 'active' : 'inactive'}</span>
             <span>AudioCtx: {audioCtxState}</span>
@@ -590,8 +609,23 @@ export default function Tuner() {
             <span className="truncate">Track label: {trackInfo.label}</span>
             <span>Sample rate: {trackInfo.sampleRate} (Channels: {trackInfo.channelCount})</span>
           </div>
-          <div className="flex justify-between border-t border-stone-800 mt-1 pt-1">
-            <span className="text-stone-300">Last msg: {debugMsg}</span>
+          <div className="flex justify-between border-t border-stone-800 mt-1 pt-1 text-orange-300">
+            <span>{t('tutor.lastAudioAction') || 'Last audio action'}:</span>
+            <span className="truncate ml-2">{debugMsg}</span>
+          </div>
+          <div className="flex gap-2 border-t border-stone-800 mt-2 pt-2">
+            <button 
+              onClick={handleAudioTest}
+              className="flex-1 bg-stone-800 hover:bg-stone-700 text-stone-300 py-1.5 rounded transition-colors text-xs font-sans font-bold"
+            >
+              {t('tutor.audioTest') || 'Audio Test'}
+            </button>
+            <button 
+              onClick={reactivateAudio}
+              className="flex-1 bg-stone-800 hover:bg-stone-700 text-stone-300 py-1.5 rounded transition-colors text-xs font-sans font-bold"
+            >
+              {t('tutor.reactivateAudioLabel') || 'Reactivate Audio'}
+            </button>
           </div>
         </div>
       )}
