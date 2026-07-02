@@ -2,7 +2,6 @@ import React, { useState, lazy, Suspense } from 'react';
 import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
-import LanguageSelector from './components/LanguageSelector';
 import { signInWithGoogle, logout } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrandLogo } from './components/BrandLogo';
@@ -70,8 +69,7 @@ export default function App() {
     { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
     { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
     { id: 'metronome', label: t('navigation.metronome'), icon: Clock },
-    { id: 'tuner', label: t('navigation.tuner'), icon: Mic },
-    { id: 'settings', label: t('navigation.settings'), icon: SettingsIcon }
+    { id: 'tuner', label: t('navigation.tuner'), icon: Mic }
   ];
 
   if (isAdmin) {
@@ -157,7 +155,14 @@ export default function App() {
           
           {/* Auth State Panel */}
           <div className="flex items-center gap-2 md:gap-3">
-            <LanguageSelector />
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center justify-center gap-2 h-10 w-10 sm:w-auto sm:px-4 rounded-xl md:rounded-2xl transition-colors text-sm font-medium ${activeTab === 'settings' ? 'bg-brand/20 text-brand-light' : 'bg-white/[0.03] text-stone-300 hover:bg-white/[0.08]'}`}
+              aria-label={t('navigation.settings') || 'Settings'}
+            >
+              <SettingsIcon size={18} className="shrink-0" />
+              <span className="hidden sm:inline">{t('navigation.settings')}</span>
+            </button>
             {loading ? (
               <div className="flex items-center gap-2 text-stone-500 font-mono text-[10px] bg-white/[0.01] border border-white/5 px-3 py-1.5 md:px-4 md:py-2 rounded-xl">
                 <Loader2 size={12} className="animate-spin text-brand" />
