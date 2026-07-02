@@ -22,12 +22,17 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
     return unsubscribe;
   }, [user]);
 
+  const isAdmin = user?.email === 'thpark119@gmail.com';
+
   const quickActions = [
     { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand/10 text-brand border-brand/20', icon: PlusCircle },
     { id: 'repertoire', label: t('dashboard.quickActionRepertoire'), desc: t('dashboard.quickActionRepertoireDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: Search },
-    { id: 'studio', label: t('dashboard.quickActionStudio'), desc: t('dashboard.quickActionStudioDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ListTodo },
-    { id: 'tutor', label: t('dashboard.quickActionTutor'), desc: t('dashboard.quickActionTutorDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: MessageSquare },
+    { id: 'studio', label: t('dashboard.quickActionStudio'), desc: t('dashboard.quickActionStudioDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ListTodo }
   ];
+
+  if (isAdmin) {
+    quickActions.push({ id: 'tutor', label: t('dashboard.quickActionTutor'), desc: t('dashboard.quickActionTutorDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: MessageSquare });
+  }
 
   const tools = [
     { id: 'metronome', label: 'Metronome', color: 'bg-stone-900', icon: Activity },

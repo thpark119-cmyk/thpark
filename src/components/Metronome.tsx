@@ -3,6 +3,8 @@ import { Play, Square, Plus, Minus, Volume2, VolumeX, Hand, Save, ListMusic, Tim
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 
+import { ensureAudioContextRunning, getAudioContext } from '../utils/audioContext';
+
 const MIN_BPM = 10;
 const MAX_BPM = 400;
 const STORAGE_KEY = 'musicianlog_metronome_settings';
@@ -258,7 +260,7 @@ export default function Metronome() {
   const currentBeatInBarRef = useRef(0);
   const timerIDRef = useRef<number | null>(null);
   const lookahead = 25.0; // ms
-  const scheduleAheadTime = 0.1; // s
+  const scheduleAheadTime = 0.5; // s
 
   // Settings refs for audio callback
   const settingsRef = useRef(settings);
@@ -300,12 +302,12 @@ export default function Metronome() {
   const tapTimesRef = useRef<number[]>([]);
 
   // Init audio context
-  const initAudio = () => {
-    if (!audioCtxRef.current) {
-      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
+  const initAudio = async () => {
+    try {
+      audioCtxRef.current = await ensureAudioContextRunning();
+    } catch (e) {
+      console.error(e);
+      alert(t('tutor.audioStartFailed') || 'Unable to start audio.');
     }
   };
 
@@ -443,12 +445,16 @@ export default function Metronome() {
   useEffect(() => {
     if (isPlaying) {
       if (!audioCtxRef.current) {
-        initAudio();
+        // If it somehow reached here without context (e.g. state change from elsewhere),
+        // we can't reliably start audio because we need user gesture.
+        // It's safer to turn it off.
+        setIsPlaying(false);
+        return;
       }
       currentBeatInBarRef.current = 0;
       setCurrentBeat(0);
-      nextNoteTimeRef.current = audioCtxRef.current!.currentTime + 0.05;
-      playStartAudioTimeRef.current = audioCtxRef.current!.currentTime;
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
+      playStartAudioTimeRef.current = audioCtxRef.current.currentTime;
       playStartTimeRef.current = Date.now();
       totalBarsPlayedRef.current = 0;
       lastTempoIncreaseRef.current = { bars: 0, time: 0 };
@@ -507,9 +513,9 @@ export default function Metronome() {
     };
   }, [isPlaying]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (!isPlaying) {
-      initAudio();
+      await initAudio();
     }
     setIsPlaying(!isPlaying);
   };

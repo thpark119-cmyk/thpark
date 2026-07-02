@@ -4,6 +4,8 @@ import { Mic, MicOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
+import { ensureAudioContextRunning, getAudioContext } from '../utils/audioContext';
+
 const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 const isMobileLike = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -104,14 +106,6 @@ function autoCorrelate(buf: Float32Array, sampleRate: number): number {
 
   return sampleRate / T0;
 }
-
-const createAudioContext = () => {
-  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioContextClass) {
-    throw new Error('AUDIO_CONTEXT_NOT_SUPPORTED');
-  }
-  return new AudioContextClass();
-};
 
 export default function Tuner() {
   const { t } = useLanguage();
@@ -229,14 +223,10 @@ export default function Tuner() {
     setIsPlayingTone(false);
   };
 
-  const playToneGenerator = async () => {
+  const playToneGenerator = async (note = toneGeneratorNote, oct = toneGeneratorOctave) => {
     try {
-      const audioCtx = audioContextRef.current ?? createAudioContext();
-      audioContextRef.current = audioCtx;
+      const audioCtx = await ensureAudioContextRunning();
       
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
       setAudioCtxState(audioCtx.state);
 
       stopToneGenerator();
@@ -244,8 +234,8 @@ export default function Tuner() {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       
-      const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
-      const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
+      const noteIndex = NOTE_STRINGS.indexOf(note);
+      const noteNum = noteIndex + (parseInt(oct) + 1) * 12;
       const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
       
       osc.type = 'sine';
@@ -261,6 +251,8 @@ export default function Tuner() {
       
       toneOscillatorRef.current = osc;
       toneGainRef.current = gain;
+      setToneGeneratorNote(note);
+      setToneGeneratorOctave(oct);
       setIsPlayingTone(true);
     } catch (err) {
       console.error("Tone generator failed:", err);
@@ -268,13 +260,18 @@ export default function Tuner() {
   };
 
   useEffect(() => {
-    if (isPlayingTone && toneOscillatorRef.current && toneGainRef.current && audioContextRef.current) {
-      const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
-      const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
-      const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
-      
-      toneOscillatorRef.current.frequency.setValueAtTime(freq, audioContextRef.current.currentTime);
-      toneGainRef.current.gain.setValueAtTime(toneGeneratorVolume, audioContextRef.current.currentTime);
+    if (isPlayingTone && toneOscillatorRef.current && toneGainRef.current) {
+      try {
+        const audioCtx = getAudioContext();
+        const noteIndex = NOTE_STRINGS.indexOf(toneGeneratorNote);
+        const noteNum = noteIndex + (parseInt(toneGeneratorOctave) + 1) * 12;
+        const freq = getFrequencyFromNoteNumber(noteNum, a4Frequency);
+        
+        toneOscillatorRef.current.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        toneGainRef.current.gain.setValueAtTime(toneGeneratorVolume, audioCtx.currentTime);
+      } catch (e) {
+        console.error(e);
+      }
     }
   }, [toneGeneratorNote, toneGeneratorOctave, toneGeneratorVolume, a4Frequency, isPlayingTone]);
 
@@ -353,13 +350,9 @@ export default function Tuner() {
     
     try {
       // 1. Create and resume AudioContext immediately on user touch
-      const audioCtx = audioContextRef.current ?? createAudioContext();
+      const audioCtx = await ensureAudioContextRunning();
       audioContextRef.current = audioCtx;
       
-      if (audioCtx.state === 'suspended') {
-        setDebugMsg('resuming_audio_context');
-        await audioCtx.resume();
-      }
       setAudioCtxState(audioCtx.state);
 
       // 2. Request mic permission
@@ -435,7 +428,6 @@ export default function Tuner() {
       streamRef.current = null;
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close();
       audioContextRef.current = null;
     }
     setIsActive(false);
@@ -859,10 +851,7 @@ export default function Tuner() {
                           if (isCurrent) {
                             stopToneGenerator();
                           } else {
-                            setToneGeneratorNote(n);
-                            setToneGeneratorOctave('4');
-                            // Delay slightly to ensure state is set before playing
-                            setTimeout(() => playToneGenerator(), 0);
+                            playToneGenerator(n, '4');
                           }
                         }}
                         className={`h-10 rounded-xl font-bold transition-colors text-sm ${isCurrent ? 'bg-brand text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]' : 'bg-stone-950 border border-stone-800 text-stone-300 hover:bg-stone-800'}`}
@@ -886,9 +875,7 @@ export default function Tuner() {
                               if (isCurrent) {
                                 stopToneGenerator();
                               } else {
-                                setToneGeneratorNote(p.note);
-                                setToneGeneratorOctave(p.octave.toString());
-                                setTimeout(() => playToneGenerator(), 0);
+                                playToneGenerator(p.note, p.octave.toString());
                               }
                             }}
                             className={`flex-1 min-w-[3rem] h-10 rounded-xl font-bold transition-colors text-xs ${isCurrent ? 'bg-brand text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]' : 'bg-stone-900 border border-stone-700 text-stone-300 hover:bg-stone-700'}`}

@@ -68,11 +68,11 @@ export default function App() {
     { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
     { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
     { id: 'metronome', label: t('navigation.metronome'), icon: Clock },
-    { id: 'tuner', label: t('navigation.tuner'), icon: Mic },
-    { id: 'tutor', label: t('navigation.tutor'), icon: Sparkles }
+    { id: 'tuner', label: t('navigation.tuner'), icon: Mic }
   ];
 
   if (isAdmin) {
+    navItems.push({ id: 'tutor', label: t('navigation.tutor'), icon: Sparkles });
     navItems.push({ id: 'admin', label: t('app.developer'), icon: ShieldCheck });
   }
 
@@ -240,7 +240,7 @@ export default function App() {
                 {activeTab === 'studio' && <TeachingStudio />}
                 {activeTab === 'metronome' && <Metronome />}
                 {activeTab === 'tuner' && <Tuner />}
-                {activeTab === 'tutor' && <AITutor />}
+                {activeTab === 'tutor' && (isAdmin ? <AITutor /> : <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />)}
                 {activeTab === 'admin' && isAdmin && <AdminPanel />}
               </motion.div>
             </AnimatePresence>
