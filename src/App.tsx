@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic } from 'lucide-react';
+import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import LanguageSelector from './components/LanguageSelector';
@@ -16,6 +16,7 @@ const Metronome = lazy(() => import('./components/Metronome'));
 const Tuner = lazy(() => import('./components/Tuner'));
 const AITutor = lazy(() => import('./components/AITutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
+const Settings = lazy(() => import('./components/Settings'));
 
 // Reusable Loading Spinner for Suspense
 const LoadingView = () => {
@@ -69,7 +70,8 @@ export default function App() {
     { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
     { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
     { id: 'metronome', label: t('navigation.metronome'), icon: Clock },
-    { id: 'tuner', label: t('navigation.tuner'), icon: Mic }
+    { id: 'tuner', label: t('navigation.tuner'), icon: Mic },
+    { id: 'settings', label: t('navigation.settings'), icon: SettingsIcon }
   ];
 
   if (isAdmin) {
@@ -250,6 +252,7 @@ export default function App() {
                 {activeTab === 'studio' && <TeachingStudio />}
                 {activeTab === 'metronome' && <Metronome />}
                 {activeTab === 'tuner' && <Tuner />}
+                {activeTab === 'settings' && <Settings />}
                 {activeTab === 'tutor' && (isAdmin ? <AITutor /> : <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />)}
                 {activeTab === 'admin' && isAdmin && <AdminPanel />}
               </motion.div>
@@ -260,10 +263,10 @@ export default function App() {
 
       {/* Mobile Bottom Navigation */}
       <nav 
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-950/90 backdrop-blur-xl border-t border-white/5 z-50"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-950/90 backdrop-blur-xl border-t border-white/5 z-50 overflow-x-auto no-scrollbar"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex items-center justify-around px-2 py-2">
+        <div className="flex items-center justify-start sm:justify-around px-2 py-2 min-w-max">
           {navItems.filter(item => item.id !== 'admin').map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;

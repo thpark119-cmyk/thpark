@@ -5,6 +5,7 @@ import {
   deleteDoc, 
   doc, 
   query, 
+  getDocs,
   where, 
   onSnapshot,
   orderBy,
@@ -12,6 +13,7 @@ import {
   FirestoreError
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { deleteUser } from 'firebase/auth';
 
 enum OperationType {
   CREATE = 'create',
@@ -235,4 +237,49 @@ export async function deleteRecord(collectionName: string, id: string, user?: an
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${collPath}/${id}`);
   }
+}
+
+export function clearLocalData() {
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('local_received_lessons') || key.startsWith('local_students') || key.startsWith('local_repertoire'))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
+  
+  // Clean up IndexedDB if exists
+  const req = indexedDB.deleteDatabase('StudentPhotosDB');
+  req.onsuccess = () => {
+    console.log('StudentPhotosDB deleted successfully');
+  };
+}
+
+export async function deleteUserAccountData(user: any) {
+  if (!user || !db) return;
+  
+  const uid = user.uid;
+  const collectionsToDelete = ['received_lessons', 'students', 'repertoire'];
+  
+  for (const collName of collectionsToDelete) {
+    const collPath = `users/${uid}/${collName}`;
+    try {
+      const q = query(collection(db, collPath));
+      const querySnapshot = await getDocs(q);
+      const deletePromises = querySnapshot.docs.map(docSnap => deleteDoc(doc(db, collPath, docSnap.id)));
+      await Promise.all(deletePromises);
+    } catch (e) {
+      console.warn(`Failed to delete collection ${collName}`, e);
+    }
+  }
+  
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await deleteDoc(userDocRef);
+  } catch (e) {
+    console.warn(`Failed to delete user doc`, e);
+  }
+  
+  await deleteUser(user);
 }
