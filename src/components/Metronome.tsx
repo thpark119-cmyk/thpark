@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
+import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep } from '../utils/audioOutput';
 
 const MIN_BPM = 10;
 const MAX_BPM = 400;
@@ -307,28 +308,106 @@ export default function Metronome() {
   // Tap tempo
   const tapTimesRef = useRef<number[]>([]);
 
+  const isPlayingRef = useRef(false);
+
   // Init audio context
-  const initAudio = async () => {
+  const startMetronome = async () => {
     try {
-      setDebugMsg('init_audio_started');
-      const res = await unlockAudioForMobile();
-      audioCtxRef.current = getSharedAudioContext();
-      if (audioCtxRef.current.state === 'suspended') {
-        console.warn('AudioContext is still suspended after unlock');
-        setDebugMsg('context_suspended');
-      } else {
-        setDebugMsg('context_running');
+      setDebugMsg('metronome_start_pressed');
+      
+      const ctx = await ensureOutputAudioRunning();
+      audioCtxRef.current = ctx;
+
+      if (ctx.state !== 'running') {
+        setDebugMsg(`metronome_context_not_running_${ctx.state}`);
+        return;
       }
+
+      // Cleanup existing timers
+      if (timerIDRef.current !== null) {
+        window.clearTimeout(timerIDRef.current);
+        timerIDRef.current = null;
+      }
+      if (practiceIntervalRef.current !== null) {
+        window.clearInterval(practiceIntervalRef.current);
+        practiceIntervalRef.current = null;
+      }
+
+      isPlayingRef.current = true;
+      setIsPlaying(true);
+
+      currentBeatInBarRef.current = 0;
+      setCurrentBeat(0);
+
+      // Schedule first note
+      nextNoteTimeRef.current = ctx.currentTime + 0.05;
+      playStartAudioTimeRef.current = ctx.currentTime;
+      playStartTimeRef.current = Date.now();
+      totalBarsPlayedRef.current = 0;
+      lastTempoIncreaseRef.current = { bars: 0, time: 0 };
+      setIsSilentPhase(false);
+
+      if (practiceStateRef.current.active) {
+        setPracticeState(s => ({ ...s, elapsedTime: 0, barCount: 0 }));
+      }
+
+      scheduler();
+
+      practiceIntervalRef.current = window.setInterval(() => {
+        if (!audioCtxRef.current) return;
+        const elapsedSeconds = audioCtxRef.current.currentTime - playStartAudioTimeRef.current;
+        
+        if (practiceStateRef.current.active) {
+          setPracticeState(s => ({ ...s, elapsedTime: Math.floor(elapsedSeconds) }));
+          
+          if (practiceSettingsRef.current.targetTime > 0 && elapsedSeconds >= practiceSettingsRef.current.targetTime * 60) {
+            stopMetronome();
+            setTimeout(() => alert(t('metronome.targetReached')), 100);
+            return;
+          }
+        }
+        
+        if (autoTempoRef.current.enabled && autoTempoRef.current.mode === 'time') {
+          if (elapsedSeconds - lastTempoIncreaseRef.current.time >= autoTempoRef.current.intervalSeconds) {
+            lastTempoIncreaseRef.current.time = elapsedSeconds;
+            setSettings(s => {
+              const newBpm = Math.min(s.bpm + autoTempoRef.current.increment, autoTempoRef.current.maxBpm);
+              return { ...s, bpm: newBpm };
+            });
+          }
+        }
+      }, 1000);
+
+      setDebugMsg(`metronome_started_${ctx.state}`);
     } catch (e) {
       console.error(e);
       setDebugMsg(`audio_start_failed: ${String(e)}`);
-      alert(t('tutor.audioStartFailed') || 'Unable to start audio.');
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+      alert(t('tutor.audioStartFailed') || 'Unable to start output audio.');
     }
+  };
+
+  const stopMetronome = () => {
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    
+    if (timerIDRef.current !== null) {
+      window.clearTimeout(timerIDRef.current);
+      timerIDRef.current = null;
+    }
+    if (practiceIntervalRef.current !== null) {
+      window.clearInterval(practiceIntervalRef.current);
+      practiceIntervalRef.current = null;
+    }
+    
+    setCurrentBeat(0);
+    setDebugMsg('metronome_stopped');
   };
 
   const handleAudioTest = async () => {
     try {
-      const res = await unlockAudioForMobile();
+      const res = await playAudibleTestBeep();
       setDebugMsg(`audio_test_success: ${res.state}`);
     } catch (e) {
       console.error('Audio test failed:', e);
@@ -377,8 +456,16 @@ export default function Metronome() {
     }
   };
 
-  const playClick = (time: number, beatState: BeatState) => {
-    if (beatState === 'mute' || settingsRef.current.isMuted) return;
+  const scheduleMetronomeClick = (time: number, beatState: BeatState) => {
+    if (settingsRef.current.isMuted) {
+      setDebugMsg('metronome_muted_global');
+      return;
+    }
+
+    if (beatState === 'mute') {
+      setDebugMsg('metronome_beat_muted');
+      return;
+    }
 
     if (coachModeRef.current.enabled) {
       const cycleLength = coachModeRef.current.soundBars + coachModeRef.current.silentBars;
@@ -402,7 +489,7 @@ export default function Metronome() {
 
     const isAccent = beatState === 'accent';
     const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
-    const vol = settingsRef.current.volume;
+    const vol = Math.max(0.05, settingsRef.current.volume);
 
     if (type === 'classic') {
       osc.type = 'sine';
@@ -442,92 +529,41 @@ export default function Metronome() {
       osc.start(time);
       osc.stop(time + 0.1);
     }
+
+    setDebugMsg(`metronome_click_scheduled_${Math.round(osc.frequency.value)}Hz_${ctx.state}`);
   };
 
   const scheduler = () => {
-    while (audioCtxRef.current && nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime) {
+    while (isPlayingRef.current && audioCtxRef.current && nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime) {
       // Ensure we stay in bounds if numerator was just decreased
       currentBeatInBarRef.current = currentBeatInBarRef.current % settingsRef.current.numerator;
       
       const currentB = currentBeatInBarRef.current;
       const bState = settingsRef.current.beatStates[currentB];
       
-      playClick(nextNoteTimeRef.current, bState);
+      scheduleMetronomeClick(nextNoteTimeRef.current, bState);
       
       // Update visual indicator slightly before the actual sound using setTimeout
       const timeToPlay = (nextNoteTimeRef.current - audioCtxRef.current.currentTime) * 1000;
-      setTimeout(() => {
-        // Need to pass the latest isPlaying value conceptually, or just let UI update if it was playing.
-        // It's safer to just set currentBeat and clear it when stopping.
+      if (timeToPlay >= 0) {
+        setTimeout(() => {
+          if (isPlayingRef.current) {
+            setCurrentBeat(currentB);
+          }
+        }, timeToPlay);
+      } else {
         setCurrentBeat(currentB);
-      }, Math.max(0, timeToPlay));
+      }
 
       nextNote();
     }
-    timerIDRef.current = window.setTimeout(scheduler, lookahead);
+    
+    if (isPlayingRef.current) {
+      timerIDRef.current = window.setTimeout(scheduler, lookahead);
+    }
   };
 
   useEffect(() => {
-    if (isPlaying) {
-      if (!audioCtxRef.current) {
-        // If it somehow reached here without context (e.g. state change from elsewhere),
-        // we can't reliably start audio because we need user gesture.
-        // It's safer to turn it off.
-        setIsPlaying(false);
-        return;
-      }
-      currentBeatInBarRef.current = 0;
-      setCurrentBeat(0);
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
-      playStartAudioTimeRef.current = audioCtxRef.current.currentTime;
-      playStartTimeRef.current = Date.now();
-      totalBarsPlayedRef.current = 0;
-      lastTempoIncreaseRef.current = { bars: 0, time: 0 };
-      setIsSilentPhase(false);
-
-      if (practiceStateRef.current.active) {
-        setPracticeState(s => ({ ...s, elapsedTime: 0, barCount: 0 }));
-      }
-
-      scheduler();
-
-      practiceIntervalRef.current = window.setInterval(() => {
-        if (!audioCtxRef.current) return;
-        const elapsedSeconds = audioCtxRef.current.currentTime - playStartAudioTimeRef.current;
-        
-        if (practiceStateRef.current.active) {
-          setPracticeState(s => ({ ...s, elapsedTime: Math.floor(elapsedSeconds) }));
-          
-          if (practiceSettingsRef.current.targetTime > 0 && elapsedSeconds >= practiceSettingsRef.current.targetTime * 60) {
-            setIsPlaying(false);
-            // using setTimeout to allow render before alert, or simply stop
-            setTimeout(() => alert(t('metronome.targetReached')), 100);
-            return;
-          }
-        }
-        
-        if (autoTempoRef.current.enabled && autoTempoRef.current.mode === 'time') {
-          if (elapsedSeconds - lastTempoIncreaseRef.current.time >= autoTempoRef.current.intervalSeconds) {
-            lastTempoIncreaseRef.current.time = elapsedSeconds;
-            setSettings(s => {
-              const newBpm = Math.min(s.bpm + autoTempoRef.current.increment, autoTempoRef.current.maxBpm);
-              return { ...s, bpm: newBpm };
-            });
-          }
-        }
-      }, 1000);
-
-    } else {
-      if (timerIDRef.current !== null) {
-        window.clearTimeout(timerIDRef.current);
-        timerIDRef.current = null;
-      }
-      if (practiceIntervalRef.current !== null) {
-        window.clearInterval(practiceIntervalRef.current);
-        practiceIntervalRef.current = null;
-      }
-      setCurrentBeat(0);
-    }
     return () => {
       if (timerIDRef.current !== null) {
         window.clearTimeout(timerIDRef.current);
@@ -536,13 +572,14 @@ export default function Metronome() {
         window.clearInterval(practiceIntervalRef.current);
       }
     };
-  }, [isPlaying]);
+  }, []);
 
   const togglePlay = async () => {
-    if (!isPlaying) {
-      await initAudio();
+    if (isPlaying) {
+      stopMetronome();
+    } else {
+      await startMetronome();
     }
-    setIsPlaying(!isPlaying);
   };
 
   const updateBpm = (newBpm: number) => {
@@ -780,24 +817,46 @@ export default function Metronome() {
       </div>
 
       {isAdmin && showDebug && (
-        <div className="bg-stone-900/50 border border-stone-800 rounded-xl p-3 text-[10px] font-mono text-stone-400 space-y-2">
-          <div className="flex justify-between font-bold text-white mb-2">
+        <div className="bg-stone-900/80 border border-stone-800 rounded-xl p-4 text-[10px] font-mono text-stone-300 space-y-2 relative z-50 shadow-2xl">
+          <div className="flex justify-between font-bold text-white mb-2 pb-2 border-b border-stone-800">
             <span>{t('tutor.adminAudioDiagnostics') || 'Admin Audio Diagnostics'}</span>
           </div>
-          <div className="flex justify-between">
-            <span>AudioCtx: {audioCtxRef.current?.state || 'none'}</span>
-            <span>IsPlaying: {isPlaying ? 'yes' : 'no'}</span>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <span className="text-stone-500">{t('tutor.outputAudioState') || 'Output Audio state'}:</span>
+            <span className="text-right text-brand">{audioCtxRef.current?.state || 'none'}</span>
+
+            <span className="text-stone-500">Output sampleRate:</span>
+            <span className="text-right text-brand">{audioCtxRef.current?.sampleRate || 0}</span>
+
+            <span className="text-stone-500">Output currentTime:</span>
+            <span className="text-right text-brand">{Math.round(audioCtxRef.current?.currentTime || 0)}s</span>
+
+            <span className="text-stone-500">Metronome playing:</span>
+            <span className="text-right text-brand">{isPlaying ? 'Yes' : 'No'}</span>
+            
+            <span className="text-stone-500">Metronome scheduler active:</span>
+            <span className="text-right text-brand">{isPlayingRef.current ? 'Yes' : 'No'}</span>
+
+            <span className="text-stone-500">Global mute:</span>
+            <span className="text-right text-brand">{settings.isMuted ? 'Yes' : 'No'}</span>
+
+            <span className="text-stone-500">Volume:</span>
+            <span className="text-right text-brand">{Math.round(settings.volume * 100)}%</span>
+
+            <span className="text-stone-500">Is mobile:</span>
+            <span className="text-right text-brand">{/Mobi|Android/i.test(navigator.userAgent) ? 'Yes' : 'No'}</span>
           </div>
-          <div className="flex justify-between text-orange-300 border-t border-stone-800 mt-1 pt-1">
-            <span>{t('tutor.lastAudioAction') || 'Last audio action'}:</span>
-            <span className="truncate ml-2">{debugMsg}</span>
+
+          <div className="flex flex-col text-orange-300 border-t border-stone-800 mt-2 pt-2 gap-1">
+            <span className="text-stone-500">{t('tutor.lastAudioAction') || 'Last audio action'}:</span>
+            <span className="break-all bg-stone-950 p-1.5 rounded">{debugMsg}</span>
           </div>
-          <div className="flex gap-2 border-t border-stone-800 mt-2 pt-2">
+          <div className="flex gap-2 border-t border-stone-800 mt-2 pt-3">
             <button 
               onClick={handleAudioTest}
-              className="flex-1 bg-stone-800 hover:bg-stone-700 text-stone-300 py-1.5 rounded transition-colors text-xs font-sans font-bold"
+              className="flex-1 bg-brand/20 hover:bg-brand/30 text-brand py-2 rounded transition-colors text-xs font-sans font-bold border border-brand/30"
             >
-              {t('tutor.audioTest') || 'Audio Test'}
+              {t('tutor.metronomeSoundTest') || 'Metronome Sound Test'}
             </button>
           </div>
         </div>
