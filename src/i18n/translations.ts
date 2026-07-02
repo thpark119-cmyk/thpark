@@ -3,7 +3,8 @@ export type Language = 'ko' | 'en' | 'de';
 export const translations = {
   ko: {
     app: {
-      name: 'MusicianLog',
+      name: 'Music In One',
+      shortAppName: 'Mio',
       guestMode: '게스트 모드: 로그인하지 않은 상태입니다. 작성하신 기록은 브라우저 쿠키/LocalStorage에 안전하게 저장되나, 브라우저가 변경되거나 캐시가 삭제되면 소실될 수 있습니다. 데이터를 클라우드와 안전하게 동기화하시려면 우측 상단에서 로그인을 진행해 주세요.',
       syncing: '데이터 동기화...',
       login: 'Google로 로그인',
@@ -114,7 +115,7 @@ export const translations = {
     },
     dashboard: {
       welcome: '환영합니다',
-      subtitle: '연주와 레슨 기록을 한 곳에서 관리하세요.',
+      subtitle: '음악가를 위한 레슨, 연습, 악보, 튜닝 도구를 한곳에 모은 작업 공간',
       todayRecords: '오늘의 기록',
       whatToRecord: '무엇을 기록할까요?',
       quickActionMyLessons: '레슨 복기',
@@ -128,8 +129,14 @@ export const translations = {
       recentLessons: '최근 레슨 내역',
       noRecentLessons: '아직 기록된 레슨이 없습니다.',
       firstLesson: '첫 레슨 기록하기',
-      openMetronome: '메트로놈으로 이동',
-      openTuner: '튜너로 이동'
+      practiceTools: '연습 도구',
+      practiceToolsDesc: '연습에 필요한 기본 도구를 빠르게 열 수 있습니다.',
+      tunerTitle: '튜너',
+      tunerDesc: '악기와 목소리의 음정을 빠르게 확인하세요.',
+      metronomeTitle: '메트로놈',
+      metronomeDesc: '연습에 맞는 템포와 박자를 안정적으로 설정하세요.',
+      openMetronome: '템포 설정하기',
+      openTuner: '음정 점검하기'
     },
     tutor: {
       title: '뮤직 튜터',
@@ -517,7 +524,8 @@ export const translations = {
   },
   en: {
     app: {
-      name: 'MusicianLog',
+      name: 'Music In One',
+      shortAppName: 'Mio',
       guestMode: 'Guest Mode: You are not logged in. Your records are saved safely in the browser\'s LocalStorage but may be lost if you clear your cache or change browsers. Please login at the top right to sync your data to the cloud safely.',
       syncing: 'Syncing data...',
       login: 'Sign in with Google',
@@ -628,7 +636,7 @@ export const translations = {
     },
     dashboard: {
       welcome: 'Welcome',
-      subtitle: 'Manage your performances and lesson records in one place.',
+      subtitle: 'A focused workspace for lessons, practice, scores, tuning, and rhythm tools.',
       todayRecords: 'Today\'s Records',
       whatToRecord: 'What would you like to record?',
       quickActionMyLessons: 'My Lessons',
@@ -642,8 +650,14 @@ export const translations = {
       recentLessons: 'Recent Lessons',
       noRecentLessons: 'No lessons recorded yet.',
       firstLesson: 'Record your first lesson',
-      openMetronome: 'Open Metronome',
-      openTuner: 'Open Tuner'
+      practiceTools: 'Practice Tools',
+      practiceToolsDesc: 'Open the essential tools for daily practice.',
+      tunerTitle: 'Tuner',
+      tunerDesc: 'Quickly check the pitch of your instrument or voice.',
+      metronomeTitle: 'Metronome',
+      metronomeDesc: 'Set a steady tempo and meter for your practice.',
+      openMetronome: 'Set Tempo',
+      openTuner: 'Check Pitch'
     },
     tutor: {
       title: 'Music Tutor',
@@ -1031,7 +1045,8 @@ export const translations = {
   },
   de: {
     app: {
-      name: 'MusicianLog',
+      name: 'Music In One',
+      shortAppName: 'Mio',
       guestMode: 'Gastmodus: Sie sind nicht angemeldet. Ihre Daten werden sicher im LocalStorage des Browsers gespeichert, können aber verloren gehen, wenn Sie Ihren Cache leeren oder den Browser wechseln. Bitte melden Sie sich oben rechts an, um Ihre Daten sicher mit der Cloud zu synchronisieren.',
       syncing: 'Daten werden synchronisiert...',
       login: 'Mit Google anmelden',
@@ -1142,7 +1157,7 @@ export const translations = {
     },
     dashboard: {
       welcome: 'Willkommen',
-      subtitle: 'Verwalten Sie Ihre Auftritte und Unterrichtsstunden an einem Ort.',
+      subtitle: 'Ein fokussierter Arbeitsbereich für Unterricht, Üben, Noten, Stimmung und Rhythmus.',
       todayRecords: 'Heutige Aufzeichnungen',
       whatToRecord: 'Was möchten Sie aufzeichnen?',
       quickActionMyLessons: 'Mein Unterricht',
@@ -1156,8 +1171,14 @@ export const translations = {
       recentLessons: 'Letzte Unterrichtsstunden',
       noRecentLessons: 'Noch keine Unterrichtsstunden aufgezeichnet.',
       firstLesson: 'Ersten Unterricht aufzeichnen',
-      openMetronome: 'Metronom öffnen',
-      openTuner: 'Stimmgerät öffnen'
+      practiceTools: 'Übungswerkzeuge',
+      practiceToolsDesc: 'Öffne die wichtigsten Werkzeuge für das tägliche Üben.',
+      tunerTitle: 'Stimmgerät',
+      tunerDesc: 'Überprüfe schnell die Tonhöhe deines Instruments oder deiner Stimme.',
+      metronomeTitle: 'Metronom',
+      metronomeDesc: 'Stelle Tempo und Taktart für dein Üben stabil ein.',
+      openMetronome: 'Tempo einstellen',
+      openTuner: 'Tonhöhe prüfen'
     },
     tutor: {
       title: 'Musik-Tutor',

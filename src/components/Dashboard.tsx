@@ -35,8 +35,8 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
   }
 
   const tools = [
-    { id: 'metronome', label: 'Metronome', color: 'bg-stone-900', icon: Activity },
-    { id: 'tuner', label: 'Tuner', color: 'bg-stone-900', icon: Settings2 },
+    { id: 'metronome', label: t('dashboard.metronomeTitle') || 'Metronome', desc: t('dashboard.metronomeDesc'), color: 'bg-stone-900', icon: Activity },
+    { id: 'tuner', label: t('dashboard.tunerTitle') || 'Tuner', desc: t('dashboard.tunerDesc'), color: 'bg-stone-900', icon: Settings2 },
   ];
 
   return (
@@ -70,7 +70,8 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500 ml-1">Practice Tools</h3>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500 ml-1">{t('dashboard.practiceTools') || 'Practice Tools'}</h3>
+        <p className="text-[11px] text-stone-500 ml-1 mb-2 hidden md:block">{t('dashboard.practiceToolsDesc')}</p>
         <div className="grid grid-cols-2 gap-3 md:gap-4">
           {tools.map((tool) => (
             <button
@@ -78,12 +79,13 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
               onClick={() => setActiveTab(tool.id)}
               className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-stone-900/50 hover:bg-stone-800 transition-colors text-left relative overflow-hidden active:scale-[0.98]"
             >
-              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-stone-400">
+              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-stone-400 shrink-0">
                 <tool.icon size={16} />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-stone-300">{tool.label}</h3>
-                <p className="text-[9px] text-brand font-bold uppercase tracking-widest">{t(`dashboard.open${tool.id.charAt(0).toUpperCase() + tool.id.slice(1)}`) || `Open ${tool.label}`}</p>
+              <div className="overflow-hidden">
+                <h3 className="text-sm font-bold text-stone-300 mb-0.5">{tool.label}</h3>
+                <p className="text-[10px] text-stone-500 line-clamp-1 hidden md:block mb-1">{tool.desc}</p>
+                <p className="text-[9px] text-brand font-bold uppercase tracking-widest truncate">{t(`dashboard.open${tool.id.charAt(0).toUpperCase() + tool.id.slice(1)}`) || `Open ${tool.label}`}</p>
               </div>
             </button>
           ))}
