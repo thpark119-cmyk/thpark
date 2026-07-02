@@ -331,9 +331,9 @@ export default function Metronome() {
   // Init audio context
   const startMetronome = async () => {
     try {
-      updateDebugMsg('metronome_start_pressed');
+      updateDebugMsg('metronome_button_pressed');
       
-      const { ctx, iosUnlockOk } = await prepareOutputAudioFromGesture();
+      const { ctx } = await prepareOutputAudioFromGesture();
       audioCtxRef.current = ctx;
 
       if (ctx.state !== 'running') {
@@ -635,6 +635,14 @@ export default function Metronome() {
       window.clearInterval(holdIntervalRef.current);
       holdIntervalRef.current = null;
     }
+  };
+
+  const lastTapRef = useRef<number>(0);
+  const shouldAcceptTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 250) return false;
+    lastTapRef.current = now;
+    return true;
   };
 
   const startHoldChange = (delta: number) => {
@@ -1060,7 +1068,15 @@ export default function Metronome() {
               onPointerCancel={stopHoldChange}
               className="w-12 h-12 flex items-center justify-center bg-stone-800 rounded-2xl text-stone-400 active:scale-95 transition-all select-none touch-manipulation"><Minus size={20} /></button>
             <button
-              onClick={togglePlay}
+              type="button"
+              onTouchStart={() => {
+                if (!shouldAcceptTap()) return;
+                togglePlay();
+              }}
+              onClick={() => {
+                if (!shouldAcceptTap()) return;
+                togglePlay();
+              }}
               className={`w-20 h-20 flex items-center justify-center rounded-full text-white shadow-xl active:scale-95 transition-all ${
                 isPlaying ? 'bg-amber-500 shadow-amber-500/20' : 'bg-brand shadow-brand/20'
               }`}

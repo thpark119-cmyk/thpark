@@ -42,7 +42,7 @@ export async function unlockIOSAudioElement(): Promise<boolean> {
       iosUnlockAudioElement = new Audio();
       iosUnlockAudioElement.src = SILENT_AUDIO_DATA_URI;
       iosUnlockAudioElement.loop = true;
-      iosUnlockAudioElement.playsInline = true;
+      iosUnlockAudioElement.setAttribute('playsinline', 'true');
       iosUnlockAudioElement.preload = 'auto';
       iosUnlockAudioElement.volume = 0.001;
     }
@@ -55,18 +55,19 @@ export async function unlockIOSAudioElement(): Promise<boolean> {
   }
 }
 
+export async function tryExperimentalIOSSilentModeUnlock(): Promise<boolean> {
+  return await unlockIOSAudioElement();
+}
+
 export async function prepareOutputAudioFromGesture(): Promise<{
   ctx: AudioContext;
-  iosUnlockOk: boolean;
   state: string;
   sampleRate: number;
 }> {
-  const iosUnlockOk = await unlockIOSAudioElement();
   const ctx = await ensureOutputAudioRunning();
 
   return {
     ctx,
-    iosUnlockOk,
     state: ctx.state,
     sampleRate: ctx.sampleRate,
   };

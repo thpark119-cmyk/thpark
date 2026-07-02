@@ -211,6 +211,14 @@ export default function Tuner() {
   const toneGainRef = useRef<GainNode | null>(null);
   const playingToneRef = useRef<string | null>(null);
   const requestRef = useRef<number>();
+  const lastTapRef = useRef<number>(0);
+
+  const shouldAcceptTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 250) return false;
+    lastTapRef.current = now;
+    return true;
+  };
 
   const stopToneGenerator = () => {
     try {
@@ -240,16 +248,23 @@ export default function Tuner() {
   };
 
   const playToneGenerator = async (note = toneGeneratorNote, oct = toneGeneratorOctave) => {
-    const toneKey = `${note}${octave}`;
+    const toneKey = `${note}${oct}`;
 
     try {
-      const { ctx, iosUnlockOk } = await prepareOutputAudioFromGesture();
+      setDebugMsg(`tone_button_pressed_${toneKey}`);
+
+      const { ctx } = await prepareOutputAudioFromGesture();
       
       setAudioCtxState(ctx.state);
 
+      if (ctx.state !== 'running') {
+        setDebugMsg(`tone_context_not_running_${ctx.state}`);
+        return;
+      }
+
       if (playingToneRef.current === toneKey) {
         stopToneGenerator();
-        setDebugMsg('tone_stopped');
+        setDebugMsg(`tone_stopped_${toneKey}`);
         return;
       }
 
@@ -266,7 +281,7 @@ export default function Tuner() {
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
       
       gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(Math.min(0.35, Math.max(0.05, toneGeneratorVolume)), ctx.currentTime + 0.03);
+      gain.gain.exponentialRampToValueAtTime(Math.min(0.35, Math.max(0.08, toneGeneratorVolume || 0.25)), ctx.currentTime + 0.03);
       
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -276,6 +291,7 @@ export default function Tuner() {
       toneOscillatorRef.current = osc;
       toneGainRef.current = gain;
       playingToneRef.current = toneKey;
+      
       setToneGeneratorNote(note);
       setToneGeneratorOctave(oct);
       setIsPlayingTone(true);
@@ -928,7 +944,17 @@ export default function Tuner() {
                     return (
                       <button
                         key={n}
+                        type="button"
+                        onTouchStart={() => {
+                          if (!shouldAcceptTap()) return;
+                          if (isCurrent) {
+                            stopToneGenerator();
+                          } else {
+                            playToneGenerator(n, '4');
+                          }
+                        }}
                         onClick={() => {
+                          if (!shouldAcceptTap()) return;
                           if (isCurrent) {
                             stopToneGenerator();
                           } else {
@@ -952,7 +978,17 @@ export default function Tuner() {
                         return (
                           <button
                             key={p.note + p.octave}
+                            type="button"
+                            onTouchStart={() => {
+                              if (!shouldAcceptTap()) return;
+                              if (isCurrent) {
+                                stopToneGenerator();
+                              } else {
+                                playToneGenerator(p.note, p.octave.toString());
+                              }
+                            }}
                             onClick={() => {
+                              if (!shouldAcceptTap()) return;
                               if (isCurrent) {
                                 stopToneGenerator();
                               } else {
