@@ -74,7 +74,15 @@ export const translations = {
       nextGoal: '다음 목표',
       noLessonRecords: '아직 레슨 기록이 없습니다.',
       confirmDeleteStudent: '이 학생을 삭제하시겠습니까?',
-      confirmDeleteLesson: '이 레슨 기록을 삭제하시겠습니까?'
+      confirmDeleteLesson: '이 레슨 기록을 삭제하시겠습니까?',
+      photos: '사진',
+      photoAdd: '사진 추가',
+      photoAttaching: '사진 첨부 중...',
+      photoInvalidType: '이미지 파일만 첨부할 수 있습니다.',
+      photoLimitReached: '사진은 최대 3장까지 첨부할 수 있습니다.',
+      photoSaveFailed: '사진 저장 실패',
+      photoLocalWarning: '사진은 현재 기기에만 저장됩니다. 다른 기기에서는 보이지 않을 수 있으며, 브라우저 데이터를 삭제하면 사진도 사라질 수 있습니다.',
+      photoNotOnDevice: '이 사진은 이 기기에 저장되어 있지 않습니다.'
     },
     repertoire: {
       title: '나의 악보함',
@@ -562,7 +570,15 @@ export const translations = {
       nextGoal: 'Next Goal',
       noLessonRecords: 'No lesson records yet.',
       confirmDeleteStudent: 'Delete this student?',
-      confirmDeleteLesson: 'Delete this lesson record?'
+      confirmDeleteLesson: 'Delete this lesson record?',
+      photos: 'Photos',
+      photoAdd: 'Add Photo',
+      photoAttaching: 'Attaching photo...',
+      photoInvalidType: 'Only image files can be attached.',
+      photoLimitReached: 'You can attach up to 3 photos.',
+      photoSaveFailed: 'Failed to save photo',
+      photoLocalWarning: 'Photos are stored only on this device. They may not appear on other devices, and they can be lost if browser data is cleared.',
+      photoNotOnDevice: 'This photo is not stored on this device.'
     },
     repertoire: {
       title: 'My Scores',
@@ -1050,7 +1066,15 @@ export const translations = {
       nextGoal: 'Nächstes Ziel',
       noLessonRecords: 'Noch keine Unterrichtseinträge.',
       confirmDeleteStudent: 'Diesen Schüler löschen?',
-      confirmDeleteLesson: 'Diesen Unterrichtseintrag löschen?'
+      confirmDeleteLesson: 'Diesen Unterrichtseintrag löschen?',
+      photos: 'Fotos',
+      photoAdd: 'Foto hinzufügen',
+      photoAttaching: 'Foto wird angehängt...',
+      photoInvalidType: 'Nur Bilddateien können angehängt werden.',
+      photoLimitReached: 'Du kannst bis zu 3 Fotos anhängen.',
+      photoSaveFailed: 'Foto konnte nicht gespeichert werden',
+      photoLocalWarning: 'Fotos werden nur auf diesem Gerät gespeichert. Sie erscheinen möglicherweise nicht auf anderen Geräten und können verloren gehen, wenn Browserdaten gelöscht werden.',
+      photoNotOnDevice: 'Dieses Foto ist nicht auf diesem Gerät gespeichert.'
     },
     repertoire: {
       title: 'Meine Noten',

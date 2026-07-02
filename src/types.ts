@@ -16,6 +16,7 @@ export interface StudentLessonEntry {
   homework?: string;
   nextGoal?: string;
   memo?: string;
+  photoIds?: string[];
   createdAt?: string | number;
   updatedAt?: string | number;
 }
