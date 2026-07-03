@@ -85,7 +85,7 @@ export default function TeachingStudio() {
     if (!e.target.files || e.target.files.length === 0 || !activeStudent) return;
     const file = e.target.files[0];
     
-    const totalPhotos = lessonForm.photoIds.length + lessonForm.photos.length;
+    const totalPhotos = lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length;
     if (totalPhotos >= 3) {
       setPhotoError(t('students.photoLimitReached') || 'You can attach up to 3 photos.');
       return;
@@ -434,7 +434,7 @@ export default function TeachingStudio() {
                   {((lesson.photoIds && lesson.photoIds.length > 0) || (lesson.photos && lesson.photos.length > 0)) && (
                     <div className="pt-2 border-t border-white/5">
                       <div className="flex flex-wrap gap-2">
-                        {lesson.photoIds?.map(photoId => (
+                        {(lesson.photoIds?.filter(id => !(lesson.photos?.some(p => p.originalLocalPhotoId === id))) || []).map(photoId => (
                           <div key={photoId} className="w-16 h-16 rounded-lg overflow-hidden bg-stone-800 border border-white/5 relative">
                             <LocalPhotoView 
                               photoId={photoId} 
@@ -547,17 +547,17 @@ export default function TeachingStudio() {
                       <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">
                         {t('students.photos') || 'Photos'} ({lessonForm.photoIds.length + lessonForm.photos.length}/3)
                       </label>
-                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || (lessonForm.photoIds.length + lessonForm.photos.length) >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
+                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                         {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                         {isUploadingPhoto ? (t('students.photoAttaching') || 'Attaching...') : (t('students.photoAdd') || 'Add Photo')}
-                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || (lessonForm.photoIds.length + lessonForm.photos.length) >= 3} />
+                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3} />
                       </label>
                     </div>
                     {!canUseIndexedDB && !user && <p className="text-red-400 text-xs px-2">{t('students.photoNotSupported') || 'Local photo storage is not supported in this browser.'}</p>}
                     {photoError && <p className="text-red-400 text-xs px-2">{photoError}</p>}
                     {(lessonForm.photoIds.length > 0 || lessonForm.photos.length > 0) && (
                       <div className="flex flex-wrap gap-2">
-                        {lessonForm.photoIds.map((photoId) => (
+                        {(lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id)))).map((photoId) => (
                           <div key={photoId} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-stone-800">
                             <LocalPhotoView photoId={photoId} className="w-full h-full object-cover" />
                             <button

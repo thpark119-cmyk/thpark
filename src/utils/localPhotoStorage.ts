@@ -109,3 +109,25 @@ export async function deleteAllPhotosForStudent(studentId: string): Promise<void
     };
   });
 }
+
+export async function getAllLocalPhotos(): Promise<LocalLessonPhoto[]> {
+  if (!isIndexedDBAvailable()) return [];
+  const db = await openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.openCursor();
+    const photos: LocalLessonPhoto[] = [];
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        photos.push(cursor.value);
+        cursor.continue();
+      } else {
+        resolve(photos);
+      }
+    };
+  });
+}

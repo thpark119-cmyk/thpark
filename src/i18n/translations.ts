@@ -604,7 +604,18 @@ export const translations = {
       clearLocalDataWarning: 'Are you sure you want to clear all student photos and local data stored on this device?\nThis action cannot be undone.',
       clearLocalDataSuccess: 'Local data has been cleared.',
       openPublicPrivacyPolicy: 'Open Public Privacy Policy',
-      openPublicAccountDeletion: 'Open Public Account Deletion Guide'
+      openPublicAccountDeletion: 'Open Public Account Deletion Guide',
+
+      localPhotoMigrationTitle: 'Migrate Local Photos to Cloud',
+      localPhotoMigrationDesc: 'You can migrate student photos stored only on this device to Firebase Storage. Once migrated, you can access these photos on other devices when signed in with the same Google account.',
+      localPhotoMigrationCheck: 'Check Photos to Migrate',
+      localPhotoMigrationStart: 'Migrate to Cloud',
+      localPhotoMigrationInProgress: 'Migrating...',
+      localPhotoMigrationDone: 'Migration Complete',
+      localPhotoMigrationLoginRequired: 'Google sign-in is required to migrate local photos to the cloud.',
+      localPhotoMigrationScanResult: 'Found {count} local photos available for migration. Photos already saved to the cloud will be skipped. Unlinked local photos will not be automatically migrated.',
+      localPhotoMigrationSummary: 'Migration Result\nSuccess: {successCount}\nSkipped: {skippedCount}\nFailed: {failedCount}',
+      localPhotoMigrationFailedInfo: 'Failed to migrate some photos. Please check your network connection and try again.',
     },
     common: {
       add: 'Add',
@@ -1156,7 +1167,18 @@ export const translations = {
       clearLocalDataWarning: 'Möchten Sie wirklich alle Schülerfotos und lokalen Daten auf diesem Gerät löschen?\nDiese Aktion kann nicht rückgängig gemacht werden.',
       clearLocalDataSuccess: 'Lokale Daten wurden gelöscht.',
       openPublicPrivacyPolicy: 'Öffentliche Datenschutzerklärung öffnen',
-      openPublicAccountDeletion: 'Öffentliche Anleitung zur Kontolöschung öffnen'
+      openPublicAccountDeletion: 'Öffentliche Anleitung zur Kontolöschung öffnen',
+
+      localPhotoMigrationTitle: 'Lokale Fotos in die Cloud migrieren',
+      localPhotoMigrationDesc: 'Sie können Schülerfotos, die nur auf diesem Gerät gespeichert sind, zu Firebase Storage migrieren. Nach der Migration können Sie auf anderen Geräten darauf zugreifen, wenn Sie mit demselben Google-Konto angemeldet sind.',
+      localPhotoMigrationCheck: 'Fotos zur Migration prüfen',
+      localPhotoMigrationStart: 'In die Cloud migrieren',
+      localPhotoMigrationInProgress: 'Migration läuft...',
+      localPhotoMigrationDone: 'Migration abgeschlossen',
+      localPhotoMigrationLoginRequired: 'Eine Google-Anmeldung ist erforderlich, um lokale Fotos in die Cloud zu migrieren.',
+      localPhotoMigrationScanResult: 'Es wurden {count} lokale Fotos zur Migration gefunden. Bereits in der Cloud gespeicherte Fotos werden übersprungen. Nicht verknüpfte lokale Fotos werden nicht automatisch migriert.',
+      localPhotoMigrationSummary: 'Migrationsergebnis\nErfolgreich: {successCount}\nÜbersprungen: {skippedCount}\nFehlgeschlagen: {failedCount}',
+      localPhotoMigrationFailedInfo: 'Einige Fotos konnten nicht migriert werden. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.',
     },
     common: {
       add: 'Hinzufügen',

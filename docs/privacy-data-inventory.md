@@ -28,3 +28,9 @@
 | **Payment data** | No | - | - | - | - | - | Currently not used |
 | **Health data** | No | - | - | - | - | - | Currently not used |
 | **Sensitive personal data**| No | - | - | - | - | - | Currently not used |
+
+## Local Photo to Cloud Migration Update
+Users have the ability to explicitly migrate local photos (stored in IndexedDB) to Firebase Storage. This is a manual opt-in action triggered from the "Data Management" section in Settings.
+- When migrated, a copy of the photo is uploaded to Firebase Storage and linked to the user's account.
+- The original local photos remain on the device and are not automatically deleted.
+- Migrated photos stored in the cloud are fully deleted when the user initiates account deletion.

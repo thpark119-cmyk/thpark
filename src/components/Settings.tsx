@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import LocalPhotoMigration from './LocalPhotoMigration';
 import { 
   User, Globe, Database, ShieldAlert, Mail, Info, 
   LogOut, Trash2, AlertTriangle, Check, X, ShieldCheck, ExternalLink
@@ -182,6 +183,7 @@ export default function Settings() {
                     </div>
                   )}
                 </div>
+                <LocalPhotoMigration />
               </div>
             </motion.div>
           )}

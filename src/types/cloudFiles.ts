@@ -11,6 +11,8 @@ export type CloudLessonPhoto = {
   createdAt: string;
   uploadedAt: string;
   source: CloudFileSource;
+  originalLocalPhotoId?: string;
+  migratedFrom?: 'indexeddb';
 };
 
 export type CloudScoreFile = {

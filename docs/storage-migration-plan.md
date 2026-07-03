@@ -30,3 +30,12 @@ Once actual file upload to Storage is implemented in Phase 2, the `privacy.html`
 
 ## 5. App Store / Google Play Data Safety Updates Required
 - Update the Data Safety and Privacy Inventory docs to reflect that `Photos and Videos` and `Files and Docs` are now collected and synced to the server, but are still linked to the User ID and can be deleted by the user.
+
+### Phase 3 Complete (Local to Cloud Migration)
+- Implemented a manual migration feature in Settings > Data Management.
+- Users can scan for existing local photos that are linked to student records.
+- Photos are uploaded to Firebase Storage under the same path conventions.
+- Firestore records are updated to include `originalLocalPhotoId` and `migratedFrom` flags to prevent duplicates.
+- Added fail-safes: skipping already migrated photos, rollback of Storage file if Firestore update fails, and skipping orphaned local photos.
+- Local photo deletion is NOT forced. Existing IndexedDB photos remain intact but are hidden in UI if the cloud counterpart is present.
+- Updated UI text and Privacy Policy to reflect this explicit opt-in migration step.
