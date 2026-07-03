@@ -61,6 +61,7 @@ export const translations = {
       search: '검색',
       loading: '데이터 불러오는 중...',
       uploading: '업로드 중...',
+      new: '신규',
       confirmDelete: '정말 삭제하시겠습니까?'
     },
     error: {
@@ -132,8 +133,6 @@ export const translations = {
       notesLabel: '연주 메모 및 악보 링크',
       empty: '보관된 악보가 없습니다.',
       dateLabel: '날짜',
-      addFile: '악보 파일 추가',
-      chooseFile: '파일 선택',
       openScore: '악보 열기',
       addFile: '악보 파일',
       loginRequiredForFile: '악보 파일 업로드는 Google 로그인 후 사용할 수 있습니다. 로그인하면 악보 파일이 계정에 연결되어 다른 기기에서도 확인할 수 있습니다.',
@@ -146,11 +145,6 @@ export const translations = {
       fileTooLarge: '파일 용량이 초과되었습니다. PDF는 최대 15MB, 이미지는 5MB까지 가능합니다.',
       uploadFailedDesc: '업로드 실패',
       uploadedScore: '업로드된 악보',
-      uploadFailed: '업로드 실패',
-      uploadFailedDesc: '파일 업로드에 실패했습니다. Storage 권한 문제일 수 있습니다. (Firebase Console -> Storage -> Rules 확인)',
-      fileTooLarge: '파일 용량이 너무 큽니다. 10MB 이하의 악보 파일만 업로드해주세요.',
-      loginRequiredForFile: '악보 파일 저장은 로그인 후 사용할 수 있습니다.',
-      invalidFileType: 'PDF 또는 이미지 파일만 업로드할 수 있습니다.',
       editPiece: '악보 정보 수정'
     },
     dashboard: {
@@ -622,6 +616,7 @@ export const translations = {
       search: 'Search',
       loading: 'Loading data...',
       uploading: 'Uploading...',
+      new: 'New',
       confirmDelete: 'Are you sure you want to delete this?'
     },
     error: {
@@ -1173,6 +1168,7 @@ export const translations = {
       search: 'Suchen',
       loading: 'Wird geladen...',
       uploading: 'Hochladen...',
+      new: 'Neu',
       confirmDelete: 'Möchten Sie diesen Eintrag wirklich löschen?'
     },
     error: {
@@ -1244,8 +1240,6 @@ export const translations = {
       notesLabel: 'Notizen & Links',
       empty: 'Noch keine Noten gespeichert.',
       dateLabel: 'Datum',
-      addFile: 'Notendatei hinzufügen',
-      chooseFile: 'Datei wählen',
       openScore: 'Noten öffnen',
       addFile: 'Notendateien',
       loginRequiredForFile: 'Das Hochladen von Notendateien ist nach der Anmeldung mit Google verfügbar. Angemeldete Dateien werden mit Ihrem Konto verknüpft und sind geräteübergreifend verfügbar.',
@@ -1258,11 +1252,6 @@ export const translations = {
       fileTooLarge: 'Die Datei ist zu groß. PDF max. 15 MB, Bild max. 5 MB.',
       uploadFailedDesc: 'Hochladen fehlgeschlagen.',
       uploadedScore: 'Hochgeladene Noten',
-      uploadFailed: 'Upload fehlgeschlagen',
-      uploadFailedDesc: 'Datei-Upload fehlgeschlagen. Bitte versuche es erneut. (Firebase Storage Rules prüfen)',
-      fileTooLarge: 'Diese Datei ist zu groß. Bitte lade eine Notendatei unter 10MB hoch.',
-      loginRequiredForFile: 'Das Hochladen von Notendateien ist nach dem Login verfügbar.',
-      invalidFileType: 'Es können nur PDF- oder Bilddateien hochgeladen werden.',
       editPiece: 'Stück bearbeiten'
     },
     dashboard: {

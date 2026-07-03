@@ -179,6 +179,12 @@ export default function TeachingStudio() {
   const handleRemoveCloudPhoto = async (photo: CloudLessonPhoto) => {
     setLessonForm(prev => ({ ...prev, photos: prev.photos.filter(p => p.id !== photo.id) }));
     try {
+      console.log('[Mio delete debug]', {
+        action: 'delete_student_photo',
+        collection: 'students',
+        photoId: photo.id,
+        storagePath: photo.storagePath,
+      });
       await deleteFileFromStorage(photo.storagePath);
     } catch (err) {
       console.warn('Failed to delete photo from cloud storage', err);
@@ -234,6 +240,13 @@ export default function TeachingStudio() {
     if (lessonToDelete?.photos && lessonToDelete.photos.length > 0) {
       for (const photo of lessonToDelete.photos) {
         try {
+          console.log('[Mio delete debug]', {
+            action: 'delete_student_photo_with_lesson',
+            collection: 'students',
+            lessonId: lessonToDelete.id,
+            photoId: photo.id,
+            storagePath: photo.storagePath,
+          });
           await deleteFileFromStorage(photo.storagePath);
         } catch (err) {
           console.warn('Failed to delete cloud photo for lesson', err);

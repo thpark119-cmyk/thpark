@@ -127,7 +127,7 @@ export function subscribeToCollection<T>(
   const q = query(collection(db, collPath));
 
   return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
+    const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, _legacyId: doc.data().id } as unknown as T));
     
     // Sort on client side to avoid missing index errors (403 Forbidden)
     const sortedData = [...data].sort((a: any, b: any) => {

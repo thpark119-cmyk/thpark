@@ -38,7 +38,7 @@ export default function Repertoire() {
     status: 'Learning' as 'Learning' | 'Polishing' | 'Completed',
     notes: '',
     date: '',
-    newFiles: [] as File[]
+    newFiles: [] as any[]
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
@@ -197,12 +197,20 @@ export default function Repertoire() {
     if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this?')) return;
     
     const itemToDelete = items.find(i => i.id === id);
+    let storageDeleteFailed = false;
+
     if (itemToDelete?.files && itemToDelete.files.length > 0) {
       for (const file of itemToDelete.files) {
         try {
+          console.log('[Mio delete debug]', {
+            action: 'delete_repertoire_record_file',
+            recordId: id,
+            storagePath: file.storagePath,
+          });
           await deleteFileFromStorage(file.storagePath);
-        } catch (e) {
+        } catch (e: any) {
           console.warn('Failed to delete file from storage', e);
+          storageDeleteFailed = true;
         }
       }
     }
@@ -211,12 +219,23 @@ export default function Repertoire() {
     if (itemToDelete?.storagePath) {
        try {
          await deleteFileFromStorage(itemToDelete.storagePath);
-       } catch (e) {
+       } catch (e: any) {
          console.warn('Failed to delete legacy file from storage', e);
+         storageDeleteFailed = true;
        }
     }
     
-    await deleteRecord('repertoire', id, user);
+    if (storageDeleteFailed) {
+      alert(t('repertoire.deleteFileFailed') || 'Failed to delete file. Please check your network connection and try again.');
+      return;
+    }
+
+    try {
+      await deleteRecord('repertoire', id, user);
+    } catch (e) {
+      console.error('Failed to delete repertoire record', e);
+      alert(t('common.deleteFailed') || 'Failed to delete record.');
+    }
   };
 
   const handleDeleteExistingFile = async (fileToDelete: CloudScoreFile) => {
@@ -224,8 +243,18 @@ export default function Repertoire() {
     if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this file?')) return;
     
     try {
+      console.log('[Mio delete debug]', {
+        action: 'delete_score_file',
+        collection: 'repertoire',
+        recordId: editingItem.id,
+        fileId: fileToDelete.id,
+        storagePath: fileToDelete.storagePath,
+      });
+
       await deleteFileFromStorage(fileToDelete.storagePath);
-      const updatedFiles = (editingItem.files || []).filter(f => f.id !== fileToDelete.id);
+      const updatedFiles = (editingItem.files || []).filter(
+        f => f.id !== fileToDelete.id && f.storagePath !== fileToDelete.storagePath
+      );
       
       await updateRecord('repertoire', editingItem.id, { files: updatedFiles }, user);
       
@@ -279,7 +308,7 @@ export default function Repertoire() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const files = Array.from(e.target.files || []);
+    const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
     
     let currentCount = 0;
@@ -295,14 +324,14 @@ export default function Repertoire() {
       return;
     }
 
-    const validFiles: File[] = [];
+    const validFiles: any[] = [];
     for (const file of files) {
       const validation = validateScoreUploadFile(file);
       if (!validation.ok) {
-        alert(`${file.name}: ${validation.reason}`);
+        alert(`${(file as File).name}: ${validation.reason}`);
         continue;
       }
-      validFiles.push(file);
+      validFiles.push(file as unknown as File);
     }
 
     if (isEdit) {
@@ -429,7 +458,7 @@ export default function Repertoire() {
                   </div>
                 )}
                 {item.files?.map(file => (
-                  <CloudScoreFileView key={file.id} file={file} readOnly />
+                  <div key={file.id}><CloudScoreFileView file={file} readOnly /></div>
                 ))}
               </div>
             )}
@@ -679,11 +708,7 @@ export default function Repertoire() {
                             </div>
                           )}
                           {editingItem.files?.map(file => (
-                            <CloudScoreFileView 
-                              key={file.id} 
-                              file={file} 
-                              onDelete={() => handleDeleteExistingFile(file)} 
-                            />
+                            <CloudScoreFileView file={file} onDelete={() => handleDeleteExistingFile(file)} />
                           ))}
                           {editForm.newFiles.map((file, idx) => (
                             <div key={idx} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-brand/20">
