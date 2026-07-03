@@ -28,7 +28,7 @@ Public deletion guide:
 https://musicianlog.vercel.app/account-deletion.html
 
 ## Local-only Data
-Student photos are stored only on the current device and are not uploaded to Firebase Storage.
+Photos added by signed-in users in Student Management may be stored in Firebase Storage. Photos added while signed out are stored only on the current device.
 
 ## Not Used
 - Location

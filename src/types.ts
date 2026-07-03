@@ -1,3 +1,5 @@
+import { CloudLessonPhoto } from './types/cloudFiles';
+
 export interface ReceivedLesson {
   id: string;
   userId: string;
@@ -17,6 +19,7 @@ export interface StudentLessonEntry {
   nextGoal?: string;
   memo?: string;
   photoIds?: string[];
+  photos?: CloudLessonPhoto[];
   createdAt?: string | number;
   updatedAt?: string | number;
 }

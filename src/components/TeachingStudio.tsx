@@ -8,6 +8,11 @@ import { useLanguage } from '../context/LanguageContext';
 import { compressImageFile } from '../utils/imageCompression';
 import { saveLessonPhoto, deleteLessonPhotos, deleteAllPhotosForStudent, LocalLessonPhoto, isIndexedDBAvailable } from '../utils/localPhotoStorage';
 import LocalPhotoView from './LocalPhotoView';
+import CloudPhotoView from './CloudPhotoView';
+import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorage';
+import { validateLessonPhotoFile, getSafeFileExtension } from '../utils/fileValidation';
+import { buildLessonPhotoStoragePath } from '../utils/storagePaths';
+import { CloudLessonPhoto } from '../types/cloudFiles';
 
 export default function TeachingStudio() {
   const { user } = useAuth();
@@ -23,11 +28,13 @@ export default function TeachingStudio() {
 
   const [isAddingLesson, setIsAddingLesson] = useState(false);
   const [editingLesson, setEditingLesson] = useState<StudentLessonEntry | null>(null);
-  const [lessonForm, setLessonForm] = useState({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [] as string[] });
+  const [currentLessonId, setCurrentLessonId] = useState<string>('');
+  const [lessonForm, setLessonForm] = useState({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [] as string[], photos: [] as CloudLessonPhoto[] });
 
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [viewingPhotoId, setViewingPhotoId] = useState<string | null>(null);
+  const [viewingCloudPhoto, setViewingCloudPhoto] = useState<CloudLessonPhoto | null>(null);
 
   const canUseIndexedDB = isIndexedDBAvailable();
 
@@ -78,44 +85,84 @@ export default function TeachingStudio() {
     if (!e.target.files || e.target.files.length === 0 || !activeStudent) return;
     const file = e.target.files[0];
     
-    if (!file.type.startsWith('image/')) {
-      setPhotoError(t('students.photoInvalidType') || 'Only image files can be attached.');
-      return;
-    }
-    
-    if (lessonForm.photoIds.length >= 3) {
+    const totalPhotos = lessonForm.photoIds.length + lessonForm.photos.length;
+    if (totalPhotos >= 3) {
       setPhotoError(t('students.photoLimitReached') || 'You can attach up to 3 photos.');
       return;
+    }
+
+    if (user) {
+      const validation = validateLessonPhotoFile(file);
+      if (!validation.ok) {
+        setPhotoError(validation.reason || t('students.photoInvalidType') || 'Invalid file');
+        return;
+      }
+    } else {
+      if (!file.type.startsWith('image/')) {
+        setPhotoError(t('students.photoInvalidType') || 'Only image files can be attached.');
+        return;
+      }
     }
 
     try {
       setIsUploadingPhoto(true);
       setPhotoError('');
       const compressed = await compressImageFile(file);
-      
       const photoId = crypto.randomUUID();
-      const newPhoto: LocalLessonPhoto = {
-        id: photoId,
-        userId: user?.uid,
-        studentId: activeStudent.id,
-        lessonId: editingLesson?.id,
-        fileName: file.name,
-        contentType: compressed.contentType,
-        size: compressed.size,
-        width: compressed.width,
-        height: compressed.height,
-        createdAt: Date.now(),
-        blob: compressed.blob
-      };
 
-      await saveLessonPhoto(newPhoto);
-      setLessonForm(prev => ({ ...prev, photoIds: [...prev.photoIds, photoId] }));
+      if (user) {
+        const ext = getSafeFileExtension(file) || 'jpeg';
+        const storagePath = buildLessonPhotoStoragePath({
+          uid: user.uid,
+          studentId: activeStudent.id,
+          lessonId: currentLessonId,
+          photoId,
+          ext,
+        });
+
+        await uploadFileToStorage({
+          file: compressed.blob,
+          storagePath,
+          contentType: compressed.contentType,
+        });
+
+        const cloudPhoto: CloudLessonPhoto = {
+          id: photoId,
+          storagePath,
+          fileName: file.name,
+          contentType: compressed.contentType,
+          size: compressed.size,
+          width: compressed.width,
+          height: compressed.height,
+          createdAt: new Date().toISOString(),
+          uploadedAt: new Date().toISOString(),
+          source: 'firebase-storage',
+        };
+
+        setLessonForm(prev => ({ ...prev, photos: [...prev.photos, cloudPhoto] }));
+      } else {
+        const newPhoto: LocalLessonPhoto = {
+          id: photoId,
+          userId: user?.uid,
+          studentId: activeStudent.id,
+          lessonId: currentLessonId,
+          fileName: file.name,
+          contentType: compressed.contentType,
+          size: compressed.size,
+          width: compressed.width,
+          height: compressed.height,
+          createdAt: Date.now(),
+          blob: compressed.blob
+        };
+
+        await saveLessonPhoto(newPhoto);
+        setLessonForm(prev => ({ ...prev, photoIds: [...prev.photoIds, photoId] }));
+      }
     } catch (err) {
       console.error('Failed to compress/save photo', err);
       setPhotoError(t('students.photoSaveFailed') || 'Failed to save photo');
     } finally {
       setIsUploadingPhoto(false);
-      // Reset input
       e.target.value = '';
     }
   };
@@ -126,6 +173,15 @@ export default function TeachingStudio() {
       await deleteLessonPhotos([photoId]);
     } catch (err) {
       console.warn('Failed to delete photo from local storage', err);
+    }
+  };
+
+  const handleRemoveCloudPhoto = async (photo: CloudLessonPhoto) => {
+    setLessonForm(prev => ({ ...prev, photos: prev.photos.filter(p => p.id !== photo.id) }));
+    try {
+      await deleteFileFromStorage(photo.storagePath);
+    } catch (err) {
+      console.warn('Failed to delete photo from cloud storage', err);
     }
   };
 
@@ -142,16 +198,15 @@ export default function TeachingStudio() {
       } else if (editingLesson.id === 'legacy-lesson') {
         // Saving an edited legacy lesson adds it to the real lessons array
         lessons.push({
-          id: crypto.randomUUID(),
+          id: currentLessonId,
           ...lessonForm,
           createdAt: activeStudent.createdAt || Date.now(),
           updatedAt: Date.now()
         });
-        // Optionally clear legacy fields but array is fine, we just ignore legacy if lessons array exists
       }
     } else {
       lessons.push({
-        id: crypto.randomUUID(),
+        id: currentLessonId,
         ...lessonForm,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -161,12 +216,13 @@ export default function TeachingStudio() {
     await updateRecord('students', activeStudent.id, { lessons }, user);
     setIsAddingLesson(false);
     setEditingLesson(null);
-    setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [] });
+    setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
   };
 
   const handleDeleteLesson = async (lessonId: string) => {
     if (!activeStudent || !window.confirm(t('students.confirmDeleteLesson') || 'Delete this lesson record?')) return;
     const lessonToDelete = activeStudent.lessons?.find(l => l.id === lessonId);
+    
     if (lessonToDelete?.photoIds && lessonToDelete.photoIds.length > 0) {
       try {
         await deleteLessonPhotos(lessonToDelete.photoIds);
@@ -174,6 +230,17 @@ export default function TeachingStudio() {
         console.warn('Failed to delete photos for lesson', err);
       }
     }
+
+    if (lessonToDelete?.photos && lessonToDelete.photos.length > 0) {
+      for (const photo of lessonToDelete.photos) {
+        try {
+          await deleteFileFromStorage(photo.storagePath);
+        } catch (err) {
+          console.warn('Failed to delete cloud photo for lesson', err);
+        }
+      }
+    }
+
     const lessons = (activeStudent.lessons || []).filter(l => l.id !== lessonId);
     await updateRecord('students', activeStudent.id, { lessons }, user);
   };
@@ -282,7 +349,8 @@ export default function TeachingStudio() {
             <h3 className="text-xl font-bold text-white">{t('students.lessonHistoryByDate') || 'Lesson History'}</h3>
             <button 
               onClick={() => {
-                setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [] });
+                setCurrentLessonId(crypto.randomUUID());
+                setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
                 setEditingLesson(null);
                 setIsAddingLesson(true);
               }}
@@ -302,13 +370,15 @@ export default function TeachingStudio() {
                   </p>
                   <div className="flex gap-2">
                     <button onClick={() => {
+                      setCurrentLessonId(lesson.id === 'legacy-lesson' ? crypto.randomUUID() : lesson.id);
                       setLessonForm({
                         date: lesson.date,
                         content: lesson.content || '',
                         homework: lesson.homework || '',
                         nextGoal: lesson.nextGoal || '',
                         memo: lesson.memo || '',
-                        photoIds: lesson.photoIds || []
+                        photoIds: lesson.photoIds || [],
+                        photos: lesson.photos || []
                       });
                       setEditingLesson(lesson);
                       setIsAddingLesson(true);
@@ -348,15 +418,24 @@ export default function TeachingStudio() {
                       <p className="text-xs text-stone-500 whitespace-pre-wrap">{lesson.memo}</p>
                     </div>
                   )}
-                  {lesson.photoIds && lesson.photoIds.length > 0 && (
+                  {((lesson.photoIds && lesson.photoIds.length > 0) || (lesson.photos && lesson.photos.length > 0)) && (
                     <div className="pt-2 border-t border-white/5">
                       <div className="flex flex-wrap gap-2">
-                        {lesson.photoIds.map(photoId => (
+                        {lesson.photoIds?.map(photoId => (
                           <div key={photoId} className="w-16 h-16 rounded-lg overflow-hidden bg-stone-800 border border-white/5 relative">
                             <LocalPhotoView 
                               photoId={photoId} 
                               className="w-full h-full object-cover"
                               onClick={() => setViewingPhotoId(photoId)}
+                            />
+                          </div>
+                        ))}
+                        {lesson.photos?.map(photo => (
+                          <div key={photo.id} className="w-16 h-16 rounded-lg overflow-hidden bg-stone-800 border border-white/5 relative">
+                            <CloudPhotoView 
+                              photo={photo} 
+                              className="w-full h-full object-cover"
+                              onClick={() => setViewingCloudPhoto(photo)}
                             />
                           </div>
                         ))}
@@ -453,17 +532,17 @@ export default function TeachingStudio() {
                   <div className="space-y-2 pt-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">
-                        {t('students.photos') || 'Photos'} ({lessonForm.photoIds.length}/3)
+                        {t('students.photos') || 'Photos'} ({lessonForm.photoIds.length + lessonForm.photos.length}/3)
                       </label>
-                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${(!canUseIndexedDB || lessonForm.photoIds.length >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
+                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || (lessonForm.photoIds.length + lessonForm.photos.length) >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                         {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                         {isUploadingPhoto ? (t('students.photoAttaching') || 'Attaching...') : (t('students.photoAdd') || 'Add Photo')}
-                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={!canUseIndexedDB || isUploadingPhoto || lessonForm.photoIds.length >= 3} />
+                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || (lessonForm.photoIds.length + lessonForm.photos.length) >= 3} />
                       </label>
                     </div>
-                    {!canUseIndexedDB && <p className="text-red-400 text-xs px-2">{t('students.photoNotSupported') || 'Local photo storage is not supported in this browser.'}</p>}
+                    {!canUseIndexedDB && !user && <p className="text-red-400 text-xs px-2">{t('students.photoNotSupported') || 'Local photo storage is not supported in this browser.'}</p>}
                     {photoError && <p className="text-red-400 text-xs px-2">{photoError}</p>}
-                    {lessonForm.photoIds.length > 0 && (
+                    {(lessonForm.photoIds.length > 0 || lessonForm.photos.length > 0) && (
                       <div className="flex flex-wrap gap-2">
                         {lessonForm.photoIds.map((photoId) => (
                           <div key={photoId} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-stone-800">
@@ -477,10 +556,24 @@ export default function TeachingStudio() {
                             </button>
                           </div>
                         ))}
+                        {lessonForm.photos.map((photo) => (
+                          <div key={photo.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-stone-800">
+                            <CloudPhotoView photo={photo} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCloudPhoto(photo)}
+                              className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                     <p className="text-[10px] text-stone-500 leading-relaxed px-2 bg-stone-800/30 py-2 rounded-xl mt-2 border border-stone-800">
-                      {t('students.photoLocalWarning') || 'Photos are stored only on this device. They may not appear on other devices, and they can be lost if browser data is cleared.'}
+                      {user 
+                        ? (t('students.photoCloudInfo') || 'Photos will be stored in your cloud account and available across devices.')
+                        : (t('students.photoLocalWarning') || 'Photos are stored only on this device. They may not appear on other devices, and they can be lost if browser data is cleared.')}
                     </p>
                   </div>
 
@@ -505,6 +598,22 @@ export default function TeachingStudio() {
                 <div className="pointer-events-auto w-full h-full flex items-center justify-center">
                   <LocalPhotoView 
                     photoId={viewingPhotoId} 
+                    className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" 
+                  />
+                </div>
+              </motion.div>
+            </div>
+          )}
+          {viewingCloudPhoto && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewingCloudPhoto(null)} className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-zoom-out" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center pointer-events-none">
+                <button onClick={() => setViewingCloudPhoto(null)} className="absolute -top-12 right-0 text-white/50 hover:text-white pointer-events-auto transition-colors bg-stone-900/50 rounded-full p-2">
+                  <X size={24} />
+                </button>
+                <div className="pointer-events-auto w-full h-full flex items-center justify-center">
+                  <CloudPhotoView 
+                    photo={viewingCloudPhoto} 
                     className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" 
                   />
                 </div>

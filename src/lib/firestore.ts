@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { deleteUser } from 'firebase/auth';
+import { deleteFileFromStorage } from '../utils/cloudStorage';
 
 enum OperationType {
   CREATE = 'create',
@@ -260,6 +261,39 @@ export async function deleteUserAccountData(user: any) {
   if (!user || !db) return;
   
   const uid = user.uid;
+
+  // Clean up Storage files first
+  try {
+    const studentsRef = collection(db, `users/${uid}/students`);
+    const studentsSnap = await getDocs(studentsRef);
+    const storagePathsToDelete: string[] = [];
+    
+    studentsSnap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data.lessons && Array.isArray(data.lessons)) {
+        data.lessons.forEach((lesson: any) => {
+          if (lesson.photos && Array.isArray(lesson.photos)) {
+            lesson.photos.forEach((photo: any) => {
+              if (photo.storagePath) {
+                storagePathsToDelete.push(photo.storagePath);
+              }
+            });
+          }
+        });
+      }
+    });
+
+    for (const path of storagePathsToDelete) {
+      try {
+        await deleteFileFromStorage(path);
+      } catch (err) {
+        console.warn(`Failed to delete storage file: ${path}`, err);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to clean up storage files', e);
+  }
+
   const collectionsToDelete = ['received_lessons', 'students', 'repertoire'];
   
   for (const collName of collectionsToDelete) {

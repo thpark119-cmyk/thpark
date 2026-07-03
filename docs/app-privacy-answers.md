@@ -9,7 +9,7 @@
 - User-generated lesson logs, student records, and repertoire notes
 
 ## Data Not Linked to the User
-- Local-only student photos may remain on the device and are not synced to the server.
+- Student photos added while signed out are stored only locally and are not synced to the server. Photos added while signed in are uploaded to Firebase Storage and linked to the user account.
 
 ## Data Not Collected
 - Location
