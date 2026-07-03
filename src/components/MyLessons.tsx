@@ -337,7 +337,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
         <div className="flex justify-between items-end mb-6">
           <h2 className="text-3xl font-serif italic text-stone-200">
-            {language === 'ko' ? '선생님별 레슨일지' : 'Lessons by Teacher'}
+            {t('lessons.byTeacher')}
           </h2>
           <button 
             onClick={() => {
@@ -348,7 +348,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
             className="flex items-center gap-2 px-4 py-2 bg-stone-900 hover:bg-stone-800 border border-white/10 rounded-xl text-stone-300 transition-colors text-sm font-bold"
           >
             <Plus size={16} />
-            {language === 'ko' ? '선생님 추가' : 'Add Teacher'}
+            {t('lessons.addTeacher')}
           </button>
         </div>
 
@@ -360,9 +360,9 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
             <div className="w-12 h-12 rounded-xl bg-brand/20 text-brand flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <Users size={24} />
             </div>
-            <h3 className="text-xl font-bold text-stone-200 mb-2">{language === 'ko' ? '전체 레슨' : 'All Lessons'}</h3>
+            <h3 className="text-xl font-bold text-stone-200 mb-2">{t('lessons.allLessons')}</h3>
             <div className="mt-auto pt-4 flex justify-between text-xs text-stone-500 font-bold uppercase tracking-widest">
-              <span>{allStats.count} {t('students.lessons')}</span>
+              <span>{t('lessons.lessonCount')} {allStats.count}</span>
               {allStats.latest && <span>{formatDate(allStats.latest)}</span>}
             </div>
           </button>
@@ -395,7 +395,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                 <h3 className="text-xl font-bold text-stone-200">{teacher.name}</h3>
                 {teacher.instrument && <p className="text-sm text-stone-500 mt-1">{teacher.instrument}</p>}
                 <div className="mt-auto pt-4 flex justify-between text-xs text-stone-500 font-bold uppercase tracking-widest">
-                  <span>{stats.count} {t('students.lessons')}</span>
+                  <span>{t('lessons.lessonCount')} {stats.count}</span>
                   {stats.latest && <span>{formatDate(stats.latest)}</span>}
                 </div>
               </button>
@@ -410,9 +410,9 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
               <div className="w-12 h-12 rounded-xl bg-stone-800/50 text-stone-600 flex items-center justify-center mb-4">
                 <Bookmark size={24} />
               </div>
-              <h3 className="text-xl font-bold text-stone-400 mb-2">{language === 'ko' ? '선생님 미지정' : 'Uncategorized'}</h3>
+              <h3 className="text-xl font-bold text-stone-400 mb-2">{t('lessons.uncategorized')}</h3>
               <div className="mt-auto pt-4 flex justify-between text-xs text-stone-600 font-bold uppercase tracking-widest">
-                <span>{uncategorizedStats.count} {t('students.lessons')}</span>
+                <span>{t('lessons.lessonCount')} {uncategorizedStats.count}</span>
                 {uncategorizedStats.latest && <span>{formatDate(uncategorizedStats.latest)}</span>}
               </div>
             </button>
@@ -425,16 +425,16 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
             <div className="fixed inset-0 z-[100] bg-bg-deep/95 backdrop-blur-md flex flex-col items-center justify-center p-6">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-6">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-serif italic text-white">{editingTeacher ? (language === 'ko' ? '선생님 수정' : 'Edit Teacher') : (language === 'ko' ? '선생님 추가' : 'Add Teacher')}</h3>
+                  <h3 className="text-xl font-serif italic text-white">{editingTeacher ? t('lessons.editTeacher') : t('lessons.addTeacher')}</h3>
                   <button onClick={() => setIsManagingTeacher(false)} className="text-stone-500 hover:text-white"><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSaveTeacher} className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest pl-2">{language === 'ko' ? '선생님 이름' : 'Teacher Name'}</label>
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest pl-2">{t('lessons.teacherName')}</label>
                     <input required className="w-full bg-stone-800 border border-white/5 rounded-xl px-4 py-3 text-sm text-white" value={teacherForm.name} onChange={e => setTeacherForm({...teacherForm, name: e.target.value})} />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest pl-2">{language === 'ko' ? '전공/악기 (선택)' : 'Instrument (Optional)'}</label>
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest pl-2">{t('lessons.instrumentOpt')}</label>
                     <input className="w-full bg-stone-800 border border-white/5 rounded-xl px-4 py-3 text-sm text-white" value={teacherForm.instrument} onChange={e => setTeacherForm({...teacherForm, instrument: e.target.value})} />
                   </div>
                   <button type="submit" className="w-full bg-brand h-12 rounded-xl text-white font-bold mt-4">{t('common.save')}</button>
@@ -568,7 +568,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                       value={form.teacherId} 
                       onChange={e => setForm({...form, teacherId: e.target.value, teacher: ''})}
                     >
-                      <option value="">{language === 'ko' ? '직접 입력' : 'Manual Entry'}</option>
+                      <option value="">{t('lessons.manualEntry')}</option>
                       {teachers.map(t => (
                         <option key={t.id} value={t.id}>{t.name}</option>
                       ))}
@@ -577,7 +577,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                   {!form.teacherId && (
                     <input 
                       className="w-full bg-stone-900 border border-white/10 rounded-2xl py-3 px-5 text-sm mt-2" 
-                      placeholder={language === 'ko' ? '선생님 이름 입력' : 'Teacher name'}
+                      placeholder={t('lessons.teacherName')}
                       value={form.teacher} 
                       onChange={e => setForm({...form, teacher: e.target.value})} 
                     />
@@ -607,17 +607,17 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest flex items-center gap-2">
                     <ImageIcon size={12} />
-                    {language === 'ko' ? '레슨 사진' : 'Photos'} ({totalPhotos}/3)
+                    {t('lessons.photos')} ({totalPhotos}/3)
                   </label>
                   <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || totalPhotos >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                     {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                    {isUploadingPhoto ? (language === 'ko' ? '사진을 업로드하는 중입니다...' : 'Uploading...') : (language === 'ko' ? '사진 첨부' : 'Add Photo')}
+                    {isUploadingPhoto ? t('lessons.uploadingPhoto') : t('lessons.addPhoto')}
                     <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || totalPhotos >= 3} />
                   </label>
                 </div>
                 {!user && (
                   <p className="text-[10px] text-amber-500/80 bg-amber-500/10 p-2 rounded-lg">
-                    {language === 'ko' ? '로그인하지 않은 상태에서는 레슨일지 사진이 이 기기에만 저장됩니다.' : 'Photos are stored locally when not signed in.'}
+                    {t('lessons.localOnlyNotice')}
                   </p>
                 )}
                 {photoError && <p className="text-red-400 text-xs px-2">{photoError}</p>}
