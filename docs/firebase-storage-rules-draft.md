@@ -32,3 +32,12 @@ service firebase.storage {
 ```
 
 *Note: This is a draft. Since there is no Firebase CLI configuration for Storage currently applied in this project, users must apply these rules manually in the Firebase Console (Storage > Rules tab).*
+
+    // Lesson Journal Photos
+    match /users/{userId}/lesson-journal/teachers/{teacherId}/lessons/{lessonId}/photos/{fileName} {
+      allow read, delete: if isSignedInOwner(userId);
+      
+      allow create, update: if isSignedInOwner(userId)
+                   && request.resource.size < 1 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }

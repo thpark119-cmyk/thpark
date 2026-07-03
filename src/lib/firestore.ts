@@ -268,6 +268,8 @@ export async function deleteUserAccountData(user: any) {
     const studentsSnap = await getDocs(studentsRef);
     const repertoireRef = collection(db, `users/${uid}/repertoire`);
     const repertoireSnap = await getDocs(repertoireRef);
+    const receivedLessonsRef = collection(db, `users/${uid}/received_lessons`);
+    const receivedLessonsSnap = await getDocs(receivedLessonsRef);
     
     const storagePathsToDelete: string[] = [];
     
@@ -301,6 +303,17 @@ export async function deleteUserAccountData(user: any) {
       }
     });
 
+    receivedLessonsSnap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data.photos && Array.isArray(data.photos)) {
+        data.photos.forEach((photo: any) => {
+          if (photo.storagePath) {
+            storagePathsToDelete.push(photo.storagePath);
+          }
+        });
+      }
+    });
+
     for (const path of storagePathsToDelete) {
       try {
         await deleteFileFromStorage(path);
@@ -312,7 +325,7 @@ export async function deleteUserAccountData(user: any) {
     console.warn('Failed to clean up storage files', e);
   }
 
-  const collectionsToDelete = ['received_lessons', 'students', 'repertoire'];
+  const collectionsToDelete = ['received_lessons', 'students', 'repertoire', 'lesson_teachers'];
   
   for (const collName of collectionsToDelete) {
     const collPath = `users/${uid}/${collName}`;

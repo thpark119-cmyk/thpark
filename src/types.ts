@@ -1,13 +1,27 @@
 import { CloudLessonPhoto, CloudScoreFile } from './types/cloudFiles';
 
+export interface LessonTeacher {
+  id: string;
+  userId: string;
+  name: string;
+  instrument?: string;
+  memo?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface ReceivedLesson {
   id: string;
   userId: string;
   date: string;
   teacher: string;
+  teacherId?: string;
+  teacherName?: string;
   topic: string;
   feedback: string;
   nextExercises: string;
+  photos?: CloudLessonPhoto[];
+  photoIds?: string[];
   createdAt?: number;
 }
 

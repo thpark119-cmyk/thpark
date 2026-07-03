@@ -26,3 +26,19 @@ export function buildScoreFileStoragePath(params: {
   const extension = ext ? `.${ext.replace(/^\./, '')}` : '';
   return `users/${uid}/repertoire/${repertoireId}/files/${fileId}${extension}`;
 }
+
+export function buildLessonJournalPhotoStoragePath(params: {
+  uid: string;
+  teacherId?: string;
+  lessonId: string;
+  photoId: string;
+  ext?: string;
+}): string {
+  const { uid, teacherId, lessonId, photoId, ext } = params;
+  if (!uid || !lessonId || !photoId) {
+    throw new Error('Missing required parameters for building lesson journal photo storage path.');
+  }
+  const extension = ext ? `.${ext.replace(/^\./, '')}` : '';
+  const finalTeacherId = teacherId && teacherId.trim() !== '' ? teacherId : 'uncategorized';
+  return `users/${uid}/lesson-journal/teachers/${finalTeacherId}/lessons/${lessonId}/photos/${photoId}${extension}`;
+}
