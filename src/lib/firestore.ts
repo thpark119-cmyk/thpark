@@ -266,8 +266,26 @@ export async function deleteUserAccountData(user: any) {
   try {
     const studentsRef = collection(db, `users/${uid}/students`);
     const studentsSnap = await getDocs(studentsRef);
+    const repertoireRef = collection(db, `users/${uid}/repertoire`);
+    const repertoireSnap = await getDocs(repertoireRef);
+    
     const storagePathsToDelete: string[] = [];
     
+    repertoireSnap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data.files && Array.isArray(data.files)) {
+        data.files.forEach((file: any) => {
+          if (file.storagePath) {
+            storagePathsToDelete.push(file.storagePath);
+          }
+        });
+      }
+      // legacy file
+      if (data.storagePath) {
+        storagePathsToDelete.push(data.storagePath);
+      }
+    });
+
     studentsSnap.forEach(docSnap => {
       const data = docSnap.data();
       if (data.lessons && Array.isArray(data.lessons)) {

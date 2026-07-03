@@ -1,4 +1,4 @@
-import { CloudLessonPhoto } from './types/cloudFiles';
+import { CloudLessonPhoto, CloudScoreFile } from './types/cloudFiles';
 
 export interface ReceivedLesson {
   id: string;
@@ -57,6 +57,7 @@ export interface RepertoireItem {
   status: 'Learning' | 'Polishing' | 'Completed';
   sheetMusicUrl?: string;
   notes: string;
+  files?: CloudScoreFile[];
   createdAt?: number;
   date?: string;
   fileName?: string;

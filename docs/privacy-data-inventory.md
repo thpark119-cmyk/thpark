@@ -10,6 +10,7 @@
 | **Lesson logs** | Yes | Firestore / LocalStorage | Yes (if signed in) | Core feature | Yes | Yes | - |
 | **Student records** | Yes | Firestore / LocalStorage | Yes (if signed in) | Core feature | Yes | Yes | - |
 | **Repertoire records** | Yes | Firestore / LocalStorage | Yes (if signed in) | Core feature | Yes | Yes | - |
+| **Repertoire files** | Yes | Firebase Storage | Yes (if signed in) | Attach sheet music | Yes | Yes | Stored only for signed-in users |
 | **Student photos** | Yes | Firebase Storage / IndexedDB | Yes (if signed in) | Visual identification | Yes | Yes | Stored in Firebase Storage if signed in, otherwise locally |
 | **Microphone audio** | Accessed | Not stored | No | Real-time pitch analysis | Yes (pitch info) | N/A | Processed locally in Tuner |
 | **Tuner pitch data** | Accessed | Not stored | No | UI update | Yes | N/A | Transitory |

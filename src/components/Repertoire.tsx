@@ -1,14 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Book, FileText, Search, MoreHorizontal, X, Music, Upload, File as FileIcon, ExternalLink, Trash2 } from 'lucide-react';
+import { Plus, Book, FileText, Search, MoreHorizontal, X, Music, Upload, File as FileIcon, ExternalLink, Trash2, Loader2 } from 'lucide-react';
 import { RepertoireItem } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { storage } from '../lib/firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { validateScoreUploadFile, getSafeFileExtension } from '../utils/fileValidation';
+import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorage';
+import { buildScoreFileStoragePath } from '../utils/storagePaths';
+import { CloudScoreFile } from '../types/cloudFiles';
+import CloudScoreFileView from './CloudScoreFileView';
 
-const MAX_SCORE_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_SCORE_FILES_PER_ITEM = 5;
 
 export default function Repertoire() {
   const { user } = useAuth();
@@ -23,9 +26,10 @@ export default function Repertoire() {
     notes: '', 
     status: 'Learning' as const, 
     date: new Date().toISOString().split('T')[0],
-    file: null as File | null 
+    files: [] as File[] 
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   const [editingItem, setEditingItem] = useState<RepertoireItem | null>(null);
   const [editForm, setEditForm] = useState({
@@ -34,7 +38,7 @@ export default function Repertoire() {
     status: 'Learning' as 'Learning' | 'Polishing' | 'Completed',
     notes: '',
     date: '',
-    file: null as File | null
+    newFiles: [] as File[]
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
@@ -46,43 +50,56 @@ export default function Repertoire() {
     return unsubscribe;
   }, [user]);
 
-  const uploadFile = async (file: File) => {
-    if (!user || !storage) return null;
-    const fileId = Date.now().toString() + '_' + file.name.replace(/[^a-zA-Z0-9.-]/g, '');
-    const storagePath = `users/${user.uid}/repertoire/${fileId}`;
-    const storageRef = ref(storage, storagePath);
-    await uploadBytes(storageRef, file);
-    const fileUrl = await getDownloadURL(storageRef);
-    return {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      fileUrl,
-      storagePath,
-      uploadedAt: Date.now()
-    };
-  };
-
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPiece.title || !newPiece.composer) return;
     
     setIsUploading(true);
+    setUploadError('');
     try {
-      let fileData = {};
-      if (newPiece.file && user && storage) {
-        const uploaded = await uploadFile(newPiece.file);
-        if (uploaded) fileData = uploaded;
+      const cloudFiles: CloudScoreFile[] = [];
+      const repertoireId = crypto.randomUUID();
+
+      if (user && newPiece.files.length > 0) {
+        for (const file of newPiece.files) {
+          const fileId = crypto.randomUUID();
+          const ext = getSafeFileExtension(file);
+          const storagePath = buildScoreFileStoragePath({
+            uid: user.uid,
+            repertoireId,
+            fileId,
+            ext: ext || 'pdf'
+          });
+
+          await uploadFileToStorage({
+            file,
+            storagePath,
+            contentType: file.type
+          });
+
+          cloudFiles.push({
+            id: fileId,
+            storagePath,
+            fileName: file.name,
+            contentType: file.type,
+            size: file.size,
+            createdAt: new Date().toISOString(),
+            uploadedAt: new Date().toISOString(),
+            source: 'firebase-storage'
+          });
+        }
       }
       
-      const record = {
+      const record: RepertoireItem = {
+        id: repertoireId,
+        userId: user?.uid || 'local',
         title: newPiece.title,
         composer: newPiece.composer,
         notes: newPiece.notes,
         status: newPiece.status,
         date: newPiece.date,
         sheetMusicUrl: '#',
-        ...fileData
+        files: cloudFiles
       };
       
       await addRecord('repertoire', record, user);
@@ -94,11 +111,11 @@ export default function Repertoire() {
         notes: '', 
         status: 'Learning', 
         date: new Date().toISOString().split('T')[0],
-        file: null 
+        files: [] 
       });
     } catch (err) {
       console.error(err);
-      alert(t('repertoire.uploadFailedDesc') || 'Upload failed.');
+      setUploadError(t('repertoire.uploadFailed') || 'Failed to upload files. Please check your network connection.');
     } finally {
       setIsUploading(false);
     }
@@ -112,8 +129,9 @@ export default function Repertoire() {
       status: item.status || 'Learning',
       notes: item.notes || '',
       date: item.date || '',
-      file: null
+      newFiles: []
     });
+    setUploadError('');
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -122,20 +140,38 @@ export default function Repertoire() {
     if (!editForm.title || !editForm.composer) return;
     
     setIsUploading(true);
+    setUploadError('');
     try {
-      let fileData = {};
-      if (editForm.file && user && storage) {
-        if (editingItem.storagePath) {
-          try {
-            const oldRef = ref(storage, editingItem.storagePath);
-            await deleteObject(oldRef);
-          } catch (e) {
-            console.error('Failed to delete old file', e);
-          }
+      const cloudFiles = [...(editingItem.files || [])];
+
+      if (user && editForm.newFiles.length > 0) {
+        for (const file of editForm.newFiles) {
+          const fileId = crypto.randomUUID();
+          const ext = getSafeFileExtension(file);
+          const storagePath = buildScoreFileStoragePath({
+            uid: user.uid,
+            repertoireId: editingItem.id,
+            fileId,
+            ext: ext || 'pdf'
+          });
+
+          await uploadFileToStorage({
+            file,
+            storagePath,
+            contentType: file.type
+          });
+
+          cloudFiles.push({
+            id: fileId,
+            storagePath,
+            fileName: file.name,
+            contentType: file.type,
+            size: file.size,
+            createdAt: new Date().toISOString(),
+            uploadedAt: new Date().toISOString(),
+            source: 'firebase-storage'
+          });
         }
-        
-        const uploaded = await uploadFile(editForm.file);
-        if (uploaded) fileData = uploaded;
       }
       
       const record = {
@@ -144,33 +180,63 @@ export default function Repertoire() {
         status: editForm.status,
         notes: editForm.notes,
         date: editForm.date,
-        ...fileData
+        files: cloudFiles
       };
 
       await updateRecord('repertoire', editingItem.id, record, user);
       setEditingItem(null);
     } catch (err) {
       console.error(err);
-      alert(t('repertoire.uploadFailedDesc') || 'Upload failed.');
+      setUploadError(t('repertoire.uploadFailed') || 'Failed to upload files. Please check your network connection.');
     } finally {
       setIsUploading(false);
     }
   };
 
   const handleDeleteClick = async (id: string) => {
-    if (!window.confirm(t('common.confirmDelete'))) return;
+    if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this?')) return;
     
     const itemToDelete = items.find(i => i.id === id);
-    if (itemToDelete?.storagePath && storage) {
+    if (itemToDelete?.files && itemToDelete.files.length > 0) {
+      for (const file of itemToDelete.files) {
+        try {
+          await deleteFileFromStorage(file.storagePath);
+        } catch (e) {
+          console.warn('Failed to delete file from storage', e);
+        }
+      }
+    }
+    
+    // Legacy file delete
+    if (itemToDelete?.storagePath) {
        try {
-         const oldRef = ref(storage, itemToDelete.storagePath);
-         await deleteObject(oldRef);
+         await deleteFileFromStorage(itemToDelete.storagePath);
        } catch (e) {
-         console.error('Failed to delete file', e);
+         console.warn('Failed to delete legacy file from storage', e);
        }
     }
     
     await deleteRecord('repertoire', id, user);
+  };
+
+  const handleDeleteExistingFile = async (fileToDelete: CloudScoreFile) => {
+    if (!editingItem) return;
+    if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this file?')) return;
+    
+    try {
+      await deleteFileFromStorage(fileToDelete.storagePath);
+      const updatedFiles = (editingItem.files || []).filter(f => f.id !== fileToDelete.id);
+      
+      await updateRecord('repertoire', editingItem.id, { files: updatedFiles }, user);
+      
+      setEditingItem({
+        ...editingItem,
+        files: updatedFiles
+      });
+    } catch (e) {
+      console.error('Failed to delete file', e);
+      alert(t('repertoire.deleteFileFailed') || 'Failed to delete file. Please check your network connection and try again.');
+    }
   };
 
   const handleImslpSearch = (e: React.FormEvent) => {
@@ -213,27 +279,38 @@ export default function Repertoire() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    let currentCount = 0;
+    if (isEdit && editingItem) {
+      currentCount = (editingItem.files?.length || 0) + editForm.newFiles.length;
+    } else {
+      currentCount = newPiece.files.length;
+    }
 
-    if (file.size > MAX_SCORE_FILE_SIZE) {
-      alert(t('repertoire.fileTooLarge'));
+    if (currentCount + files.length > MAX_SCORE_FILES_PER_ITEM) {
+      alert((t('repertoire.fileLimitReached') || 'You can attach up to 5 files per repertoire.') + ` (${MAX_SCORE_FILES_PER_ITEM})`);
       e.target.value = '';
       return;
     }
 
-    const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      alert(t('repertoire.invalidFileType'));
-      e.target.value = '';
-      return;
+    const validFiles: File[] = [];
+    for (const file of files) {
+      const validation = validateScoreUploadFile(file);
+      if (!validation.ok) {
+        alert(`${file.name}: ${validation.reason}`);
+        continue;
+      }
+      validFiles.push(file);
     }
 
     if (isEdit) {
-      setEditForm({ ...editForm, file });
+      setEditForm({ ...editForm, newFiles: [...editForm.newFiles, ...validFiles] });
     } else {
-      setNewPiece({ ...newPiece, file });
+      setNewPiece({ ...newPiece, files: [...newPiece.files, ...validFiles] });
     }
+    e.target.value = '';
   };
 
   return (
@@ -241,7 +318,10 @@ export default function Repertoire() {
       <div className="flex justify-between items-center px-1">
         <h2 className="text-3xl font-serif italic text-white leading-none">{t('repertoire.title')}</h2>
         <button 
-          onClick={() => setIsAdding(true)}
+          onClick={() => {
+            setIsAdding(true);
+            setUploadError('');
+          }}
           className="bg-brand w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand/20 active:scale-90 transition-all"
         >
           <Plus size={24} />
@@ -290,51 +370,69 @@ export default function Repertoire() {
 
       <div className="space-y-3">
         {filteredItems.map((item) => (
-          <div key={item.id} className="bg-bg-card border border-white/5 p-5 rounded-[28px] flex items-center gap-4 transition-all group">
-            <div className="w-12 h-12 bg-stone-800 rounded-2xl flex items-center justify-center text-brand group-hover:scale-105 transition-transform shrink-0">
-              <FileText size={24} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest truncate">{item.composer}</p>
-              <h3 className="text-lg font-serif italic text-stone-200 truncate leading-tight">{item.title}</h3>
-              {item.date && (
-                <p className="text-[10px] font-mono text-stone-500 font-bold bg-white/5 px-2 py-0.5 rounded-full inline-block mt-1">{formatDate(item.date)}</p>
-              )}
-              {item.notes && (
-                <p className="text-xs text-stone-500 mt-1 truncate max-w-sm">{item.notes}</p>
-              )}
-            </div>
-            <div className="flex flex-col items-end gap-2 shrink-0">
-              <span className={`text-[9px] px-2 py-1 rounded-full font-bold uppercase tracking-tighter ${
-                item.status === 'Learning' ? 'bg-amber-500/10 text-amber-500' :
-                item.status === 'Polishing' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-stone-800 text-stone-400'
-              }`}>
-                {mapStatus(item.status)}
-              </span>
-              <div className="flex items-center gap-1.5">
-                {item.fileUrl && (
-                  <button 
-                    onClick={() => window.open(item.fileUrl, '_blank')}
-                    className="text-[10px] font-bold text-brand hover:text-brand bg-brand/10 hover:bg-brand/20 px-2 py-1 rounded-lg border border-brand/20 transition-colors flex items-center gap-1"
-                  >
-                    <ExternalLink size={10} />
-                    {t('repertoire.openScore')}
-                  </button>
+          <div key={item.id} className="bg-bg-card border border-white/5 p-5 rounded-[28px] flex flex-col gap-4 transition-all group">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-stone-800 rounded-2xl flex items-center justify-center text-brand group-hover:scale-105 transition-transform shrink-0">
+                <FileText size={24} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest truncate">{item.composer}</p>
+                <h3 className="text-lg font-serif italic text-stone-200 truncate leading-tight">{item.title}</h3>
+                {item.date && (
+                  <p className="text-[10px] font-mono text-stone-500 font-bold bg-white/5 px-2 py-0.5 rounded-full inline-block mt-1">{formatDate(item.date)}</p>
                 )}
-                <button 
-                  onClick={() => handleEditClick(item)}
-                  className="text-[10px] font-bold text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-stone-800 px-2 py-1 rounded-lg border border-white/5 transition-colors"
-                >
-                  {t('common.edit')}
-                </button>
-                <button 
-                  onClick={() => handleDeleteClick(item.id)}
-                  className="text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/40 px-2 py-1 rounded-lg border border-red-500/10 transition-colors"
-                >
-                  {t('common.delete')}
-                </button>
+                {item.notes && (
+                  <p className="text-xs text-stone-500 mt-1 truncate max-w-sm">{item.notes}</p>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <span className={`text-[9px] px-2 py-1 rounded-full font-bold uppercase tracking-tighter ${
+                  item.status === 'Learning' ? 'bg-amber-500/10 text-amber-500' :
+                  item.status === 'Polishing' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-stone-800 text-stone-400'
+                }`}>
+                  {mapStatus(item.status)}
+                </span>
+                <div className="flex items-center gap-1.5 mt-auto">
+                  <button 
+                    onClick={() => handleEditClick(item)}
+                    className="text-[10px] font-bold text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-stone-800 px-2 py-1 rounded-lg border border-white/5 transition-colors"
+                  >
+                    {t('common.edit')}
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteClick(item.id)}
+                    className="text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/40 px-2 py-1 rounded-lg border border-red-500/10 transition-colors"
+                  >
+                    {t('common.delete')}
+                  </button>
+                </div>
               </div>
             </div>
+            
+            {((item.files && item.files.length > 0) || item.fileUrl) && (
+              <div className="pt-3 border-t border-white/5 space-y-2">
+                {item.fileUrl && (
+                  <div className="flex items-center justify-between p-3 bg-stone-800/50 rounded-xl border border-white/5">
+                    <div className="flex items-center gap-3">
+                      <FileIcon size={16} className="text-stone-400" />
+                      <div>
+                        <p className="text-xs text-stone-300">{item.fileName || 'Legacy File'}</p>
+                        <p className="text-[10px] text-stone-500">Legacy File</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => window.open(item.fileUrl, '_blank')}
+                      className="w-8 h-8 rounded-lg bg-white/5 hover:bg-brand/20 text-stone-400 hover:text-brand flex items-center justify-center transition-colors"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
+                )}
+                {item.files?.map(file => (
+                  <CloudScoreFileView key={file.id} file={file} readOnly />
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
@@ -361,11 +459,11 @@ export default function Repertoire() {
               initial={{ opacity: 0, y: 100, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 100, scale: 0.9 }}
-              className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[40px] p-8 space-y-8 shadow-2xl"
+              className="relative w-full max-w-md max-h-[90vh] overflow-y-auto overflow-x-hidden bg-stone-900 border border-white/10 rounded-[40px] p-8 space-y-8 shadow-2xl custom-scrollbar"
             >
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.addPiece')}</h3>
-                <button onClick={() => setIsAdding(false)} className="text-stone-600"><X size={24} /></button>
+                <button onClick={() => setIsAdding(false)} className="text-stone-600 hover:text-white transition-colors"><X size={24} /></button>
               </div>
 
               <form onSubmit={handleAdd} className="space-y-4">
@@ -401,33 +499,71 @@ export default function Repertoire() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.addFile')}</label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pl-2">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest">{t('repertoire.addFile') || 'Score Files'}</label>
+                    <span className="text-[10px] text-stone-500 font-bold">{newPiece.files.length}/{MAX_SCORE_FILES_PER_ITEM}</span>
+                  </div>
+                  
                   {!user ? (
-                    <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">{t('repertoire.loginRequiredForFile')}</p>
+                    <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 leading-relaxed">
+                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google. Signed-in files are linked to your account and can be accessed across devices.'}
+                    </p>
                   ) : (
-                    <div 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full bg-stone-800/50 border border-white/5 hover:border-brand/40 border-dashed rounded-2xl py-4 px-5 flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        className="hidden" 
-                        accept="application/pdf,image/jpeg,image/png,image/webp"
-                        onChange={(e) => handleFileChange(e, false)}
-                      />
-                      {newPiece.file ? (
-                        <span className="text-xs text-brand flex items-center justify-center w-full truncate"><FileIcon size={14} className="mr-1 shrink-0"/><span className="truncate">{newPiece.file.name}</span></span>
-                      ) : (
-                        <span className="text-xs text-stone-500"><Upload size={14} className="inline mr-1"/>{t('repertoire.chooseFile')}</span>
+                    <div className="space-y-2">
+                      <div 
+                        onClick={() => {
+                          if (newPiece.files.length < MAX_SCORE_FILES_PER_ITEM) fileInputRef.current?.click();
+                        }}
+                        className={`w-full border-dashed rounded-2xl py-4 px-5 flex flex-col items-center justify-center gap-2 transition-colors ${
+                          newPiece.files.length >= MAX_SCORE_FILES_PER_ITEM 
+                            ? 'bg-stone-800/30 border-white/5 cursor-not-allowed opacity-50' 
+                            : 'bg-stone-800/50 border-white/5 hover:border-brand/40 cursor-pointer'
+                        }`}
+                      >
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          className="hidden" 
+                          multiple
+                          accept="application/pdf,image/jpeg,image/png,image/webp"
+                          onChange={(e) => handleFileChange(e, false)}
+                          disabled={newPiece.files.length >= MAX_SCORE_FILES_PER_ITEM}
+                        />
+                        <Upload size={20} className="text-stone-500"/>
+                        <div className="text-center">
+                          <span className="text-xs text-stone-400 font-medium block mb-1">{t('repertoire.chooseFile') || 'Attach PDF or Images'}</span>
+                          <span className="text-[10px] text-stone-600">PDF (Max 15MB) / Image (Max 5MB)</span>
+                        </div>
+                      </div>
+                      
+                      {newPiece.files.length > 0 && (
+                        <div className="space-y-2 mt-3">
+                          {newPiece.files.map((file, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-white/5">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <FileIcon size={16} className="text-brand shrink-0" />
+                                <span className="text-xs text-stone-300 truncate">{file.name}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setNewPiece({ ...newPiece, files: newPiece.files.filter((_, i) => i !== idx) })}
+                                className="text-stone-500 hover:text-red-400 p-1 rounded-md transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
                 
-                <button type="submit" disabled={isUploading} className="w-full mt-2 bg-brand h-12 rounded-2xl text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50">
-                  {isUploading ? t('common.uploading') : t('common.save')}
+                {uploadError && <p className="text-xs text-red-400 text-center">{uploadError}</p>}
+
+                <button type="submit" disabled={isUploading} className="w-full mt-4 bg-brand h-14 rounded-2xl text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                  {isUploading ? <><Loader2 size={16} className="animate-spin" /> {t('common.uploading') || 'Uploading...'}</> : (t('common.save') || 'Save')}
                 </button>
               </form>
             </motion.div>
@@ -440,18 +576,20 @@ export default function Repertoire() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
-              onClick={() => setEditingItem(null)}
+              onClick={() => {
+                if (!isUploading) setEditingItem(null);
+              }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div 
               initial={{ opacity: 0, y: 100, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 100, scale: 0.9 }}
-              className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl"
+              className="relative w-full max-w-md max-h-[90vh] overflow-y-auto overflow-x-hidden bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl custom-scrollbar"
             >
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.editPiece')}</h3>
-                <button onClick={() => setEditingItem(null)} className="text-stone-600"><X size={24} /></button>
+                <button onClick={() => !isUploading && setEditingItem(null)} className="text-stone-600 hover:text-white transition-colors" disabled={isUploading}><X size={24} /></button>
               </div>
 
               <form onSubmit={handleUpdate} className="space-y-4">
@@ -487,37 +625,91 @@ export default function Repertoire() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.addFile')}</label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pl-2">
+                    <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest">{t('repertoire.addFile') || 'Score Files'}</label>
+                    <span className="text-[10px] text-stone-500 font-bold">
+                      {(editingItem.files?.length || 0) + editForm.newFiles.length}/{MAX_SCORE_FILES_PER_ITEM}
+                    </span>
+                  </div>
+                  
                   {!user ? (
-                    <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">{t('repertoire.loginRequiredForFile')}</p>
+                    <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 leading-relaxed">
+                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google. Signed-in files are linked to your account and can be accessed across devices.'}
+                    </p>
                   ) : (
-                    <div 
-                      onClick={() => editFileInputRef.current?.click()}
-                      className="w-full bg-stone-800/50 border border-white/5 hover:border-brand/40 border-dashed rounded-2xl py-4 px-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <input 
-                        type="file" 
-                        ref={editFileInputRef} 
-                        className="hidden" 
-                        accept="application/pdf,image/jpeg,image/png,image/webp"
-                        onChange={(e) => handleFileChange(e, true)}
-                      />
-                      {editForm.file ? (
-                        <span className="text-xs text-brand flex items-center justify-center w-full truncate"><FileIcon size={14} className="mr-1 shrink-0"/><span className="truncate">{editForm.file.name}</span></span>
-                      ) : editingItem.fileName ? (
+                    <div className="space-y-2">
+                      <div 
+                        onClick={() => {
+                          if ((editingItem.files?.length || 0) + editForm.newFiles.length < MAX_SCORE_FILES_PER_ITEM) {
+                            editFileInputRef.current?.click();
+                          }
+                        }}
+                        className={`w-full border-dashed rounded-2xl py-4 px-5 flex flex-col items-center justify-center gap-2 transition-colors ${
+                          (editingItem.files?.length || 0) + editForm.newFiles.length >= MAX_SCORE_FILES_PER_ITEM 
+                            ? 'bg-stone-800/30 border-white/5 cursor-not-allowed opacity-50' 
+                            : 'bg-stone-800/50 border-white/5 hover:border-brand/40 cursor-pointer'
+                        }`}
+                      >
+                        <input 
+                          type="file" 
+                          ref={editFileInputRef} 
+                          className="hidden" 
+                          multiple
+                          accept="application/pdf,image/jpeg,image/png,image/webp"
+                          onChange={(e) => handleFileChange(e, true)}
+                          disabled={(editingItem.files?.length || 0) + editForm.newFiles.length >= MAX_SCORE_FILES_PER_ITEM}
+                        />
+                        <Upload size={20} className="text-stone-500"/>
                         <div className="text-center">
-                          <span className="text-xs text-brand flex items-center justify-center w-full truncate mb-1"><FileIcon size={14} className="mr-1 shrink-0"/><span className="truncate">{editingItem.fileName}</span></span>
-                          <span className="text-[10px] text-stone-500">({t('repertoire.chooseFile')})</span>
+                          <span className="text-xs text-stone-400 font-medium block mb-1">{t('repertoire.chooseFile') || 'Attach PDF or Images'}</span>
+                          <span className="text-[10px] text-stone-600">PDF (Max 15MB) / Image (Max 5MB)</span>
                         </div>
-                      ) : (
-                        <span className="text-xs text-stone-500"><Upload size={14} className="inline mr-1"/>{t('repertoire.chooseFile')}</span>
+                      </div>
+                      
+                      {((editingItem.files?.length || 0) > 0 || editForm.newFiles.length > 0 || editingItem.fileUrl) && (
+                        <div className="space-y-2 mt-3">
+                          {editingItem.fileUrl && (
+                            <div className="flex items-center justify-between p-3 bg-stone-800/50 rounded-xl border border-white/5">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <FileIcon size={16} className="text-stone-400 shrink-0" />
+                                <span className="text-xs text-stone-300 truncate">{editingItem.fileName || 'Legacy File'}</span>
+                              </div>
+                              <span className="text-[10px] text-stone-500">Legacy</span>
+                            </div>
+                          )}
+                          {editingItem.files?.map(file => (
+                            <CloudScoreFileView 
+                              key={file.id} 
+                              file={file} 
+                              onDelete={() => handleDeleteExistingFile(file)} 
+                            />
+                          ))}
+                          {editForm.newFiles.map((file, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-brand/20">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <FileIcon size={16} className="text-brand shrink-0" />
+                                <div className="min-w-0">
+                                  <span className="text-xs text-stone-200 font-medium truncate block">{file.name}</span>
+                                  <span className="text-[10px] text-brand uppercase">{t('common.new') || 'New'}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, newFiles: editForm.newFiles.filter((_, i) => i !== idx) })}
+                                className="text-stone-500 hover:text-red-400 p-1 rounded-md transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 pt-2">
                   <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.statusLabel')}</label>
                   <select 
                     className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none appearance-none text-sm color-scheme-dark"
@@ -540,12 +732,14 @@ export default function Repertoire() {
                   />
                 </div>
                 
+                {uploadError && <p className="text-xs text-red-400 text-center">{uploadError}</p>}
+
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setEditingItem(null)} className="w-1/3 bg-stone-800 h-12 rounded-2xl text-stone-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all">
+                  <button type="button" disabled={isUploading} onClick={() => setEditingItem(null)} className="w-1/3 bg-stone-800 h-14 rounded-2xl text-stone-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
                     {t('common.cancel')}
                   </button>
-                  <button type="submit" disabled={isUploading} className="flex-1 bg-brand h-12 rounded-2xl text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50">
-                    {isUploading ? t('common.uploading') : t('common.save')}
+                  <button type="submit" disabled={isUploading} className="flex-1 bg-brand h-14 rounded-2xl text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {isUploading ? <><Loader2 size={16} className="animate-spin" /> {t('common.uploading') || 'Uploading...'}</> : (t('common.save') || 'Save')}
                   </button>
                 </div>
               </form>
@@ -556,4 +750,3 @@ export default function Repertoire() {
     </motion.div>
   );
 }
-
