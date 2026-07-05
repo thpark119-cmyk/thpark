@@ -100,6 +100,26 @@ export interface PracticeEntry {
   updatedAt?: number;
 }
 
+export interface PracticeRoutineItem {
+  id: string;
+  label: string;
+  minutes: number;
+  memo?: string;
+}
+
+export interface PracticeRoutine {
+  id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  items: PracticeRoutineItem[];
+  totalMinutes: number;
+  tags?: string[];
+  isFavorite?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface ChatMessage {
   role: 'user' | 'model';
   content: string;

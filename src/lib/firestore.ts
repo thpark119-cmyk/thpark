@@ -244,7 +244,7 @@ export function clearLocalData() {
   const keysToRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && (key.startsWith('local_received_lessons') || key.startsWith('local_students') || key.startsWith('local_repertoire') || key.startsWith('local_practice_entries'))) {
+    if (key && (key.startsWith('local_received_lessons') || key.startsWith('local_students') || key.startsWith('local_repertoire') || key.startsWith('local_practice_entries') || key.startsWith('local_practice_routines'))) {
       keysToRemove.push(key);
     }
   }
@@ -332,7 +332,7 @@ export async function deleteUserAccountData(user: any): Promise<{ hasStorageFail
     hasStorageFailures = true;
   }
 
-  const collectionsToDelete = ['received_lessons', 'students', 'repertoire', 'lesson_teachers', 'practice_entries'];
+  const collectionsToDelete = ['received_lessons', 'students', 'repertoire', 'lesson_teachers', 'practice_entries', 'practice_routines'];
   
   for (const collName of collectionsToDelete) {
     const collPath = `users/${uid}/${collName}`;

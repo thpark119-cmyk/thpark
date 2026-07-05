@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { PlusCircle, ListTodo, Search, MessageSquare, Clock, Activity, Settings2 } from 'lucide-react';
+import { PlusCircle, ListTodo, Search, MessageSquare, Clock, Activity, Settings2, ClipboardList } from 'lucide-react';
 import { subscribeToCollection } from '../lib/firestore';
 import { ReceivedLesson } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -27,6 +27,7 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
 
   const quickActions = [
     { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand/10 text-brand border-brand/20', icon: PlusCircle },
+    { id: 'practice', label: t('practiceLog.todayPractice') || '오늘의 연습', desc: t('dashboard.quickActionPracticeDesc') || '오늘 연습한 내용 기록', color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ClipboardList },
     { id: 'repertoire', label: t('dashboard.quickActionRepertoire'), desc: t('dashboard.quickActionRepertoireDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: Search },
     { id: 'studio', label: t('dashboard.quickActionStudio'), desc: t('dashboard.quickActionStudioDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ListTodo }
   ];
@@ -53,21 +54,26 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:gap-4">
-        {quickActions.map((action) => (
-          <button
-            key={action.id}
-            onClick={() => setActiveTab(action.id)}
-            className={`flex flex-col items-start gap-3 p-5 rounded-[24px] border text-left transition-all active:scale-[0.98] ${action.color}`}
-          >
-            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shadow-lg">
-              <action.icon size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold leading-tight mb-0.5">{action.label}</h3>
-              <p className="text-[11px] text-stone-400 font-medium line-clamp-1">{action.desc}</p>
-            </div>
-          </button>
-        ))}
+        {quickActions.map((action, index) => {
+          const isLastAndOdd = quickActions.length % 2 !== 0 && index === quickActions.length - 1;
+          return (
+            <button
+              key={action.id}
+              onClick={() => setActiveTab(action.id)}
+              className={`flex flex-col items-start gap-3 p-5 rounded-[24px] border text-left transition-all active:scale-[0.98] ${
+                isLastAndOdd ? 'col-span-2 sm:col-span-1' : ''
+              } ${action.color}`}
+            >
+              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shadow-lg">
+                <action.icon size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold leading-tight mb-0.5">{action.label}</h3>
+                <p className="text-[11px] text-stone-400 font-medium line-clamp-1">{action.desc}</p>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="space-y-3">

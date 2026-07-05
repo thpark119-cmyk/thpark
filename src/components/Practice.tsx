@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Calendar, Clock, BookOpen, Music, Trash2, Edit2, 
   AlertTriangle, Smile, Meh, Frown, Save, X, Activity, 
-  Trophy, BookOpen as BookIcon, ChevronRight
+  Trophy, BookOpen as BookIcon, ChevronRight, Star, ListTodo
 } from 'lucide-react';
-import { PracticeEntry } from '../types';
+import { PracticeEntry, PracticeRoutine, PracticeRoutineItem } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import PracticeRoutineModal from './PracticeRoutineModal';
 
 // Helper to get local YYYY-MM-DD date string safely without timezone offsets
 const getLocalDateString = (d: Date = new Date()) => {
@@ -27,6 +28,12 @@ export default function Practice() {
   // Modals / Form states
   const [isAdding, setIsAdding] = useState(false);
   const [editingEntry, setEditingEntry] = useState<PracticeEntry | null>(null);
+  
+  // Routine states
+  const [routines, setRoutines] = useState<PracticeRoutine[]>([]);
+  const [isAddingRoutine, setIsAddingRoutine] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<PracticeRoutine | null>(null);
+  const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
   
   // Form fields
   const [date, setDate] = useState(getLocalDateString());
@@ -46,7 +53,7 @@ export default function Practice() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Lock scroll when modal is open
-  useBodyScrollLock(isAdding || !!editingEntry);
+  useBodyScrollLock(isAdding || !!editingEntry || isAddingRoutine || !!editingRoutine);
 
   // Subscribe to practice entries
   useEffect(() => {
@@ -58,6 +65,20 @@ export default function Practice() {
         return (b.createdAt || 0) - (a.createdAt || 0);
       });
       setEntries(sorted);
+    }, user);
+    return unsubscribe;
+  }, [user]);
+
+  // Subscribe to practice routines
+  useEffect(() => {
+    const unsubscribe = subscribeToCollection<PracticeRoutine>('practice_routines', (data) => {
+      // Sort by isFavorite descending, then by updatedAt descending, then by createdAt descending
+      const sorted = [...data].sort((a, b) => {
+        if (a.isFavorite && !b.isFavorite) return -1;
+        if (!a.isFavorite && b.isFavorite) return 1;
+        return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+      });
+      setRoutines(sorted);
     }, user);
     return unsubscribe;
   }, [user]);
@@ -162,6 +183,69 @@ export default function Practice() {
       console.error('Error deleting practice log:', err);
       alert(t('practiceLog.deleteFailed') || '삭제에 실패했습니다.');
     }
+  };
+
+  // --- Routine Helper Actions ---
+  const handleStartFromRoutine = (routine: PracticeRoutine) => {
+    setDate(getLocalDateString());
+    setPracticeTime(routine.totalMinutes);
+    setPieceTitle(routine.title);
+    setComposer('');
+    
+    // Format goal with items
+    const goalText = routine.items.map(item => `${item.label} (${item.minutes}m)`).join(' | ');
+    setGoal(goalText);
+    
+    // Format memo with routine desc and item memos
+    const memoParts = routine.items
+      .filter(item => item.memo)
+      .map(item => `- ${item.label}: ${item.memo}`)
+      .join('\n');
+    
+    const initialMemo = routine.description 
+      ? `${routine.description}${memoParts ? '\n\n' + memoParts : ''}`
+      : memoParts;
+    
+    setMemo(initialMemo);
+    setFocusArea('');
+    setWhatWentWell('');
+    setProblem('');
+    setNextAction('');
+    setMood('normal');
+    setErrorMsg('');
+    setIsAdding(true);
+  };
+
+  const handleToggleFavoriteRoutine = async (routine: PracticeRoutine, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const updated = {
+        ...routine,
+        isFavorite: !routine.isFavorite,
+        updatedAt: Date.now()
+      };
+      await updateRecord('practice_routines', routine.id, updated, user);
+    } catch (err) {
+      console.error('Error toggling favorite routine:', err);
+    }
+  };
+
+  const handleDeleteRoutine = async (routineId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(t('practiceLog.confirmDeleteRoutine') || '이 루틴을 삭제할까요?')) {
+      return;
+    }
+    try {
+      await deleteRecord('practice_routines', routineId, user);
+    } catch (err) {
+      console.error('Error deleting routine:', err);
+      alert(t('practiceLog.deleteRoutineFailed') || '루틴 삭제에 실패했습니다.');
+    }
+  };
+
+  const handleOpenEditRoutine = (routine: PracticeRoutine, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingRoutine(routine);
   };
 
   // --- Statistics Calculation ---
@@ -296,6 +380,145 @@ export default function Practice() {
             <Smile size={20} />
           </div>
         </div>
+      </div>
+
+      {/* Practice Routines Section */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center px-1">
+          <h3 className="text-sm font-semibold text-stone-400 tracking-wider uppercase font-sans">
+            {t('practiceLog.myRoutines')}
+          </h3>
+          <button
+            onClick={() => setIsAddingRoutine(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.03] hover:bg-white/[0.08] text-stone-300 hover:text-white text-xs font-bold rounded-xl transition-all active:scale-95 border border-white/[0.05]"
+          >
+            <Plus size={14} />
+            <span>{t('practiceLog.addRoutine')}</span>
+          </button>
+        </div>
+
+        {routines.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 px-4 bg-stone-900/10 border border-white/[0.02] rounded-3xl text-center space-y-2">
+            <div className="text-stone-600">
+              <ListTodo size={24} />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-xs text-stone-400 font-medium">{t('practiceLog.routineEmpty')}</p>
+              <p className="text-[11px] text-stone-600">{t('practiceLog.routineEmptySub')}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {routines.map((routine) => {
+              const isExpanded = expandedRoutineId === routine.id;
+              return (
+                <div
+                  key={routine.id}
+                  onClick={() => setExpandedRoutineId(isExpanded ? null : routine.id)}
+                  className="bg-stone-900/30 hover:bg-stone-900/40 border border-white/[0.03] hover:border-white/[0.06] rounded-3xl p-5 transition-all duration-200 cursor-pointer relative overflow-hidden group flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Routine Header */}
+                    <div className="flex justify-between items-start gap-2 mb-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-bold text-stone-200 tracking-tight group-hover:text-white transition-colors line-clamp-1">
+                            {routine.title}
+                          </h4>
+                          {routine.isFavorite && (
+                            <Star size={12} className="fill-brand text-brand shrink-0" />
+                          )}
+                        </div>
+                        {routine.description && (
+                          <p className="text-xs text-stone-500 font-sans line-clamp-1">
+                            {routine.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Expected Time Badge */}
+                      <span className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2.5 py-0.5 rounded-full font-sans font-bold shrink-0">
+                        <Clock size={11} />
+                        <span>{routine.totalMinutes} {t('practiceLog.minutes')}</span>
+                      </span>
+                    </div>
+
+                    {/* Routine Items List (Collapsible) */}
+                    <AnimatePresence>
+                      {isExpanded ? (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden mt-4 pt-3 border-t border-white/[0.03] space-y-2.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {routine.items.map((item, idx) => (
+                            <div key={item.id} className="flex items-start gap-2.5 text-xs">
+                              <span className="w-5 h-5 rounded-full bg-stone-950 border border-white/[0.03] flex items-center justify-center text-[10px] text-stone-500 shrink-0 font-bold mt-0.5">
+                                {idx + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-center gap-2">
+                                  <span className="text-stone-300 font-medium truncate">{item.label}</span>
+                                  <span className="text-stone-500 font-mono shrink-0">{item.minutes}m</span>
+                                </div>
+                                {item.memo && (
+                                  <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1 italic font-sans">{item.memo}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </motion.div>
+                      ) : (
+                        /* Preview of items (1 line comma separated) */
+                        <p className="text-xs text-stone-500 truncate mt-2 font-sans">
+                          {routine.items.map(item => item.label).join(', ')}
+                        </p>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Routine Actions */}
+                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/[0.02] text-[10px] text-stone-600">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartFromRoutine(routine);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-brand text-stone-950 hover:bg-brand-light font-bold rounded-xl transition-all active:scale-95"
+                    >
+                      <Plus size={11} strokeWidth={3} />
+                      <span>{t('practiceLog.startFromRoutine')}</span>
+                    </button>
+
+                    <div className="flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => handleToggleFavoriteRoutine(routine, e)}
+                        className="p-1.5 hover:bg-white/5 rounded-lg text-stone-400 hover:text-brand transition-colors"
+                      >
+                        <Star size={12} className={routine.isFavorite ? "fill-brand text-brand" : ""} />
+                      </button>
+                      <button
+                        onClick={(e) => handleOpenEditRoutine(routine, e)}
+                        className="p-1.5 hover:bg-white/5 rounded-lg text-stone-400 hover:text-white transition-colors"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteRoutine(routine.id, e)}
+                        className="p-1.5 hover:bg-white/5 rounded-lg text-stone-400 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Practice Log List */}
@@ -719,6 +942,17 @@ export default function Practice() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Routine Add/Edit Modal */}
+      <PracticeRoutineModal
+        isOpen={isAddingRoutine || !!editingRoutine}
+        onClose={() => {
+          setIsAddingRoutine(false);
+          setEditingRoutine(null);
+        }}
+        user={user}
+        editingRoutine={editingRoutine}
+      />
     </div>
   );
 }
