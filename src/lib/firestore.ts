@@ -257,10 +257,11 @@ export function clearLocalData() {
   };
 }
 
-export async function deleteUserAccountData(user: any) {
-  if (!user || !db) return;
+export async function deleteUserAccountData(user: any): Promise<{ hasStorageFailures: boolean }> {
+  if (!user || !db) return { hasStorageFailures: false };
   
   const uid = user.uid;
+  let hasStorageFailures = false;
 
   // Clean up Storage files first
   try {
@@ -316,13 +317,19 @@ export async function deleteUserAccountData(user: any) {
 
     for (const path of storagePathsToDelete) {
       try {
+        console.log('[Mio Storage Delete]', {
+          action: 'delete_account_file',
+          storagePath: path,
+        });
         await deleteFileFromStorage(path);
       } catch (err) {
-        console.warn(`Failed to delete storage file: ${path}`, err);
+        console.warn(`Failed to delete storage file during account deletion: ${path}`, err);
+        hasStorageFailures = true;
       }
     }
   } catch (e) {
     console.warn('Failed to clean up storage files', e);
+    hasStorageFailures = true;
   }
 
   const collectionsToDelete = ['received_lessons', 'students', 'repertoire', 'lesson_teachers'];
@@ -347,4 +354,6 @@ export async function deleteUserAccountData(user: any) {
   }
   
   await deleteUser(user);
+  
+  return { hasStorageFailures };
 }

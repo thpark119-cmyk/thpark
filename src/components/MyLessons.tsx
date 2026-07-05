@@ -333,12 +333,18 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
       }
 
       // 4. Actually delete the photos marked for deletion
+      let deleteFailed = false;
       for (const del of pendingDeletes) {
         if (del.source === 'firebase-storage' && del.storagePath) {
           try {
+            console.log('[Mio Storage Delete]', {
+              action: 'delete_received_lesson_photo_on_commit',
+              storagePath: del.storagePath,
+            });
             await deleteFileFromStorage(del.storagePath);
           } catch (err) {
-            console.warn('Failed to delete cloud photo during commit', del.storagePath, err);
+            console.error('Failed to delete cloud photo during commit', del.storagePath, err);
+            deleteFailed = true;
           }
         } else if (del.source === 'indexeddb') {
           try {
@@ -347,6 +353,10 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
             console.warn('Failed to delete local photo during commit', del.id, err);
           }
         }
+      }
+
+      if (deleteFailed) {
+        alert(t('common.partialDeleteError') || 'Some photos could not be deleted from the cloud.');
       }
 
       // Cleanup object URLs
@@ -390,6 +400,29 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
   const handleDeleteLesson = async (log: ReceivedLesson) => {
     if (!window.confirm(t('common.confirmDelete') || 'Delete?')) return;
     
+    let storageDeleteFailed = false;
+    
+    // Delete cloud photos
+    if (log.photos && log.photos.length > 0) {
+      for (const photo of log.photos) {
+        try {
+          console.log('[Mio Storage Delete]', {
+            action: 'delete_received_lesson_photo_with_lesson',
+            storagePath: photo.storagePath,
+          });
+          await deleteFileFromStorage(photo.storagePath);
+        } catch (err) {
+          console.error('Failed to delete cloud photo', photo.storagePath, err);
+          storageDeleteFailed = true;
+        }
+      }
+    }
+    
+    if (storageDeleteFailed) {
+      alert(t('common.partialDeleteError') || 'Some photos could not be deleted from the cloud.');
+      return;
+    }
+
     // Delete local photos
     if (log.photoIds && log.photoIds.length > 0) {
       try {
@@ -399,18 +432,12 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
       }
     }
     
-    // Delete cloud photos
-    if (log.photos && log.photos.length > 0) {
-      for (const photo of log.photos) {
-        try {
-          await deleteFileFromStorage(photo.storagePath);
-        } catch (err) {
-          console.warn('Failed to delete cloud photo', err);
-        }
-      }
+    try {
+      await deleteRecord('received_lessons', log.id, user);
+    } catch (err) {
+      console.error('Failed to delete lesson log record', err);
+      alert(t('common.deleteFailed') || 'Failed to delete record.');
     }
-    
-    await deleteRecord('received_lessons', log.id, user);
   };
 
   // ----------------------------------------------------

@@ -48,8 +48,17 @@ export async function deleteFileFromStorage(storagePath: string): Promise<void> 
   try {
     const storageRef = ref(storage, storagePath);
     await deleteObject(storageRef);
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Failed to delete file at ${storagePath}`, error);
-    // Ignore error if file doesn't exist to prevent app from breaking
+    
+    // Ignore error only if file doesn't exist to prevent app from breaking
+    const isObjectNotFound = error && (
+      error.code === 'storage/object-not-found' || 
+      (error.message && error.message.includes('storage/object-not-found'))
+    );
+    
+    if (!isObjectNotFound) {
+      throw error;
+    }
   }
 }

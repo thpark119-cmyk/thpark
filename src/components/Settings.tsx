@@ -36,8 +36,12 @@ export default function Settings() {
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await deleteUserAccountData(user);
-      alert(t('settings.deleteAccountSuccess'));
+      const result = await deleteUserAccountData(user);
+      if (result && result.hasStorageFailures) {
+        alert(t('settings.deleteAccountPartialSuccess'));
+      } else {
+        alert(t('settings.deleteAccountSuccess'));
+      }
       window.location.reload();
     } catch (e: any) {
       console.error(e);

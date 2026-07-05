@@ -226,17 +226,22 @@ export default function Repertoire() {
       await updateRecord('repertoire', editingItem.id, record, user);
 
       // Perform actual storage deletion only after Firestore update succeeds
+      let deleteFailed = false;
       for (const delFile of pendingDeletes) {
         try {
-          console.log('[Mio delete debug]', {
+          console.log('[Mio Storage Delete]', {
             action: 'delete_score_file_after_update',
             repertoireId: editingItem.id,
             storagePath: delFile.storagePath
           });
           await deleteFileFromStorage(delFile.storagePath);
         } catch (delErr) {
-          console.warn('Failed to delete file from storage during update finalization:', delFile.storagePath, delErr);
+          console.error('Failed to delete file from storage during update finalization:', delFile.storagePath, delErr);
+          deleteFailed = true;
         }
+      }
+      if (deleteFailed) {
+        alert(t('common.partialDeleteError') || 'Some files could not be deleted from the cloud.');
       }
 
       pendingFiles.forEach(f => {
@@ -270,14 +275,14 @@ export default function Repertoire() {
     if (itemToDelete?.files && itemToDelete.files.length > 0) {
       for (const file of itemToDelete.files) {
         try {
-          console.log('[Mio delete debug]', {
+          console.log('[Mio Storage Delete]', {
             action: 'delete_repertoire_record_file',
             recordId: id,
             storagePath: file.storagePath,
           });
           await deleteFileFromStorage(file.storagePath);
         } catch (e: any) {
-          console.warn('Failed to delete file from storage', e);
+          console.error('Failed to delete file from storage', file.storagePath, e);
           storageDeleteFailed = true;
         }
       }
@@ -286,9 +291,14 @@ export default function Repertoire() {
     // Legacy file delete
     if (itemToDelete?.storagePath) {
        try {
+          console.log('[Mio Storage Delete]', {
+            action: 'delete_repertoire_record_legacy_file',
+            recordId: id,
+            storagePath: itemToDelete.storagePath,
+          });
           await deleteFileFromStorage(itemToDelete.storagePath);
        } catch (e: any) {
-          console.warn('Failed to delete legacy file from storage', e);
+          console.error('Failed to delete legacy file from storage', itemToDelete.storagePath, e);
           storageDeleteFailed = true;
        }
     }

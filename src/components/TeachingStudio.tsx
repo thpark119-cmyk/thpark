@@ -99,13 +99,54 @@ export default function TeachingStudio() {
   const handleDeleteStudent = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm(t('students.confirmDeleteStudent') || 'Delete this student?')) return;
-    await deleteRecord('students', id, user);
+    
+    const studentToDelete = students.find(s => s.id === id);
+    if (!studentToDelete) return;
+
+    // 1. Collect and delete cloud photos from Firebase Storage
+    let storageDeleteFailed = false;
+    if (user && studentToDelete.lessons && studentToDelete.lessons.length > 0) {
+      for (const lesson of studentToDelete.lessons) {
+        if (lesson.photos && lesson.photos.length > 0) {
+          for (const photo of lesson.photos) {
+            try {
+              console.log('[Mio Storage Delete]', {
+                action: 'delete_student_photo_with_student',
+                studentId: id,
+                lessonId: lesson.id,
+                photoId: photo.id,
+                storagePath: photo.storagePath,
+              });
+              await deleteFileFromStorage(photo.storagePath);
+            } catch (err) {
+              console.error('Failed to delete cloud photo during student deletion', photo.storagePath, err);
+              storageDeleteFailed = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (storageDeleteFailed) {
+      alert(t('common.partialDeleteError') || 'Some photos could not be deleted from the cloud.');
+      return;
+    }
+
+    // 2. Delete IndexedDB local photos
     try {
       await deleteAllPhotosForStudent(id);
     } catch (e) {
       console.warn('Failed to delete student photos from local storage', e);
     }
-    if (activeStudent?.id === id) setActiveStudent(null);
+
+    // 3. Delete Firestore student record
+    try {
+      await deleteRecord('students', id, user);
+      if (activeStudent?.id === id) setActiveStudent(null);
+    } catch (err) {
+      console.error('Failed to delete student record', err);
+      alert(t('common.deleteFailed') || 'Failed to delete record.');
+    }
   };
 
   const handleCancel = () => {
@@ -328,12 +369,18 @@ export default function TeachingStudio() {
       await updateRecord('students', activeStudent.id, { lessons }, user);
 
       // 4. Commit actual deletions
+      let deleteFailed = false;
       for (const del of pendingDeletes) {
         if (del.source === 'firebase-storage' && del.storagePath) {
           try {
+            console.log('[Mio Storage Delete]', {
+              action: 'delete_student_photo_on_commit',
+              storagePath: del.storagePath,
+            });
             await deleteFileFromStorage(del.storagePath);
           } catch (err) {
-            console.warn('Failed to delete cloud photo on commit', del.storagePath, err);
+            console.error('Failed to delete cloud photo on commit', del.storagePath, err);
+            deleteFailed = true;
           }
         } else if (del.source === 'indexeddb') {
           try {
@@ -342,6 +389,9 @@ export default function TeachingStudio() {
             console.warn('Failed to delete local photo on commit', del.id, err);
           }
         }
+      }
+      if (deleteFailed) {
+        alert(t('common.partialDeleteError') || 'Some photos could not be deleted from the cloud.');
       }
 
       // Cleanup preview URLs
@@ -391,18 +441,12 @@ export default function TeachingStudio() {
     if (!activeStudent || !window.confirm(t('students.confirmDeleteLesson') || 'Delete this lesson record?')) return;
     const lessonToDelete = activeStudent.lessons?.find(l => l.id === lessonId);
     
-    if (lessonToDelete?.photoIds && lessonToDelete.photoIds.length > 0) {
-      try {
-        await deleteLessonPhotos(lessonToDelete.photoIds);
-      } catch (err) {
-        console.warn('Failed to delete photos for lesson', err);
-      }
-    }
+    let storageDeleteFailed = false;
 
     if (lessonToDelete?.photos && lessonToDelete.photos.length > 0) {
       for (const photo of lessonToDelete.photos) {
         try {
-          console.log('[Mio delete debug]', {
+          console.log('[Mio Storage Delete]', {
             action: 'delete_student_photo_with_lesson',
             collection: 'students',
             lessonId: lessonToDelete.id,
@@ -411,13 +455,32 @@ export default function TeachingStudio() {
           });
           await deleteFileFromStorage(photo.storagePath);
         } catch (err) {
-          console.warn('Failed to delete cloud photo for lesson', err);
+          console.error('Failed to delete cloud photo for lesson', photo.storagePath, err);
+          storageDeleteFailed = true;
         }
       }
     }
 
+    if (storageDeleteFailed) {
+      alert(t('common.partialDeleteError') || 'Some photos could not be deleted from the cloud.');
+      return;
+    }
+
+    if (lessonToDelete?.photoIds && lessonToDelete.photoIds.length > 0) {
+      try {
+        await deleteLessonPhotos(lessonToDelete.photoIds);
+      } catch (err) {
+        console.warn('Failed to delete photos for lesson', err);
+      }
+    }
+
     const lessons = (activeStudent.lessons || []).filter(l => l.id !== lessonId);
-    await updateRecord('students', activeStudent.id, { lessons }, user);
+    try {
+      await updateRecord('students', activeStudent.id, { lessons }, user);
+    } catch (err) {
+      console.error('Failed to update student lessons record', err);
+      alert(t('common.deleteFailed') || 'Failed to delete record.');
+    }
   };
 
   const mapLevel = (levelInput: string) => {

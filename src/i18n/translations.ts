@@ -44,6 +44,7 @@ export const translations = {
       deleteAccountWarning: '계정을 삭제하면 Firebase에 저장된 레슨일지, 학생관리, 악보함 기록이 삭제될 수 있습니다.\n이 작업은 되돌릴 수 없습니다.\n학생관리 사진처럼 현재 기기에만 저장된 데이터도 함께 정리됩니다.\n계속하려면 아래 확인란을 체크해주세요.',
       deleteAccountConfirm: '위 내용을 확인했으며 계정을 삭제합니다.',
       deleteAccountSuccess: '계정 삭제가 완료되었습니다.',
+      deleteAccountPartialSuccess: '계정 삭제가 완료되었으나, 일부 클라우드 파일을 삭제하지 못했습니다.',
       requiresRecentLogin: '보안을 위해 다시 로그인한 후 계정 삭제를 시도해주세요.',
       clearLocalData: '이 기기의 로컬 데이터 삭제',
       clearLocalDataWarning: '이 기기에 저장된 학생관리 사진 및 로컬 데이터를 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.',
@@ -80,6 +81,7 @@ export const translations = {
       saveError: '저장에 실패했습니다. 네트워크 연결을 확인한 뒤 다시 시도해주세요.',
       photoError: '사진 업로드 중 문제가 발생했습니다. 다시 시도해주세요.',
       partialDeleteError: '일부 사진을 삭제하지 못했습니다. 네트워크 연결을 확인해주세요.',
+      deletePhotoFailed: '사진 삭제에 실패했습니다. 네트워크 연결을 확인해주세요.',
       unuploadedNotice: '저장하지 않은 사진은 서버에 업로드되지 않았습니다.'
     },
     error: {
@@ -646,6 +648,7 @@ export const translations = {
       deleteAccountWarning: 'Deleting your account may remove your lesson logs, student records, and repertoire data saved in Firebase.\nThis action cannot be undone.\nData stored only on this device, such as student photos, will also be cleared.\nPlease check the box below to continue.',
       deleteAccountConfirm: 'I understand and wish to delete my account.',
       deleteAccountSuccess: 'Your account has been deleted.',
+      deleteAccountPartialSuccess: 'Account deleted, but some cloud files could not be deleted.',
       requiresRecentLogin: 'For security, please sign in again before deleting your account.',
       clearLocalData: 'Clear Local Data on This Device',
       clearLocalDataWarning: 'Are you sure you want to clear all student photos and local data stored on this device?\nThis action cannot be undone.',
@@ -693,6 +696,7 @@ export const translations = {
       saveError: 'Failed to save. Please check your network connection and try again.',
       photoError: 'There was a problem uploading photos. Please try again.',
       partialDeleteError: 'Failed to delete some photos. Please check your network connection.',
+      deletePhotoFailed: 'Failed to delete photo. Please check your network connection.',
       unuploadedNotice: 'Unsaved photos were not uploaded to the server.'
     },
     error: {
@@ -1256,6 +1260,7 @@ export const translations = {
       deleteAccountWarning: 'Wenn du dein Konto löschst, können deine in Firebase gespeicherten Unterrichtsnotizen, Schülerdaten und Repertoire-Daten gelöscht werden.\nDiese Aktion kann nicht rückgängig gemacht werden.\nNur auf diesem Gerät gespeicherte Daten, wie Schülerfotos, werden ebenfalls gelöscht.\nBitte aktiviere das Kontrollkästchen, um fortzufahren.',
       deleteAccountConfirm: 'Ich verstehe und möchte mein Konto löschen.',
       deleteAccountSuccess: 'Dein Konto wurde gelöscht.',
+      deleteAccountPartialSuccess: 'Das Konto wurde gelöscht, aber einige Cloud-Dateien konnten nicht entfernt werden.',
       requiresRecentLogin: 'Melde dich aus Sicherheitsgründen erneut an, bevor du dein Konto löschst.',
       clearLocalData: 'Lokale Daten auf diesem Gerät löschen',
       clearLocalDataWarning: 'Möchten Sie wirklich alle Schülerfotos und lokalen Daten auf diesem Gerät löschen?\nDiese Aktion kann nicht rückgängig gemacht werden.',
@@ -1303,6 +1308,7 @@ export const translations = {
       saveError: 'Fehler beim Speichern. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.',
       photoError: 'Es gab ein Problem beim Hochladen der Fotos. Bitte versuchen Sie es erneut.',
       partialDeleteError: 'Einige Fotos konnten nicht gelöscht werden. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+      deletePhotoFailed: 'Foto konnte nicht gelöscht werden. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
       unuploadedNotice: 'Nicht gespeicherte Fotos wurden nicht auf den Server hochgeladen.'
     },
     error: {
