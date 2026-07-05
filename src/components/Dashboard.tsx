@@ -27,7 +27,7 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
 
   const quickActions = [
     { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand/10 text-brand border-brand/20', icon: PlusCircle },
-    { id: 'practice', label: t('practiceLog.todayPractice') || '오늘의 연습', desc: t('dashboard.quickActionPracticeDesc') || '오늘 연습한 내용 기록', color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ClipboardList },
+    { id: 'practice', label: t('practiceLog.todayPractice') || '오늘의 연습', desc: t('practiceLog.dashboardShareHint') || '오늘 연습을 기록하고 공유 카드로 남겨보세요.', color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ClipboardList },
     { id: 'repertoire', label: t('dashboard.quickActionRepertoire'), desc: t('dashboard.quickActionRepertoireDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: Search },
     { id: 'studio', label: t('dashboard.quickActionStudio'), desc: t('dashboard.quickActionStudioDesc'), color: 'bg-stone-800/50 text-stone-200 border-white/5', icon: ListTodo }
   ];

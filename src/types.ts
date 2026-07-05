@@ -82,6 +82,8 @@ export interface RepertoireItem {
   uploadedAt?: number;
 }
 
+export type PracticeShareVisibility = 'private' | 'shareCard' | 'groupReady';
+
 export interface PracticeEntry {
   id: string;
   userId: string;
@@ -96,6 +98,24 @@ export interface PracticeEntry {
   nextAction?: string;
   memo?: string;
   mood?: 'good' | 'normal' | 'hard';
+  
+  // Share & Group features
+  shareVisibility?: PracticeShareVisibility;
+  publicMemo?: string;
+  shareIncludePiece?: boolean;
+  shareIncludeGoal?: boolean;
+  shareIncludeFocusArea?: boolean;
+  shareIncludeNextAction?: boolean;
+  shareIncludeMood?: boolean;
+  shareIncludeRoutine?: boolean;
+  shareIncludeTimer?: boolean;
+
+  // Track practice source
+  sourceType?: 'manual' | 'routine' | 'timer';
+  routineTitle?: string;
+  measuredByTimer?: boolean;
+
+  sharedAt?: number;
   createdAt?: number;
   updatedAt?: number;
 }

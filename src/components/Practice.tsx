@@ -50,13 +50,30 @@ export default function Practice() {
   const [nextAction, setNextAction] = useState('');
   const [memo, setMemo] = useState('');
   const [mood, setMood] = useState<'good' | 'normal' | 'hard'>('normal');
-  
+
+  // Share fields
+  const [shareVisibility, setShareVisibility] = useState<'private' | 'shareCard' | 'groupReady'>('private');
+  const [publicMemo, setPublicMemo] = useState('');
+  const [shareIncludePiece, setShareIncludePiece] = useState(true);
+  const [shareIncludeGoal, setShareIncludeGoal] = useState(true);
+  const [shareIncludeFocusArea, setShareIncludeFocusArea] = useState(true);
+  const [shareIncludeNextAction, setShareIncludeNextAction] = useState(true);
+  const [shareIncludeMood, setShareIncludeMood] = useState(true);
+  const [shareIncludeRoutine, setShareIncludeRoutine] = useState(true);
+  const [shareIncludeTimer, setShareIncludeTimer] = useState(true);
+
+  // Hidden source tracking fields
+  const [sourceType, setSourceType] = useState<'manual' | 'routine' | 'timer'>('manual');
+  const [routineTitle, setRoutineTitle] = useState('');
+  const [measuredByTimer, setMeasuredByTimer] = useState(false);
+
   // UI States
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sharingEntry, setSharingEntry] = useState<PracticeEntry | null>(null);
 
   // Lock scroll when modal is open
-  useBodyScrollLock(isAdding || !!editingEntry || isAddingRoutine || !!editingRoutine);
+  useBodyScrollLock(isAdding || !!editingEntry || isAddingRoutine || !!editingRoutine || !!sharingEntry);
 
   // Subscribe to practice entries
   useEffect(() => {
@@ -99,6 +116,21 @@ export default function Practice() {
     setNextAction('');
     setMemo('');
     setMood('normal');
+    
+    // Share fields
+    setShareVisibility('private');
+    setPublicMemo('');
+    setShareIncludePiece(true);
+    setShareIncludeGoal(true);
+    setShareIncludeFocusArea(true);
+    setShareIncludeNextAction(true);
+    setShareIncludeMood(true);
+    setShareIncludeRoutine(true);
+    setShareIncludeTimer(true);
+    setSourceType('manual');
+    setRoutineTitle('');
+    setMeasuredByTimer(false);
+
     setErrorMsg('');
     setIsAdding(true);
   };
@@ -117,6 +149,21 @@ export default function Practice() {
     setNextAction(entry.nextAction || '');
     setMemo(entry.memo || '');
     setMood(entry.mood || 'normal');
+    
+    // Share fields
+    setShareVisibility(entry.shareVisibility || 'private');
+    setPublicMemo(entry.publicMemo || '');
+    setShareIncludePiece(entry.shareIncludePiece ?? true);
+    setShareIncludeGoal(entry.shareIncludeGoal ?? true);
+    setShareIncludeFocusArea(entry.shareIncludeFocusArea ?? true);
+    setShareIncludeNextAction(entry.shareIncludeNextAction ?? true);
+    setShareIncludeMood(entry.shareIncludeMood ?? true);
+    setShareIncludeRoutine(entry.shareIncludeRoutine ?? true);
+    setShareIncludeTimer(entry.shareIncludeTimer ?? true);
+    setSourceType(entry.sourceType || 'manual');
+    setRoutineTitle(entry.routineTitle || '');
+    setMeasuredByTimer(entry.measuredByTimer || false);
+
     setErrorMsg('');
   };
 
@@ -156,6 +203,23 @@ export default function Practice() {
         nextAction: nextAction.trim() || undefined,
         memo: memo.trim() || undefined,
         mood,
+        
+        // Share & Group features
+        shareVisibility,
+        publicMemo: publicMemo.trim() || undefined,
+        shareIncludePiece,
+        shareIncludeGoal,
+        shareIncludeFocusArea,
+        shareIncludeNextAction,
+        shareIncludeMood,
+        shareIncludeRoutine,
+        shareIncludeTimer,
+        
+        // Source tracking
+        sourceType,
+        routineTitle: routineTitle.trim() || undefined,
+        measuredByTimer,
+        
         createdAt: editingEntry?.createdAt || Date.now(),
         updatedAt: Date.now()
       };
@@ -215,6 +279,21 @@ export default function Practice() {
     setProblem('');
     setNextAction('');
     setMood('normal');
+    
+    // Share & tracking defaults
+    setShareVisibility('private');
+    setPublicMemo('');
+    setShareIncludePiece(true);
+    setShareIncludeGoal(true);
+    setShareIncludeFocusArea(true);
+    setShareIncludeNextAction(true);
+    setShareIncludeMood(true);
+    setShareIncludeRoutine(true);
+    setShareIncludeTimer(true);
+    setSourceType('routine');
+    setRoutineTitle(routine.title);
+    setMeasuredByTimer(false);
+
     setErrorMsg('');
     setIsAdding(true);
   };
@@ -298,6 +377,20 @@ export default function Practice() {
     setMemo('');
     setMood('normal');
     
+    // Share & tracking defaults for timer
+    setShareVisibility('private');
+    setPublicMemo('');
+    setShareIncludePiece(true);
+    setShareIncludeGoal(true);
+    setShareIncludeFocusArea(true);
+    setShareIncludeNextAction(true);
+    setShareIncludeMood(true);
+    setShareIncludeRoutine(true);
+    setShareIncludeTimer(true);
+    setSourceType('timer');
+    setRoutineTitle(session?.routineTitle || '');
+    setMeasuredByTimer(true);
+    
     timer.clearSession();
     setIsAdding(true);
   };
@@ -305,6 +398,84 @@ export default function Practice() {
   const handleCancelTimer = () => {
     if (window.confirm(t('practiceLog.exitWithoutSaving') || '저장하지 않고 종료할까요?')) {
       timer.clearSession();
+    }
+  };
+
+  // --- Sharing Logic ---
+  const generateShareText = (entry: PracticeEntry) => {
+    const lines = [];
+    lines.push(`🎻 ${t('app.name')} - ${t('practiceLog.todaysPractice') || '오늘의 연습'}`);
+    lines.push('');
+    lines.push(`${t('practiceLog.date')}: ${entry.date}`);
+    lines.push(`${t('practiceLog.totalPracticeTime') || '총 연습 시간'}: ${formatDuration(entry.practiceTime)}`);
+    
+    if (entry.shareIncludeTimer !== false && entry.measuredByTimer) {
+      lines.push(`${t('practiceLog.measureMethod') || '측정 방식'}: ${t('practiceLog.focusPracticeTimer') || '집중 연습 타이머'}`);
+    }
+    if (entry.shareIncludePiece !== false && entry.pieceTitle) {
+      lines.push(`${t('practiceLog.pieceTitle')}: ${entry.pieceTitle}${entry.composer ? ` (${entry.composer})` : ''}`);
+    }
+    if (entry.shareIncludeRoutine !== false && entry.routineTitle) {
+      lines.push(`${t('practiceLog.routineName')}: ${entry.routineTitle}`);
+    }
+    if (entry.shareIncludeGoal !== false && entry.goal) {
+      lines.push(`${t('practiceLog.goal')}: ${entry.goal}`);
+    }
+    if (entry.shareIncludeFocusArea !== false && entry.focusArea) {
+      lines.push(`${t('practiceLog.focusArea')}: ${entry.focusArea}`);
+    }
+    if (entry.shareIncludeNextAction !== false && entry.nextAction) {
+      lines.push(`${t('practiceLog.nextAction')}: ${entry.nextAction}`);
+    }
+    if (entry.shareIncludeMood !== false && entry.mood) {
+      const moodStr = entry.mood === 'good' ? t('practiceLog.moodGood') : entry.mood === 'hard' ? t('practiceLog.moodHard') : t('practiceLog.moodNormal');
+      lines.push(`${t('practiceLog.mood')}: ${moodStr}`);
+    }
+    if (entry.publicMemo) {
+      lines.push(`${t('practiceLog.publicMemo') || '공개 메모'}: ${entry.publicMemo}`);
+    }
+    return lines.join('\n');
+  };
+
+  const handleShare = async (entry: PracticeEntry) => {
+    const text = generateShareText(entry);
+    const title = `${t('app.name')} - ${t('practiceLog.todaysPractice') || '오늘의 연습'}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title,
+          text
+        });
+        return;
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Error sharing:', err);
+          // Fallback to copy
+        } else {
+          return; // User cancelled
+        }
+      }
+    }
+    
+    // Fallback to clipboard
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(t('practiceLog.copySuccess') || '복사되었습니다.');
+    } catch (err) {
+      console.error('Error copying text:', err);
+      alert(t('practiceLog.copyFail') || '복사에 실패했습니다.');
+    }
+  };
+
+  const handleCopyText = async (entry: PracticeEntry) => {
+    const text = generateShareText(entry);
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(t('practiceLog.copySuccess') || '복사되었습니다.');
+    } catch (err) {
+      console.error('Error copying text:', err);
+      alert(t('practiceLog.copyFail') || '복사에 실패했습니다.');
     }
   };
 
@@ -793,9 +964,25 @@ export default function Practice() {
                   )}
                 </div>
 
-                <div className="flex justify-end mt-4 pt-3 border-t border-white/[0.02] text-[10px] text-stone-600 group-hover:text-stone-400 font-medium transition-colors items-center gap-1">
-                  <span>{t('common.edit')}</span>
-                  <ChevronRight size={10} />
+                <div className="flex justify-between mt-4 pt-3 border-t border-white/[0.02] items-center">
+                  <div className="flex items-center">
+                    {(entry.shareVisibility === 'shareCard' || entry.shareVisibility === 'groupReady') && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSharingEntry(entry);
+                        }}
+                        className="px-3 py-1.5 bg-brand/10 hover:bg-brand/20 text-brand rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                      >
+                        <Activity size={12} />
+                        <span>{t('practiceLog.share') || '공유'}</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-stone-600 group-hover:text-stone-400 font-medium transition-colors">
+                    <span>{t('common.edit')}</span>
+                    <ChevronRight size={10} />
+                  </div>
                 </div>
               </motion.div>
             ))}
@@ -1066,6 +1253,104 @@ export default function Practice() {
                     className="w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all resize-none font-sans"
                   />
                 </div>
+
+                {/* Share Settings */}
+                <div className="space-y-4 pt-4 border-t border-white/[0.05]">
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
+                      {t('practiceLog.shareSettings') || '공유 설정'}
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShareVisibility('private')}
+                        className={`p-3 rounded-2xl border transition-all text-left flex flex-col gap-1 ${
+                          shareVisibility === 'private'
+                            ? 'bg-brand/10 border-brand/40 text-brand'
+                            : 'bg-stone-900 border-white/5 text-stone-500 hover:text-stone-300'
+                        }`}
+                      >
+                        <span className="font-bold text-xs">{t('practiceLog.visibilityPrivate') || '비공개'}</span>
+                        <span className="text-[10px] opacity-80 leading-tight font-sans">{t('practiceLog.visibilityDescPrivate') || '나만 보는 기록입니다.'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShareVisibility('shareCard')}
+                        className={`p-3 rounded-2xl border transition-all text-left flex flex-col gap-1 ${
+                          shareVisibility === 'shareCard'
+                            ? 'bg-brand/10 border-brand/40 text-brand'
+                            : 'bg-stone-900 border-white/5 text-stone-500 hover:text-stone-300'
+                        }`}
+                      >
+                        <span className="font-bold text-xs">{t('practiceLog.visibilityShareCard') || '공유 카드'}</span>
+                        <span className="text-[10px] opacity-80 leading-tight font-sans">{t('practiceLog.visibilityDescShareCard') || '이 기록을 공유용 요약 카드로 만들 수 있습니다.'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShareVisibility('groupReady')}
+                        className={`p-3 rounded-2xl border transition-all text-left flex flex-col gap-1 ${
+                          shareVisibility === 'groupReady'
+                            ? 'bg-brand/10 border-brand/40 text-brand'
+                            : 'bg-stone-900 border-white/5 text-stone-500 hover:text-stone-300'
+                        }`}
+                      >
+                        <span className="font-bold text-xs">{t('practiceLog.visibilityGroupReady') || '그룹 공유 준비'}</span>
+                        <span className="text-[10px] opacity-80 leading-tight font-sans">{t('practiceLog.visibilityDescGroupReady') || '나중에 연습방 기능이 추가되면 그룹에 공유할 수 있도록 준비합니다.'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {shareVisibility !== 'private' && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }} 
+                      animate={{ opacity: 1, height: 'auto' }} 
+                      className="space-y-4 bg-stone-900/50 p-4 rounded-3xl border border-white/5"
+                    >
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
+                          {t('practiceLog.publicMemo') || '공개 메모'} (선택)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={publicMemo}
+                          onChange={(e) => setPublicMemo(e.target.value)}
+                          placeholder="공유 카드에 노출될 메모입니다. 개인 메모와 분리해서 작성하세요."
+                          className="w-full bg-stone-950 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all resize-none font-sans"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
+                          {t('practiceLog.shareItems') || '공유 항목'}
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { state: shareIncludePiece, setter: setShareIncludePiece, label: t('practiceLog.includePiece') || '곡명 포함' },
+                            { state: shareIncludeGoal, setter: setShareIncludeGoal, label: t('practiceLog.includeGoal') || '오늘 목표 포함' },
+                            { state: shareIncludeFocusArea, setter: setShareIncludeFocusArea, label: t('practiceLog.includeFocusArea') || '집중한 부분 포함' },
+                            { state: shareIncludeNextAction, setter: setShareIncludeNextAction, label: t('practiceLog.includeNextAction') || '다음에 할 것 포함' },
+                            { state: shareIncludeMood, setter: setShareIncludeMood, label: t('practiceLog.includeMood') || '컨디션 포함' },
+                            { state: shareIncludeRoutine, setter: setShareIncludeRoutine, label: t('practiceLog.includeRoutine') || '루틴 이름 포함' },
+                            { state: shareIncludeTimer, setter: setShareIncludeTimer, label: t('practiceLog.includeTimer') || '타이머 측정 표시 포함' },
+                          ].map((item, idx) => (
+                            <label key={idx} className="flex items-center gap-1.5 bg-stone-950 px-3 py-2 rounded-lg border border-white/[0.03] cursor-pointer hover:bg-white/[0.02]">
+                              <input
+                                type="checkbox"
+                                checked={item.state}
+                                onChange={(e) => item.setter(e.target.checked)}
+                                className="accent-brand"
+                              />
+                              <span className="text-[10px] text-stone-400 font-bold">{item.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-stone-600 font-sans mt-2">
+                          * {t('practiceLog.shareNotice') || '공유 카드에는 선택한 항목만 표시됩니다. 개인 메모는 포함되지 않습니다.'}
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
               </form>
 
               {/* Modal Footer */}
@@ -1121,6 +1406,72 @@ export default function Practice() {
         user={user}
         editingRoutine={editingRoutine}
       />
+
+      {/* Share Preview Modal */}
+      <AnimatePresence>
+        {sharingEntry && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSharingEntry(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#12100E] border border-white/[0.08] w-full max-w-sm rounded-[32px] overflow-hidden shadow-2xl relative z-10 flex flex-col"
+            >
+              <div className="flex justify-between items-center p-6 border-b border-white/[0.05] shrink-0">
+                <h3 className="text-lg font-bold text-white tracking-tight font-sans">
+                  {t('practiceLog.sharePreview') || '공유 미리보기'}
+                </h3>
+                <button
+                  onClick={() => setSharingEntry(null)}
+                  className="p-1.5 rounded-xl hover:bg-white/5 text-stone-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              
+              <div className="p-6 bg-stone-900 overflow-y-auto max-h-[60vh] custom-scrollbar">
+                <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-stone-300 border border-white/5 p-4 rounded-2xl bg-stone-950/50">
+                  {generateShareText(sharingEntry)}
+                </pre>
+                
+                <p className="text-[10px] text-stone-500 mt-4 leading-tight">
+                  {t('practiceLog.shareNotice') || '공유 카드에는 선택한 항목만 표시됩니다. 개인 메모는 포함되지 않습니다.'}
+                </p>
+              </div>
+              
+              <div className="p-6 border-t border-white/[0.05] flex flex-col gap-3 shrink-0">
+                <button
+                  onClick={() => {
+                    handleShare(sharingEntry);
+                    setSharingEntry(null);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-brand text-stone-950 font-bold rounded-2xl hover:bg-brand-light transition-all active:scale-95"
+                >
+                  <Activity size={16} strokeWidth={2.5} />
+                  <span>{t('practiceLog.doShare') || '공유하기'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleCopyText(sharingEntry);
+                    setSharingEntry(null);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white/[0.05] text-stone-300 font-bold rounded-2xl hover:bg-white/[0.08] transition-all active:scale-95 border border-white/[0.02]"
+                >
+                  <span>{t('practiceLog.copyText') || '텍스트 복사'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
