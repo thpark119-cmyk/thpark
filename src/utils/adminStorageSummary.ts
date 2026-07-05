@@ -1,6 +1,7 @@
 import { collection, collectionGroup, doc, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { isAdminUser } from './admin';
+import { fetchMetadataCache } from './adminMetadataBackfill';
 
 export type AdminUserStorageSummary = {
   uid: string;
@@ -135,6 +136,29 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
     }
   }
 
+  // Load metadata cache
+  const cacheMap = new Map<string, number>();
+  try {
+    const cacheEntries = await fetchMetadataCache();
+    cacheEntries.forEach(entry => {
+      if (entry.storagePath && typeof entry.size === 'number') {
+        cacheMap.set(entry.storagePath, entry.size);
+      }
+    });
+  } catch (err) {
+    console.warn('Failed to load adminMetadataCache during storage calculation:', err);
+  }
+
+  const getEffectiveSize = (storagePath: string, docSize: any): number => {
+    if (typeof docSize === 'number' && docSize > 0) {
+      return docSize;
+    }
+    if (storagePath && cacheMap.has(storagePath)) {
+      return cacheMap.get(storagePath) || 0;
+    }
+    return 0;
+  };
+
   const userSummaries: AdminUserStorageSummary[] = [];
 
   // 5. Query subcollections of each user to compute storage summary
@@ -151,6 +175,8 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
       total: { count: 0, totalBytes: 0 }
     };
 
+    const seenPaths = new Set<string>();
+
     // Calculate Student Photos
     try {
       const studentsRef = collection(db, `users/${uid}/students`);
@@ -162,8 +188,10 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
             if (lesson.photos && Array.isArray(lesson.photos)) {
               lesson.photos.forEach((photo: any) => {
                 if (photo.storagePath) {
+                  if (seenPaths.has(photo.storagePath)) return;
+                  seenPaths.add(photo.storagePath);
                   userSummary.studentPhotos.count += 1;
-                  userSummary.studentPhotos.totalBytes += (photo.size || 0);
+                  userSummary.studentPhotos.totalBytes += getEffectiveSize(photo.storagePath, photo.size);
                 }
               });
             }
@@ -183,8 +211,10 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
         if (data.photos && Array.isArray(data.photos)) {
           data.photos.forEach((photo: any) => {
             if (photo.storagePath) {
+              if (seenPaths.has(photo.storagePath)) return;
+              seenPaths.add(photo.storagePath);
               userSummary.lessonJournalPhotos.count += 1;
-              userSummary.lessonJournalPhotos.totalBytes += (photo.size || 0);
+              userSummary.lessonJournalPhotos.totalBytes += getEffectiveSize(photo.storagePath, photo.size);
             }
           });
         }
@@ -202,15 +232,19 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
         if (data.files && Array.isArray(data.files)) {
           data.files.forEach((file: any) => {
             if (file.storagePath) {
+              if (seenPaths.has(file.storagePath)) return;
+              seenPaths.add(file.storagePath);
               userSummary.repertoireFiles.count += 1;
-              userSummary.repertoireFiles.totalBytes += (file.size || 0);
+              userSummary.repertoireFiles.totalBytes += getEffectiveSize(file.storagePath, file.size);
             }
           });
         }
         // Legacy file in item
         if (data.storagePath) {
+          if (seenPaths.has(data.storagePath)) return;
+          seenPaths.add(data.storagePath);
           userSummary.repertoireFiles.count += 1;
-          userSummary.repertoireFiles.totalBytes += (data.fileSize || 0);
+          userSummary.repertoireFiles.totalBytes += getEffectiveSize(data.storagePath, data.fileSize);
         }
       });
     } catch (e) {

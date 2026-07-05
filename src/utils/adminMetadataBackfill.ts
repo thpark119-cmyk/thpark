@@ -1,6 +1,18 @@
-import { collection, collectionGroup, getDocs } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, doc, setDoc } from 'firebase/firestore';
 import { ref, getMetadata } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
+
+export type AdminMetadataCacheEntry = {
+  storagePath: string;
+  uid: string;
+  category: 'studentPhoto' | 'lessonJournalPhoto' | 'repertoireFile';
+  sourceDocPath: string;
+  size: number;
+  contentType?: string;
+  updatedAt?: string;
+  scannedAt: string;
+  createdAt: string;
+};
 
 export type BackfillScanCandidate = {
   id: string;
@@ -216,5 +228,75 @@ export async function checkStorageMetadata(candidate: BackfillScanCandidate): Pr
         errorCode: errorCode || err?.message || 'unknown-error'
       };
     }
+  }
+}
+
+// 스캔 결과(성공 항목)를 adminMetadataCache 컬렉션에 저장하는 함수
+export async function saveMetadataCacheEntries(results: BackfillScanResult[]): Promise<{ savedCount: number; failedCount: number }> {
+  if (!db) {
+    throw new Error('Database is not initialized.');
+  }
+
+  let savedCount = 0;
+  let failedCount = 0;
+
+  // 성공('metadata-found')한 항목만 선별
+  const successfulResults = results.filter(r => r.status === 'metadata-found' && typeof r.storageSize === 'number');
+
+  for (const res of successfulResults) {
+    try {
+      const cand = res.candidate;
+      // '/' 문자를 '_'로 치환하여 안전한 doc ID 생성
+      const safeId = cand.storagePath.replace(/\//g, '_');
+      const cacheRef = doc(db, 'adminMetadataCache', safeId);
+
+      const entry: AdminMetadataCacheEntry = {
+        storagePath: cand.storagePath,
+        uid: cand.uid,
+        category: cand.category,
+        sourceDocPath: cand.sourceDocPath,
+        size: res.storageSize || 0,
+        contentType: res.storageContentType || '',
+        updatedAt: res.storageUpdatedAt || '',
+        scannedAt: new Date().toLocaleString(),
+        createdAt: new Date().toLocaleString()
+      };
+
+      // merge 옵션으로 기존 기록 덮어쓰기/업서트
+      await setDoc(cacheRef, entry, { merge: true });
+      savedCount++;
+    } catch (err) {
+      console.error('Failed to save metadata cache entry:', err);
+      failedCount++;
+    }
+  }
+
+  return { savedCount, failedCount };
+}
+
+// 모든 캐시 엔트리를 조회하는 함수
+export async function fetchMetadataCache(): Promise<AdminMetadataCacheEntry[]> {
+  if (!db) return [];
+  try {
+    const snap = await getDocs(collection(db, 'adminMetadataCache'));
+    const entries: AdminMetadataCacheEntry[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      entries.push({
+        storagePath: data.storagePath,
+        uid: data.uid,
+        category: data.category,
+        sourceDocPath: data.sourceDocPath,
+        size: data.size,
+        contentType: data.contentType,
+        updatedAt: data.updatedAt,
+        scannedAt: data.scannedAt,
+        createdAt: data.createdAt
+      });
+    });
+    return entries;
+  } catch (err) {
+    console.warn('Failed to fetch adminMetadataCache:', err);
+    return [];
   }
 }

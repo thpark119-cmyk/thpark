@@ -26,8 +26,11 @@ import { isAdminUser } from '../utils/admin';
 import { 
   scanMetadataCandidates, 
   checkStorageMetadata, 
+  saveMetadataCacheEntries,
+  fetchMetadataCache,
   type BackfillScanCandidate, 
-  type BackfillScanResult 
+  type BackfillScanResult,
+  type AdminMetadataCacheEntry
 } from '../utils/adminMetadataBackfill';
 
 export default function AdminPanel() {
@@ -42,6 +45,12 @@ export default function AdminPanel() {
   const [candidates, setCandidates] = useState<BackfillScanCandidate[] | null>(null);
   const [scanResults, setScanResults] = useState<BackfillScanResult[] | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+
+  // Phase 2 Metadata Cache states
+  const [savingCache, setSavingCache] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'failed'>('idle');
+  const [cacheEntries, setCacheEntries] = useState<AdminMetadataCacheEntry[]>([]);
+  const [cacheError, setCacheError] = useState<string | null>(null);
 
   const isAdmin = isAdminUser(user);
 
@@ -91,6 +100,38 @@ export default function AdminPanel() {
     }
   };
 
+  const loadCacheEntries = async () => {
+    try {
+      const entries = await fetchMetadataCache();
+      setCacheEntries(entries);
+    } catch (err: any) {
+      console.warn('Failed to load cache entries:', err);
+      setCacheError(err?.message || 'Cache loading error');
+    }
+  };
+
+  const handleSaveCorrigibleFiles = async () => {
+    if (!scanResults || scanResults.length === 0) return;
+    setSavingCache(true);
+    setSaveStatus('saving');
+    try {
+      const { savedCount, failedCount } = await saveMetadataCacheEntries(scanResults);
+      if (savedCount > 0) {
+        setSaveStatus('success');
+        // Refresh cache entries & re-calculate storage totals with cache applied
+        await loadCacheEntries();
+        await calculateStorage();
+      } else {
+        setSaveStatus('failed');
+      }
+    } catch (err: any) {
+      console.error('Save cache error:', err);
+      setSaveStatus('failed');
+    } finally {
+      setSavingCache(false);
+    }
+  };
+
   const calculateStorage = async () => {
     if (!user) return;
     setCalculating(true);
@@ -109,6 +150,7 @@ export default function AdminPanel() {
   useEffect(() => {
     if (user && isAdmin) {
       calculateStorage();
+      loadCacheEntries();
     }
   }, [user, isAdmin]);
 
@@ -350,6 +392,39 @@ export default function AdminPanel() {
               </div>
             </div>
 
+            {/* Current Cache Status Grid */}
+            <div className="bg-stone-950/20 border border-white/5 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Database size={16} className="text-emerald-400" />
+                <p className="text-xs font-bold text-stone-300 uppercase tracking-wider">현재 관리자 보정 캐시 현황 (Firestore Cache)</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-stone-900/40 p-4 rounded-xl border border-white/5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-stone-500 font-semibold">{t('admin.backfillCachedCount')}</p>
+                    <p className="text-lg font-black text-white mt-1">{cacheEntries.length} {t('admin.fileUnit')}</p>
+                  </div>
+                  <div className="w-10 h-10 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center">
+                    <CheckCircle2 size={18} />
+                  </div>
+                </div>
+                <div className="bg-stone-900/40 p-4 rounded-xl border border-white/5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-stone-500 font-semibold">{t('admin.backfillCachedBytes')}</p>
+                    <p className="text-lg font-black text-white mt-1">
+                      {formatBytes(cacheEntries.reduce((sum, entry) => sum + (entry.size || 0), 0))}
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center">
+                    <HardDrive size={18} />
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-stone-500 leading-relaxed italic">
+                * {t('admin.backfillNoticeSummary')}
+              </p>
+            </div>
+
             {/* Scan Error */}
             {scanError && (
               <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 flex gap-2">
@@ -424,6 +499,60 @@ export default function AdminPanel() {
                     </div>
                   </div>
                 </div>
+
+                {/* Save Corrigible Action Banner */}
+                {scanResults.some(r => r.status === 'metadata-found') && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-2xl space-y-4">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 size={20} className="text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-bold text-sm text-emerald-200">보정 실행 준비 완료</h4>
+                        <p className="text-xs text-emerald-400/90 mt-1">
+                          스캔 결과 중 실제 파일 정보가 확보된 <span className="font-bold underline">{scanResults.filter(r => r.status === 'metadata-found').length}개</span>의 파일 크기와 콘텐츠 타입을 관리자 cache에 저장할 수 있습니다.
+                        </p>
+                        <div className="mt-3 flex flex-col gap-1.5 text-[10px] text-stone-400">
+                          <p>• {t('admin.backfillNoticeNoPermission')}</p>
+                          <p>• {t('admin.backfillNoticeNotFound')}</p>
+                          <p>• {t('admin.backfillNoticeNoUserDocEdit')}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                      <button
+                        onClick={handleSaveCorrigibleFiles}
+                        disabled={savingCache || saveStatus === 'saving'}
+                        className="w-full sm:w-auto px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-950/40 text-stone-950 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed shrink-0"
+                      >
+                        {savingCache ? (
+                          <RefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={14} />
+                        )}
+                        <span>
+                          {saveStatus === 'saving'
+                            ? t('admin.backfillSaving')
+                            : saveStatus === 'success'
+                            ? t('admin.backfillSaveSuccess')
+                            : saveStatus === 'failed'
+                            ? t('admin.backfillSaveFailed')
+                            : t('admin.backfillSaveBtn')}
+                        </span>
+                      </button>
+
+                      {saveStatus === 'success' && (
+                        <span className="text-xs text-emerald-400 font-medium animate-pulse">
+                          🎉 보정이 성공적으로 저장되었으며 대시보드 용량 계산에 즉시 반영되었습니다!
+                        </span>
+                      )}
+                      {saveStatus === 'failed' && (
+                        <span className="text-xs text-red-400 font-medium">
+                          ❌ 보정 저장 중 오류가 발생했습니다. Firestore Rules 규칙을 확인하십시오.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Candidate list preview */}
                 <div className="bg-stone-950/40 border border-white/5 rounded-2xl overflow-hidden max-h-72 overflow-y-auto divide-y divide-white/5">

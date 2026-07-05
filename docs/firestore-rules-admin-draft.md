@@ -71,6 +71,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // 1-B. 관리자 백필 보정 메타데이터 캐시 컬렉션
+    match /adminMetadataCache/{cacheId} {
+      allow read, write: if isAdmin();
+    }
+
     // 2. 핵심 사용자 데이터 영역 (/users)
     match /users/{userId} {
       // 본인 또는 관리자는 개별 사용자 정보 조회가 가능합니다.
