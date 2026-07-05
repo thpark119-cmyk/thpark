@@ -803,18 +803,39 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                     {form.photoIds.map((photoId) => {
                       const isDeleted = pendingDeletes.some(d => d.id === photoId);
                       return (
-                        <div key={photoId} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40 scale-95' : 'border-white/10'}`}>
-                          <LocalPhotoView photoId={photoId} className="w-full h-full object-cover" />
+                        <div key={photoId} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40 scale-95' : 'border-white/10 cursor-pointer hover:border-white/30'}`}>
+                          <LocalPhotoView 
+                            photoId={photoId} 
+                            className="w-full h-full object-cover" 
+                            onClick={() => !isDeleted && setViewingPhotoId(photoId)}
+                          />
                           {isDeleted ? (
-                            <div className="absolute inset-0 bg-red-950/40 flex flex-col items-center justify-center gap-1 p-1">
+                            <div className="absolute inset-0 bg-red-950/40 flex flex-col items-center justify-center gap-1 p-1 z-10" onClick={(e) => e.stopPropagation()}>
                               <span className="text-[10px] font-bold text-red-400 bg-red-950/80 px-1 py-0.5 rounded-md leading-none">{t('common.photoPendingDelete')}</span>
-                              <button type="button" onClick={() => handleUndoDeletePhoto(photoId)} className="text-[10px] text-stone-300 underline font-semibold hover:text-white">
+                              <button 
+                                type="button" 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleUndoDeletePhoto(photoId);
+                                }} 
+                                className="text-[10px] text-stone-300 underline font-semibold hover:text-white"
+                              >
                                 {t('common.photoUndoDelete')}
                               </button>
                             </div>
                           ) : (
-                            <button type="button" onClick={() => handleRemovePhoto(photoId)} className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X size={12} />
+                            <button 
+                              type="button" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleRemovePhoto(photoId);
+                              }} 
+                              className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                              title={t('common.delete') || 'Delete'}
+                            >
+                              <Trash2 size={14} />
                             </button>
                           )}
                         </div>
@@ -825,18 +846,39 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                     {form.photos.map((photo) => {
                       const isDeleted = pendingDeletes.some(d => d.id === photo.id);
                       return (
-                        <div key={photo.id} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40 scale-95' : 'border-white/10'}`}>
-                          <CloudPhotoView photo={photo} className="w-full h-full object-cover" />
+                        <div key={photo.id} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40 scale-95' : 'border-white/10 cursor-pointer hover:border-white/30'}`}>
+                          <CloudPhotoView 
+                            photo={photo} 
+                            className="w-full h-full object-cover" 
+                            onClick={() => !isDeleted && setViewingCloudPhoto(photo)}
+                          />
                           {isDeleted ? (
-                            <div className="absolute inset-0 bg-red-950/40 flex flex-col items-center justify-center gap-1 p-1">
+                            <div className="absolute inset-0 bg-red-950/40 flex flex-col items-center justify-center gap-1 p-1 z-10" onClick={(e) => e.stopPropagation()}>
                               <span className="text-[10px] font-bold text-red-400 bg-red-950/80 px-1 py-0.5 rounded-md leading-none">{t('common.photoPendingDelete')}</span>
-                              <button type="button" onClick={() => handleUndoDeletePhoto(photo.id)} className="text-[10px] text-stone-300 underline font-semibold hover:text-white">
+                              <button 
+                                type="button" 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleUndoDeletePhoto(photo.id);
+                                }} 
+                                className="text-[10px] text-stone-300 underline font-semibold hover:text-white"
+                              >
                                 {t('common.photoUndoDelete')}
                               </button>
                             </div>
                           ) : (
-                            <button type="button" onClick={() => handleRemoveCloudPhoto(photo)} className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X size={12} />
+                            <button 
+                              type="button" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleRemoveCloudPhoto(photo);
+                              }} 
+                              className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                              title={t('common.delete') || 'Delete'}
+                            >
+                              <Trash2 size={14} />
                             </button>
                           )}
                         </div>
@@ -845,13 +887,28 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
 
                     {/* New pending photos */}
                     {pendingPhotos.map((photo) => (
-                      <div key={photo.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-emerald-500/40 bg-stone-800 ring-2 ring-emerald-500/20">
-                        <img src={photo.previewUrl} alt={photo.fileName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <div key={photo.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-emerald-500/40 bg-stone-800 ring-2 ring-emerald-500/20 cursor-pointer">
+                        <img 
+                          src={photo.previewUrl} 
+                          alt={photo.fileName} 
+                          className="w-full h-full object-cover" 
+                          referrerPolicy="no-referrer" 
+                          onClick={() => setViewingPhotoId(photo.id)}
+                        />
                         <div className="absolute bottom-0 inset-x-0 bg-emerald-950/80 py-0.5 text-center pointer-events-none">
                           <p className="text-[8px] text-emerald-400 font-bold leading-none">{t('common.photoNewAdded')}</p>
                         </div>
-                        <button type="button" onClick={() => handleRemovePendingPhoto(photo.id)} className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                          <X size={12} />
+                        <button 
+                          type="button" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleRemovePendingPhoto(photo.id);
+                          }} 
+                          className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                          title={t('common.delete') || 'Delete'}
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     ))}

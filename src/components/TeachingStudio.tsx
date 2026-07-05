@@ -724,14 +724,22 @@ export default function TeachingStudio() {
                         {(lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id)))).map((photoId) => {
                           const isDeleted = pendingDeletes.some(d => d.id === photoId);
                           return (
-                            <div key={photoId} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10'}`}>
-                              <LocalPhotoView photoId={photoId} className="w-full h-full object-cover" />
+                            <div key={photoId} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10 cursor-pointer hover:border-white/30'}`}>
+                              <LocalPhotoView 
+                                photoId={photoId} 
+                                className="w-full h-full object-cover" 
+                                onClick={() => !isDeleted && setViewingPhotoId(photoId)}
+                              />
                               {isDeleted ? (
-                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1">
+                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1 z-10" onClick={(e) => e.stopPropagation()}>
                                   <span className="text-[9px] font-bold text-red-400 px-1 py-0.5 bg-black/60 rounded uppercase tracking-wider">{t('common.photoPendingDelete')}</span>
                                   <button
                                     type="button"
-                                    onClick={() => handleUndoDeletePhoto(photoId)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleUndoDeletePhoto(photoId);
+                                    }}
                                     className="text-[10px] font-bold text-white bg-stone-800 hover:bg-stone-700 px-1.5 py-0.5 rounded transition-colors"
                                   >
                                     {t('common.photoUndoDelete')}
@@ -740,10 +748,15 @@ export default function TeachingStudio() {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => handleRemovePhoto(photoId)}
-                                  className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    handleRemovePhoto(photoId);
+                                  }}
+                                  className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                                  title={t('common.delete') || 'Delete'}
                                 >
-                                  <X size={12} />
+                                  <Trash2 size={14} />
                                 </button>
                               )}
                             </div>
@@ -752,14 +765,22 @@ export default function TeachingStudio() {
                         {lessonForm.photos.map((photo) => {
                           const isDeleted = pendingDeletes.some(d => d.id === photo.id);
                           return (
-                            <div key={photo.id} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10'}`}>
-                              <CloudPhotoView photo={photo} className="w-full h-full object-cover" />
+                            <div key={photo.id} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10 cursor-pointer hover:border-white/30'}`}>
+                              <CloudPhotoView 
+                                photo={photo} 
+                                className="w-full h-full object-cover" 
+                                onClick={() => !isDeleted && setViewingCloudPhoto(photo)}
+                              />
                               {isDeleted ? (
-                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1">
+                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1 z-10" onClick={(e) => e.stopPropagation()}>
                                   <span className="text-[9px] font-bold text-red-400 px-1 py-0.5 bg-black/60 rounded uppercase tracking-wider">{t('common.photoPendingDelete')}</span>
                                   <button
                                     type="button"
-                                    onClick={() => handleUndoDeletePhoto(photo.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleUndoDeletePhoto(photo.id);
+                                    }}
                                     className="text-[10px] font-bold text-white bg-stone-800 hover:bg-stone-700 px-1.5 py-0.5 rounded transition-colors"
                                   >
                                     {t('common.photoUndoDelete')}
@@ -768,27 +789,42 @@ export default function TeachingStudio() {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveCloudPhoto(photo)}
-                                  className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    handleRemoveCloudPhoto(photo);
+                                  }}
+                                  className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                                  title={t('common.delete') || 'Delete'}
                                 >
-                                  <X size={12} />
+                                  <Trash2 size={14} />
                                 </button>
                               )}
                             </div>
                           );
                         })}
                         {pendingPhotos.map((pending) => (
-                          <div key={pending.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-green-500/50 bg-stone-800 transition-all animate-pulse">
-                            <img src={pending.previewUrl} alt="Pending upload preview" className="w-full h-full object-cover" />
-                            <div className="absolute bottom-1 left-1 right-1 flex justify-center">
+                          <div key={pending.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-green-500/50 bg-stone-800 transition-all animate-pulse cursor-pointer">
+                            <img 
+                              src={pending.previewUrl} 
+                              alt="Pending upload preview" 
+                              className="w-full h-full object-cover" 
+                              onClick={() => setViewingPhotoId(pending.id)}
+                            />
+                            <div className="absolute bottom-1 left-1 right-1 flex justify-center pointer-events-none">
                               <span className="text-[8px] font-bold text-green-400 px-1 py-0.5 bg-black/80 rounded uppercase tracking-wider">{t('common.photoWillBeAdded')}</span>
                             </div>
                             <button
                               type="button"
-                              onClick={() => handleRemovePendingPhoto(pending.id)}
-                              className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleRemovePendingPhoto(pending.id);
+                              }}
+                              className="absolute top-1 right-1 w-8 h-8 bg-red-600/90 active:scale-95 hover:bg-red-500 rounded-full flex items-center justify-center text-white shadow-md z-10 transition-all"
+                              title={t('common.delete') || 'Delete'}
                             >
-                              <X size={12} />
+                              <Trash2 size={14} />
                             </button>
                           </div>
                         ))}
