@@ -4,16 +4,27 @@ export function getSafeFileExtension(file: File): string {
   return nameParts.pop()?.toLowerCase() || '';
 }
 
-export function validateLessonPhotoFile(file: File): { ok: boolean; reason?: string } {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  const maxSizeBytes = 1 * 1024 * 1024; // 1MB
+export function validateLessonPhotoFile(file: File, options?: { isCompressed?: boolean }): { ok: boolean; reason?: string } {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  const maxOriginalSize = 20 * 1024 * 1024; // 20MB
+  const maxCompressedSize = 950 * 1024; // 950KB
 
-  if (!allowedTypes.includes(file.type)) {
-    return { ok: false, reason: 'Invalid file type. Only JPEG, PNG, and WebP are allowed.' };
+  const ext = getSafeFileExtension(file);
+  const isExtensionValid = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext);
+  const isMimeValid = allowedTypes.includes(file.type) || file.type.startsWith('image/');
+
+  if (!isExtensionValid && !isMimeValid) {
+    return { ok: false, reason: 'unsupportedFormat' };
   }
 
-  if (file.size > maxSizeBytes) {
-    return { ok: false, reason: 'File is too large. Maximum size is 1MB.' };
+  if (!options?.isCompressed) {
+    if (file.size > maxOriginalSize) {
+      return { ok: false, reason: 'tooLarge' };
+    }
+  } else {
+    if (file.size > maxCompressedSize) {
+      return { ok: false, reason: 'compressionFailedLimit' };
+    }
   }
 
   return { ok: true };

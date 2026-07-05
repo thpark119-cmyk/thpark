@@ -5,7 +5,7 @@ import { ReceivedLesson, LessonTeacher } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { compressImageFile } from '../utils/imageCompression';
+import { compressImageFile, compressImageForUpload } from '../utils/imageCompression';
 import { saveLessonPhoto, deleteLessonPhotos, isIndexedDBAvailable } from '../utils/localPhotoStorage';
 import LocalPhotoView from './LocalPhotoView';
 import CloudPhotoView from './CloudPhotoView';
@@ -48,6 +48,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
   });
   
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [uploadStage, setUploadStage] = useState<'idle' | 'compressing' | 'uploading' | 'success'>('idle');
   const [photoError, setPhotoError] = useState<string | null>(null);
   
   // Teacher management
@@ -225,26 +226,43 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // 1단계: 원본 파일 형식 및 20MB 이하 검증
     const validation = validateLessonPhotoFile(file);
     if (!validation.ok) {
-      setPhotoError(validation.reason || 'Invalid file');
+      if (validation.reason === 'unsupportedFormat') {
+        setPhotoError(t('common.photoUnsupportedFormat'));
+      } else if (validation.reason === 'tooLarge') {
+        setPhotoError(t('common.photoTooLarge'));
+      } else {
+        setPhotoError(validation.reason || 'Invalid file');
+      }
       return;
     }
 
     setPhotoError(null);
     setIsUploadingPhoto(true);
+    setUploadStage('compressing');
 
     try {
-      const compressedResult = await compressImageFile(file);
+      // 2단계: 자동 압축
+      const compressedResult = await compressImageForUpload(file);
       const photoId = crypto.randomUUID();
+
+      // 3단계: 압축 결과 검증 (950KB 이하)
+      const compressedFileMock = new File([compressedResult.blob], file.name, { type: compressedResult.contentType });
+      const compressedValidation = validateLessonPhotoFile(compressedFileMock, { isCompressed: true });
+      if (!compressedValidation.ok) {
+        setPhotoError(t('common.photoCompressFailed'));
+        setIsUploadingPhoto(false);
+        setUploadStage('idle');
+        return;
+      }
+
+      setUploadStage('uploading');
 
       if (user) {
         // Cloud Upload
-        const ext = getSafeFileExtension(file);
-        // We use a temporary lessonId if creating new, but for storage path we need it.
-        // If editingLog exists, use its id. If not, generate a new id for the lesson that we will use when saving.
-        // Wait, addRecord generates ID after saving. So we might not have lessonId.
-        // Let's generate an ID for the lesson preemptively or use a random one.
+        const ext = compressedResult.extension; // 'jpg' or 'webp'
         const targetLessonId = editingLog?.id || crypto.randomUUID();
         
         const storagePath = buildLessonJournalPhotoStoragePath({
@@ -261,14 +279,15 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
           contentType: compressedResult.contentType
         });
 
+        // 4단계: metadata 저장 기준 변경 (압축 결과 기준)
         const cloudPhoto: CloudLessonPhoto = {
           id: photoId,
           storagePath: uploadResult.storagePath,
           fileName: file.name,
           contentType: uploadResult.contentType,
-          size: uploadResult.size,
-          width: compressedResult.width,
-          height: compressedResult.height,
+          size: compressedResult.compressedSize, // 압축 후 용량 기준 저장
+          width: compressedResult.width,         // 압축 후 가로 기준 저장
+          height: compressedResult.height,       // 압축 후 세로 기준 저장
           createdAt: new Date().toISOString(),
           uploadedAt: new Date().toISOString(),
           source: 'firebase-storage'
@@ -281,25 +300,27 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
         
         const localPhoto = {
           id: photoId,
-          studentId: 'lesson-journal', // mock studentId for local storage indexing if needed
+          studentId: 'lesson-journal',
           lessonId: editingLog?.id,
           fileName: file.name,
           contentType: compressedResult.contentType,
-          size: compressedResult.size,
+          size: compressedResult.compressedSize, // 압축 후 용량 기준 저장
           createdAt: Date.now(),
           blob: compressedResult.blob,
-          width: compressedResult.width,
-          height: compressedResult.height
+          width: compressedResult.width,         // 압축 후 가로 기준 저장
+          height: compressedResult.height        // 압축 후 세로 기준 저장
         };
 
         await saveLessonPhoto(localPhoto);
         setForm(prev => ({ ...prev, photoIds: [...prev.photoIds, photoId] }));
       }
+      setUploadStage('success');
     } catch (err: any) {
       console.error('Failed to process photo', err);
-      setPhotoError(language === 'ko' ? '사진 업로드 실패. 네트워크를 확인해주세요.' : 'Photo upload failed. Check network.');
+      setPhotoError(t('common.photoUploadFailed'));
     } finally {
       setIsUploadingPhoto(false);
+      setUploadStage('idle');
       if (e.target) e.target.value = '';
     }
   };
@@ -611,7 +632,9 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
                   </label>
                   <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || totalPhotos >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                     {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                    {isUploadingPhoto ? t('lessons.uploadingPhoto') : t('lessons.addPhoto')}
+                    {isUploadingPhoto 
+                      ? (uploadStage === 'compressing' ? t('common.photoCompressing') : t('common.photoUploading')) 
+                      : t('lessons.addPhoto')}
                     <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || totalPhotos >= 3} />
                   </label>
                 </div>

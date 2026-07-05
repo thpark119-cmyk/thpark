@@ -62,7 +62,14 @@ export const translations = {
       loading: '데이터 불러오는 중...',
       uploading: '업로드 중...',
       new: '신규',
-      confirmDelete: '정말 삭제하시겠습니까?'
+      confirmDelete: '정말 삭제하시겠습니까?',
+      photoCompressing: '사진을 압축하는 중입니다...',
+      photoUploading: '사진을 업로드하는 중입니다...',
+      photoUploadSuccess: '사진 업로드가 완료되었습니다.',
+      photoCompressFailed: '사진 압축에 실패했습니다. 다른 사진을 선택하거나 용량을 줄인 뒤 다시 시도해주세요.',
+      photoUploadFailed: '사진 업로드에 실패했습니다. 네트워크 연결을 확인해주세요.',
+      photoTooLarge: '사진이 너무 큽니다. 20MB 이하의 사진을 선택해주세요.',
+      photoUnsupportedFormat: '이 형식의 사진은 지원되지 않습니다. JPG, PNG, WEBP, HEIC 사진을 선택해주세요.'
     },
     error: {
       loginError: '구글 로그인 연결 안내',
@@ -643,7 +650,14 @@ export const translations = {
       loading: 'Loading data...',
       uploading: 'Uploading...',
       new: 'New',
-      confirmDelete: 'Are you sure you want to delete this?'
+      confirmDelete: 'Are you sure you want to delete this?',
+      photoCompressing: 'Compressing photo...',
+      photoUploading: 'Uploading photo...',
+      photoUploadSuccess: 'Photo upload completed.',
+      photoCompressFailed: 'Photo compression failed. Please choose another photo or reduce the size and try again.',
+      photoUploadFailed: 'Photo upload failed. Please check your network connection.',
+      photoTooLarge: 'Photo is too large. Please select a photo under 20MB.',
+      photoUnsupportedFormat: 'This photo format is not supported. Please select a JPG, PNG, WEBP, or HEIC photo.'
     },
     error: {
       loginError: 'Google Login Notice',
@@ -1221,7 +1235,14 @@ export const translations = {
       loading: 'Wird geladen...',
       uploading: 'Hochladen...',
       new: 'Neu',
-      confirmDelete: 'Möchten Sie diesen Eintrag wirklich löschen?'
+      confirmDelete: 'Möchten Sie diesen Eintrag wirklich löschen?',
+      photoCompressing: 'Foto wird komprimiert...',
+      photoUploading: 'Foto wird hochgeladen...',
+      photoUploadSuccess: 'Foto-Upload abgeschlossen.',
+      photoCompressFailed: 'Fotokomprimierung fehlgeschlagen. Bitte wählen Sie ein anderes Foto oder reduzieren Sie die Größe und versuchen Sie es erneut.',
+      photoUploadFailed: 'Foto-Upload fehlgeschlagen. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+      photoTooLarge: 'Foto ist zu groß. Bitte wählen Sie ein Foto unter 20 MB.',
+      photoUnsupportedFormat: 'Dieses Fotoformat wird nicht unterstützt. Bitte wählen Sie ein JPG, PNG, WEBP oder HEIC Foto.'
     },
     error: {
       loginError: 'Google Login-Hinweis',

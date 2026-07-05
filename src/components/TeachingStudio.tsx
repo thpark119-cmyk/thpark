@@ -5,7 +5,7 @@ import { Student, StudentLessonEntry } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { compressImageFile } from '../utils/imageCompression';
+import { compressImageFile, compressImageForUpload } from '../utils/imageCompression';
 import { saveLessonPhoto, deleteLessonPhotos, deleteAllPhotosForStudent, LocalLessonPhoto, isIndexedDBAvailable } from '../utils/localPhotoStorage';
 import LocalPhotoView from './LocalPhotoView';
 import CloudPhotoView from './CloudPhotoView';
@@ -32,6 +32,7 @@ export default function TeachingStudio() {
   const [lessonForm, setLessonForm] = useState({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [] as string[], photos: [] as CloudLessonPhoto[] });
 
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [uploadStage, setUploadStage] = useState<'idle' | 'compressing' | 'uploading' | 'success'>('idle');
   const [photoError, setPhotoError] = useState('');
   const [viewingPhotoId, setViewingPhotoId] = useState<string | null>(null);
   const [viewingCloudPhoto, setViewingCloudPhoto] = useState<CloudLessonPhoto | null>(null);
@@ -91,27 +92,42 @@ export default function TeachingStudio() {
       return;
     }
 
-    if (user) {
-      const validation = validateLessonPhotoFile(file);
-      if (!validation.ok) {
-        setPhotoError(validation.reason || t('students.photoInvalidType') || 'Invalid file');
-        return;
+    // 1단계: 원본 파일 형식 및 20MB 이하 검증
+    const validation = validateLessonPhotoFile(file);
+    if (!validation.ok) {
+      if (validation.reason === 'unsupportedFormat') {
+        setPhotoError(t('common.photoUnsupportedFormat'));
+      } else if (validation.reason === 'tooLarge') {
+        setPhotoError(t('common.photoTooLarge'));
+      } else {
+        setPhotoError(validation.reason || 'Invalid file');
       }
-    } else {
-      if (!file.type.startsWith('image/')) {
-        setPhotoError(t('students.photoInvalidType') || 'Only image files can be attached.');
-        return;
-      }
+      return;
     }
 
     try {
       setIsUploadingPhoto(true);
       setPhotoError('');
-      const compressed = await compressImageFile(file);
+      setUploadStage('compressing');
+
+      // 2단계: 자동 압축
+      const compressed = await compressImageForUpload(file);
       const photoId = crypto.randomUUID();
 
+      // 3단계: 압축 결과 검증 (950KB 이하)
+      const compressedFileMock = new File([compressed.blob], file.name, { type: compressed.contentType });
+      const compressedValidation = validateLessonPhotoFile(compressedFileMock, { isCompressed: true });
+      if (!compressedValidation.ok) {
+        setPhotoError(t('common.photoCompressFailed'));
+        setIsUploadingPhoto(false);
+        setUploadStage('idle');
+        return;
+      }
+
+      setUploadStage('uploading');
+
       if (user) {
-        const ext = getSafeFileExtension(file) || 'jpeg';
+        const ext = compressed.extension; // 'jpg' or 'webp'
         const storagePath = buildLessonPhotoStoragePath({
           uid: user.uid,
           studentId: activeStudent.id,
@@ -126,14 +142,15 @@ export default function TeachingStudio() {
           contentType: compressed.contentType,
         });
 
+        // 4단계: metadata 저장 기준 변경 (압축 결과 기준)
         const cloudPhoto: CloudLessonPhoto = {
           id: photoId,
           storagePath,
           fileName: file.name,
           contentType: compressed.contentType,
-          size: compressed.size,
-          width: compressed.width,
-          height: compressed.height,
+          size: compressed.compressedSize, // 압축 후 용량 기준 저장
+          width: compressed.width,         // 압축 후 가로 기준 저장
+          height: compressed.height,       // 압축 후 세로 기준 저장
           createdAt: new Date().toISOString(),
           uploadedAt: new Date().toISOString(),
           source: 'firebase-storage',
@@ -148,9 +165,9 @@ export default function TeachingStudio() {
           lessonId: currentLessonId,
           fileName: file.name,
           contentType: compressed.contentType,
-          size: compressed.size,
-          width: compressed.width,
-          height: compressed.height,
+          size: compressed.compressedSize, // 압축 후 용량 기준 저장
+          width: compressed.width,         // 압축 후 가로 기준 저장
+          height: compressed.height,       // 압축 후 세로 기준 저장
           createdAt: Date.now(),
           blob: compressed.blob
         };
@@ -158,11 +175,13 @@ export default function TeachingStudio() {
         await saveLessonPhoto(newPhoto);
         setLessonForm(prev => ({ ...prev, photoIds: [...prev.photoIds, photoId] }));
       }
+      setUploadStage('success');
     } catch (err) {
       console.error('Failed to compress/save photo', err);
-      setPhotoError(t('students.photoSaveFailed') || 'Failed to save photo');
+      setPhotoError(t('common.photoUploadFailed'));
     } finally {
       setIsUploadingPhoto(false);
+      setUploadStage('idle');
       e.target.value = '';
     }
   };
@@ -549,7 +568,9 @@ export default function TeachingStudio() {
                       </label>
                       <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                         {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                        {isUploadingPhoto ? (t('students.photoAttaching') || 'Attaching...') : (t('students.photoAdd') || 'Add Photo')}
+                        {isUploadingPhoto 
+                          ? (uploadStage === 'compressing' ? t('common.photoCompressing') : t('common.photoUploading')) 
+                          : (t('students.photoAdd') || 'Add Photo')}
                         <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3} />
                       </label>
                     </div>
