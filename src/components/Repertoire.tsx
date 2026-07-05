@@ -8,7 +8,9 @@ import { useLanguage } from '../context/LanguageContext';
 import { validateScoreUploadFile, getSafeFileExtension } from '../utils/fileValidation';
 import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorage';
 import { buildScoreFileStoragePath } from '../utils/storagePaths';
-import { CloudScoreFile } from '../types/cloudFiles';
+import { CloudScoreFile, PendingScoreFileUpload, PendingScoreFileDelete } from '../types/cloudFiles';
+import { compressImageForUpload } from '../utils/imageCompression';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import CloudScoreFileView from './CloudScoreFileView';
 
 const MAX_SCORE_FILES_PER_ITEM = 5;
@@ -25,8 +27,7 @@ export default function Repertoire() {
     composer: '', 
     notes: '', 
     status: 'Learning' as const, 
-    date: new Date().toISOString().split('T')[0],
-    files: [] as File[] 
+    date: new Date().toISOString().split('T')[0]
   });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -37,11 +38,18 @@ export default function Repertoire() {
     composer: '',
     status: 'Learning' as 'Learning' | 'Polishing' | 'Completed',
     notes: '',
-    date: '',
-    newFiles: [] as any[]
+    date: ''
   });
+
+  const [pendingFiles, setPendingFiles] = useState<PendingScoreFileUpload[]>([]);
+  const [pendingDeletes, setPendingDeletes] = useState<PendingScoreFileDelete[]>([]);
+  const [isCompressing, setIsCompressing] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Lock scroll when any modal/overlay is open
+  useBodyScrollLock(isAdding || !!editingItem);
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<RepertoireItem>('repertoire', (data) => {
@@ -50,39 +58,57 @@ export default function Repertoire() {
     return unsubscribe;
   }, [user]);
 
+  const handleCancel = () => {
+    pendingFiles.forEach(f => {
+      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+    });
+    setPendingFiles([]);
+    setPendingDeletes([]);
+    setUploadError('');
+    setIsAdding(false);
+    setEditingItem(null);
+    setNewPiece({ 
+      title: '', 
+      composer: '', 
+      notes: '', 
+      status: 'Learning', 
+      date: new Date().toISOString().split('T')[0]
+    });
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPiece.title || !newPiece.composer) return;
     
     setIsUploading(true);
     setUploadError('');
+    const uploadedPaths: string[] = [];
     try {
       const cloudFiles: CloudScoreFile[] = [];
       const repertoireId = crypto.randomUUID();
 
-      if (user && newPiece.files.length > 0) {
-        for (const file of newPiece.files) {
-          const fileId = crypto.randomUUID();
-          const ext = getSafeFileExtension(file);
+      if (user && pendingFiles.length > 0) {
+        for (const pFile of pendingFiles) {
           const storagePath = buildScoreFileStoragePath({
             uid: user.uid,
             repertoireId,
-            fileId,
-            ext: ext || 'pdf'
+            fileId: pFile.id,
+            ext: pFile.extension
           });
 
           await uploadFileToStorage({
-            file,
+            file: pFile.file,
             storagePath,
-            contentType: file.type
+            contentType: pFile.contentType
           });
+          uploadedPaths.push(storagePath);
 
           cloudFiles.push({
-            id: fileId,
+            id: pFile.id,
             storagePath,
-            fileName: file.name,
-            contentType: file.type,
-            size: file.size,
+            fileName: pFile.fileName,
+            contentType: pFile.contentType,
+            size: pFile.size,
             createdAt: new Date().toISOString(),
             uploadedAt: new Date().toISOString(),
             source: 'firebase-storage'
@@ -104,18 +130,29 @@ export default function Repertoire() {
       
       await addRecord('repertoire', record, user);
       
+      pendingFiles.forEach(f => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+      setPendingFiles([]);
       setIsAdding(false);
       setNewPiece({ 
         title: '', 
         composer: '', 
         notes: '', 
         status: 'Learning', 
-        date: new Date().toISOString().split('T')[0],
-        files: [] 
+        date: new Date().toISOString().split('T')[0]
       });
     } catch (err) {
       console.error(err);
       setUploadError(t('repertoire.uploadFailed') || 'Failed to upload files. Please check your network connection.');
+      // Rollback uploaded files
+      for (const path of uploadedPaths) {
+        try {
+          await deleteFileFromStorage(path);
+        } catch (rollbackErr) {
+          console.warn('Rollback delete failed for', path, rollbackErr);
+        }
+      }
     } finally {
       setIsUploading(false);
     }
@@ -128,9 +165,10 @@ export default function Repertoire() {
       composer: item.composer,
       status: item.status || 'Learning',
       notes: item.notes || '',
-      date: item.date || '',
-      newFiles: []
+      date: item.date || ''
     });
+    setPendingFiles([]);
+    setPendingDeletes([]);
     setUploadError('');
   };
 
@@ -141,32 +179,34 @@ export default function Repertoire() {
     
     setIsUploading(true);
     setUploadError('');
+    const uploadedPaths: string[] = [];
     try {
-      const cloudFiles = [...(editingItem.files || [])];
+      const cloudFiles = [...(editingItem.files || [])].filter(
+        f => !pendingDeletes.some(d => d.id === f.id)
+      );
 
-      if (user && editForm.newFiles.length > 0) {
-        for (const file of editForm.newFiles) {
-          const fileId = crypto.randomUUID();
-          const ext = getSafeFileExtension(file);
+      if (user && pendingFiles.length > 0) {
+        for (const pFile of pendingFiles) {
           const storagePath = buildScoreFileStoragePath({
             uid: user.uid,
             repertoireId: editingItem.id,
-            fileId,
-            ext: ext || 'pdf'
+            fileId: pFile.id,
+            ext: pFile.extension
           });
 
           await uploadFileToStorage({
-            file,
+            file: pFile.file,
             storagePath,
-            contentType: file.type
+            contentType: pFile.contentType
           });
+          uploadedPaths.push(storagePath);
 
           cloudFiles.push({
-            id: fileId,
+            id: pFile.id,
             storagePath,
-            fileName: file.name,
-            contentType: file.type,
-            size: file.size,
+            fileName: pFile.fileName,
+            contentType: pFile.contentType,
+            size: pFile.size,
             createdAt: new Date().toISOString(),
             uploadedAt: new Date().toISOString(),
             source: 'firebase-storage'
@@ -184,10 +224,38 @@ export default function Repertoire() {
       };
 
       await updateRecord('repertoire', editingItem.id, record, user);
+
+      // Perform actual storage deletion only after Firestore update succeeds
+      for (const delFile of pendingDeletes) {
+        try {
+          console.log('[Mio delete debug]', {
+            action: 'delete_score_file_after_update',
+            repertoireId: editingItem.id,
+            storagePath: delFile.storagePath
+          });
+          await deleteFileFromStorage(delFile.storagePath);
+        } catch (delErr) {
+          console.warn('Failed to delete file from storage during update finalization:', delFile.storagePath, delErr);
+        }
+      }
+
+      pendingFiles.forEach(f => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+      setPendingFiles([]);
+      setPendingDeletes([]);
       setEditingItem(null);
     } catch (err) {
       console.error(err);
       setUploadError(t('repertoire.uploadFailed') || 'Failed to upload files. Please check your network connection.');
+      // Rollback newly uploaded files on failure
+      for (const path of uploadedPaths) {
+        try {
+          await deleteFileFromStorage(path);
+        } catch (rollbackErr) {
+          console.warn('Rollback delete failed for', path, rollbackErr);
+        }
+      }
     } finally {
       setIsUploading(false);
     }
@@ -218,10 +286,10 @@ export default function Repertoire() {
     // Legacy file delete
     if (itemToDelete?.storagePath) {
        try {
-         await deleteFileFromStorage(itemToDelete.storagePath);
+          await deleteFileFromStorage(itemToDelete.storagePath);
        } catch (e: any) {
-         console.warn('Failed to delete legacy file from storage', e);
-         storageDeleteFailed = true;
+          console.warn('Failed to delete legacy file from storage', e);
+          storageDeleteFailed = true;
        }
     }
     
@@ -235,36 +303,6 @@ export default function Repertoire() {
     } catch (e) {
       console.error('Failed to delete repertoire record', e);
       alert(t('common.deleteFailed') || 'Failed to delete record.');
-    }
-  };
-
-  const handleDeleteExistingFile = async (fileToDelete: CloudScoreFile) => {
-    if (!editingItem) return;
-    if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this file?')) return;
-    
-    try {
-      console.log('[Mio delete debug]', {
-        action: 'delete_score_file',
-        collection: 'repertoire',
-        recordId: editingItem.id,
-        fileId: fileToDelete.id,
-        storagePath: fileToDelete.storagePath,
-      });
-
-      await deleteFileFromStorage(fileToDelete.storagePath);
-      const updatedFiles = (editingItem.files || []).filter(
-        f => f.id !== fileToDelete.id && f.storagePath !== fileToDelete.storagePath
-      );
-      
-      await updateRecord('repertoire', editingItem.id, { files: updatedFiles }, user);
-      
-      setEditingItem({
-        ...editingItem,
-        files: updatedFiles
-      });
-    } catch (e) {
-      console.error('Failed to delete file', e);
-      alert(t('repertoire.deleteFileFailed') || 'Failed to delete file. Please check your network connection and try again.');
     }
   };
 
@@ -307,39 +345,103 @@ export default function Repertoire() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+    const selectedFiles = Array.from(e.target.files || []) as File[];
+    if (selectedFiles.length === 0) return;
     
-    let currentCount = 0;
+    let currentActiveCount = 0;
     if (isEdit && editingItem) {
-      currentCount = (editingItem.files?.length || 0) + editForm.newFiles.length;
+      const activeExistingCount = (editingItem.files || []).filter(
+        f => !pendingDeletes.some(d => d.id === f.id)
+      ).length;
+      currentActiveCount = activeExistingCount + pendingFiles.length;
     } else {
-      currentCount = newPiece.files.length;
+      currentActiveCount = pendingFiles.length;
     }
 
-    if (currentCount + files.length > MAX_SCORE_FILES_PER_ITEM) {
+    if (currentActiveCount + selectedFiles.length > MAX_SCORE_FILES_PER_ITEM) {
       alert((t('repertoire.fileLimitReached') || 'You can attach up to 5 files per repertoire.') + ` (${MAX_SCORE_FILES_PER_ITEM})`);
       e.target.value = '';
       return;
     }
 
-    const validFiles: any[] = [];
-    for (const file of files) {
-      const validation = validateScoreUploadFile(file);
-      if (!validation.ok) {
-        alert(`${(file as File).name}: ${validation.reason}`);
-        continue;
-      }
-      validFiles.push(file as unknown as File);
-    }
+    setIsCompressing(true);
+    try {
+      const newPending: PendingScoreFileUpload[] = [];
 
-    if (isEdit) {
-      setEditForm({ ...editForm, newFiles: [...editForm.newFiles, ...validFiles] });
-    } else {
-      setNewPiece({ ...newPiece, files: [...newPiece.files, ...validFiles] });
+      for (const file of selectedFiles) {
+        const isPdf = file.type === 'application/pdf';
+        const isImage = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
+
+        if (!isPdf && !isImage) {
+          alert(`${file.name}: ${t('repertoire.invalidFileType') || 'Only PDF, JPG, PNG, and WebP are allowed.'}`);
+          continue;
+        }
+
+        if (isPdf) {
+          const validation = validateScoreUploadFile(file);
+          if (!validation.ok) {
+            alert(`${file.name}: ${validation.reason}`);
+            continue;
+          }
+
+          newPending.push({
+            id: crypto.randomUUID(),
+            file,
+            fileName: file.name,
+            contentType: file.type,
+            size: file.size,
+            extension: getSafeFileExtension(file) || 'pdf',
+            isImage: false
+          });
+        } else if (isImage) {
+          const validation = validateScoreUploadFile(file);
+          if (!validation.ok) {
+            alert(`${file.name}: ${validation.reason}`);
+            continue;
+          }
+
+          try {
+            const compressed = await compressImageForUpload(file, {
+              maxLongEdge: 1600,
+              targetBytes: 900 * 1024,
+              maxBytes: 950 * 1024
+            });
+
+            const compFile = new File([compressed.blob], file.name, { type: compressed.contentType });
+            const validationComp = validateScoreUploadFile(compFile, { isCompressed: true });
+            if (!validationComp.ok) {
+              alert(`${file.name}: ${validationComp.reason}`);
+              continue;
+            }
+
+            const previewUrl = URL.createObjectURL(compressed.blob);
+            newPending.push({
+              id: crypto.randomUUID(),
+              file: compFile,
+              previewUrl,
+              fileName: file.name,
+              contentType: compressed.contentType,
+              size: compressed.compressedSize,
+              extension: compressed.extension,
+              originalSize: compressed.originalSize,
+              compressedSize: compressed.compressedSize,
+              isImage: true
+            });
+          } catch (compErr) {
+            console.error('Image compression error', compErr);
+            alert(`${file.name}: ${t('repertoire.compressFailed') || 'Compression failed.'}`);
+          }
+        }
+      }
+
+      setPendingFiles(prev => [...prev, ...newPending]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
     }
-    e.target.value = '';
   };
 
   return (
@@ -481,7 +583,7 @@ export default function Repertoire() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
-              onClick={() => setIsAdding(false)}
+              onClick={handleCancel}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div 
@@ -492,7 +594,7 @@ export default function Repertoire() {
             >
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.addPiece')}</h3>
-                <button onClick={() => setIsAdding(false)} className="text-stone-600 hover:text-white transition-colors"><X size={24} /></button>
+                <button onClick={handleCancel} className="text-stone-600 hover:text-white transition-colors"><X size={24} /></button>
               </div>
 
               <form onSubmit={handleAdd} className="space-y-4">
@@ -531,21 +633,21 @@ export default function Repertoire() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between pl-2">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest">{t('repertoire.addFile') || 'Score Files'}</label>
-                    <span className="text-[10px] text-stone-500 font-bold">{newPiece.files.length}/{MAX_SCORE_FILES_PER_ITEM}</span>
+                    <span className="text-[10px] text-stone-500 font-bold">{pendingFiles.length}/{MAX_SCORE_FILES_PER_ITEM}</span>
                   </div>
                   
                   {!user ? (
                     <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 leading-relaxed">
-                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google. Signed-in files are linked to your account and can be accessed across devices.'}
+                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google.'}
                     </p>
                   ) : (
                     <div className="space-y-2">
                       <div 
                         onClick={() => {
-                          if (newPiece.files.length < MAX_SCORE_FILES_PER_ITEM) fileInputRef.current?.click();
+                          if (pendingFiles.length < MAX_SCORE_FILES_PER_ITEM && !isCompressing) fileInputRef.current?.click();
                         }}
                         className={`w-full border-dashed rounded-2xl py-4 px-5 flex flex-col items-center justify-center gap-2 transition-colors ${
-                          newPiece.files.length >= MAX_SCORE_FILES_PER_ITEM 
+                          pendingFiles.length >= MAX_SCORE_FILES_PER_ITEM 
                             ? 'bg-stone-800/30 border-white/5 cursor-not-allowed opacity-50' 
                             : 'bg-stone-800/50 border-white/5 hover:border-brand/40 cursor-pointer'
                         }`}
@@ -557,29 +659,60 @@ export default function Repertoire() {
                           multiple
                           accept="application/pdf,image/jpeg,image/png,image/webp"
                           onChange={(e) => handleFileChange(e, false)}
-                          disabled={newPiece.files.length >= MAX_SCORE_FILES_PER_ITEM}
+                          disabled={pendingFiles.length >= MAX_SCORE_FILES_PER_ITEM || isCompressing}
                         />
-                        <Upload size={20} className="text-stone-500"/>
+                        {isCompressing ? (
+                          <Loader2 size={20} className="text-brand animate-spin" />
+                        ) : (
+                          <Upload size={20} className="text-stone-500"/>
+                        )}
                         <div className="text-center">
-                          <span className="text-xs text-stone-400 font-medium block mb-1">{t('repertoire.chooseFile') || 'Attach PDF or Images'}</span>
-                          <span className="text-[10px] text-stone-600">PDF (Max 15MB) / Image (Max 5MB)</span>
+                          <span className="text-xs text-stone-400 font-medium block mb-1">
+                            {isCompressing ? t('repertoire.compressing') : (t('repertoire.chooseFile') || 'Attach PDF or Images')}
+                          </span>
+                          <span className="text-[10px] text-stone-600 block">PDF (Max 15MB) / Image (Max 20MB)</span>
+                          <span className="text-[9px] text-stone-500 mt-1 block">
+                            💡 {t('repertoire.autoCompressNotice')} {t('repertoire.pdfNoCompressNotice')}
+                          </span>
                         </div>
                       </div>
                       
-                      {newPiece.files.length > 0 && (
+                      {pendingFiles.length > 0 && (
                         <div className="space-y-2 mt-3">
-                          {newPiece.files.map((file, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-white/5">
+                          {pendingFiles.map((pFile) => (
+                            <div key={pFile.id} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-brand/20">
                               <div className="flex items-center gap-3 min-w-0">
-                                <FileIcon size={16} className="text-brand shrink-0" />
-                                <span className="text-xs text-stone-300 truncate">{file.name}</span>
+                                {pFile.isImage && pFile.previewUrl ? (
+                                  <img 
+                                    src={pFile.previewUrl} 
+                                    alt={pFile.fileName} 
+                                    className="w-10 h-10 object-cover rounded-lg bg-stone-900 border border-white/10 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <FileIcon size={16} className="text-brand shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <span className="text-xs text-stone-200 font-medium truncate block">{pFile.fileName}</span>
+                                  <span className="text-[9px] text-stone-500 font-mono">
+                                    {(pFile.size / 1024).toFixed(0)}KB 
+                                    {pFile.originalSize && ` (compressed from ${(pFile.originalSize / 1024).toFixed(0)}KB)`}
+                                  </span>
+                                </div>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setNewPiece({ ...newPiece, files: newPiece.files.filter((_, i) => i !== idx) })}
-                                className="text-stone-500 hover:text-red-400 p-1 rounded-md transition-colors"
+                                onClick={() => {
+                                  setPendingFiles(prev => {
+                                    const target = prev.find(f => f.id === pFile.id);
+                                    if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+                                    return prev.filter(f => f.id !== pFile.id);
+                                  });
+                                }}
+                                className="text-stone-400 hover:text-red-400 p-2 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+                                title={t('repertoire.removeFile') || 'Remove file'}
                               >
-                                <X size={14} />
+                                <X size={16} />
                               </button>
                             </div>
                           ))}
@@ -591,7 +724,7 @@ export default function Repertoire() {
                 
                 {uploadError && <p className="text-xs text-red-400 text-center">{uploadError}</p>}
 
-                <button type="submit" disabled={isUploading} className="w-full mt-4 bg-brand h-14 rounded-2xl text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                <button type="submit" disabled={isUploading || isCompressing} className="w-full mt-4 bg-brand h-14 rounded-2xl text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                   {isUploading ? <><Loader2 size={16} className="animate-spin" /> {t('common.uploading') || 'Uploading...'}</> : (t('common.save') || 'Save')}
                 </button>
               </form>
@@ -606,7 +739,7 @@ export default function Repertoire() {
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
               onClick={() => {
-                if (!isUploading) setEditingItem(null);
+                if (!isUploading) handleCancel();
               }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
@@ -618,7 +751,7 @@ export default function Repertoire() {
             >
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-serif italic text-white leading-none">{t('repertoire.editPiece')}</h3>
-                <button onClick={() => !isUploading && setEditingItem(null)} className="text-stone-600 hover:text-white transition-colors" disabled={isUploading}><X size={24} /></button>
+                <button onClick={() => !isUploading && handleCancel()} className="text-stone-600 hover:text-white transition-colors" disabled={isUploading}><X size={24} /></button>
               </div>
 
               <form onSubmit={handleUpdate} className="space-y-4">
@@ -658,24 +791,25 @@ export default function Repertoire() {
                   <div className="flex items-center justify-between pl-2">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest">{t('repertoire.addFile') || 'Score Files'}</label>
                     <span className="text-[10px] text-stone-500 font-bold">
-                      {(editingItem.files?.length || 0) + editForm.newFiles.length}/{MAX_SCORE_FILES_PER_ITEM}
+                      {((editingItem.files || []).filter(f => !pendingDeletes.some(d => d.id === f.id)).length + pendingFiles.length)}/{MAX_SCORE_FILES_PER_ITEM}
                     </span>
                   </div>
                   
                   {!user ? (
                     <p className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 leading-relaxed">
-                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google. Signed-in files are linked to your account and can be accessed across devices.'}
+                      {t('repertoire.loginRequiredForFile') || 'Score file upload is available after signing in with Google.'}
                     </p>
                   ) : (
                     <div className="space-y-2">
                       <div 
                         onClick={() => {
-                          if ((editingItem.files?.length || 0) + editForm.newFiles.length < MAX_SCORE_FILES_PER_ITEM) {
+                          const activeCount = (editingItem.files || []).filter(f => !pendingDeletes.some(d => d.id === f.id)).length + pendingFiles.length;
+                          if (activeCount < MAX_SCORE_FILES_PER_ITEM && !isCompressing) {
                             editFileInputRef.current?.click();
                           }
                         }}
                         className={`w-full border-dashed rounded-2xl py-4 px-5 flex flex-col items-center justify-center gap-2 transition-colors ${
-                          (editingItem.files?.length || 0) + editForm.newFiles.length >= MAX_SCORE_FILES_PER_ITEM 
+                          ((editingItem.files || []).filter(f => !pendingDeletes.some(d => d.id === f.id)).length + pendingFiles.length) >= MAX_SCORE_FILES_PER_ITEM 
                             ? 'bg-stone-800/30 border-white/5 cursor-not-allowed opacity-50' 
                             : 'bg-stone-800/50 border-white/5 hover:border-brand/40 cursor-pointer'
                         }`}
@@ -687,16 +821,25 @@ export default function Repertoire() {
                           multiple
                           accept="application/pdf,image/jpeg,image/png,image/webp"
                           onChange={(e) => handleFileChange(e, true)}
-                          disabled={(editingItem.files?.length || 0) + editForm.newFiles.length >= MAX_SCORE_FILES_PER_ITEM}
+                          disabled={((editingItem.files || []).filter(f => !pendingDeletes.some(d => d.id === f.id)).length + pendingFiles.length) >= MAX_SCORE_FILES_PER_ITEM || isCompressing}
                         />
-                        <Upload size={20} className="text-stone-500"/>
+                        {isCompressing ? (
+                          <Loader2 size={20} className="text-brand animate-spin" />
+                        ) : (
+                          <Upload size={20} className="text-stone-500"/>
+                        )}
                         <div className="text-center">
-                          <span className="text-xs text-stone-400 font-medium block mb-1">{t('repertoire.chooseFile') || 'Attach PDF or Images'}</span>
-                          <span className="text-[10px] text-stone-600">PDF (Max 15MB) / Image (Max 5MB)</span>
+                          <span className="text-xs text-stone-400 font-medium block mb-1">
+                            {isCompressing ? t('repertoire.compressing') : (t('repertoire.chooseFile') || 'Attach PDF or Images')}
+                          </span>
+                          <span className="text-[10px] text-stone-600 block">PDF (Max 15MB) / Image (Max 20MB)</span>
+                          <span className="text-[9px] text-stone-500 mt-1 block">
+                            💡 {t('repertoire.autoCompressNotice')} {t('repertoire.pdfNoCompressNotice')}
+                          </span>
                         </div>
                       </div>
                       
-                      {((editingItem.files?.length || 0) > 0 || editForm.newFiles.length > 0 || editingItem.fileUrl) && (
+                      {((editingItem.files?.length || 0) > 0 || pendingFiles.length > 0 || editingItem.fileUrl) && (
                         <div className="space-y-2 mt-3">
                           {editingItem.fileUrl && (
                             <div className="flex items-center justify-between p-3 bg-stone-800/50 rounded-xl border border-white/5">
@@ -707,24 +850,83 @@ export default function Repertoire() {
                               <span className="text-[10px] text-stone-500">Legacy</span>
                             </div>
                           )}
-                          {editingItem.files?.map(file => (
-                            <CloudScoreFileView file={file} onDelete={() => handleDeleteExistingFile(file)} />
-                          ))}
-                          {editForm.newFiles.map((file, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-brand/20">
+
+                          {editingItem.files?.map(file => {
+                            const isMarkedDelete = pendingDeletes.some(d => d.id === file.id);
+                            return (
+                              <div 
+                                key={file.id} 
+                                className={`flex items-center justify-between p-3 bg-stone-800/80 rounded-xl border transition-all ${
+                                  isMarkedDelete ? 'border-red-500/30 opacity-50 bg-red-950/10' : 'border-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <FileIcon size={16} className={isMarkedDelete ? "text-red-400 shrink-0" : "text-stone-400 shrink-0"} />
+                                  <div className="min-w-0">
+                                    <span className={`text-xs truncate block ${isMarkedDelete ? 'text-red-300 line-through' : 'text-stone-300'}`}>{file.fileName}</span>
+                                    {isMarkedDelete && (
+                                      <span className="text-[9px] text-red-400 font-bold uppercase tracking-wider">{t('repertoire.pendingDelete') || 'Pending Delete'}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {isMarkedDelete ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeletes(prev => prev.filter(d => d.id !== file.id))}
+                                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-all active:scale-95 touch-manipulation"
+                                  >
+                                    {t('repertoire.undoDelete') || 'Undo'}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeletes(prev => [...prev, { id: file.id, storagePath: file.storagePath, fileName: file.fileName }])}
+                                    className="text-xs font-bold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-1.5 rounded-lg border border-red-500/20 transition-all active:scale-95 touch-manipulation"
+                                  >
+                                    {t('repertoire.deleteFile') || 'Delete'}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {pendingFiles.map((pFile) => (
+                            <div key={pFile.id} className="flex items-center justify-between p-3 bg-stone-800 rounded-xl border border-brand/20">
                               <div className="flex items-center gap-3 min-w-0">
-                                <FileIcon size={16} className="text-brand shrink-0" />
+                                {pFile.isImage && pFile.previewUrl ? (
+                                  <img 
+                                    src={pFile.previewUrl} 
+                                    alt={pFile.fileName} 
+                                    className="w-10 h-10 object-cover rounded-lg bg-stone-900 border border-white/10 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <FileIcon size={16} className="text-brand shrink-0" />
+                                )}
                                 <div className="min-w-0">
-                                  <span className="text-xs text-stone-200 font-medium truncate block">{file.name}</span>
-                                  <span className="text-[10px] text-brand uppercase">{t('common.new') || 'New'}</span>
+                                  <span className="text-xs text-stone-200 font-medium truncate block">{pFile.fileName}</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-brand uppercase font-bold">{t('common.new') || 'New'}</span>
+                                    <span className="text-[9px] text-stone-500 font-mono">
+                                      {(pFile.size / 1024).toFixed(0)}KB 
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setEditForm({ ...editForm, newFiles: editForm.newFiles.filter((_, i) => i !== idx) })}
-                                className="text-stone-500 hover:text-red-400 p-1 rounded-md transition-colors"
+                                onClick={() => {
+                                  setPendingFiles(prev => {
+                                    const target = prev.find(f => f.id === pFile.id);
+                                    if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+                                    return prev.filter(f => f.id !== pFile.id);
+                                  });
+                                }}
+                                className="text-stone-400 hover:text-red-400 p-2 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+                                title={t('repertoire.removeFile') || 'Remove file'}
                               >
-                                <X size={14} />
+                                <X size={16} />
                               </button>
                             </div>
                           ))}
@@ -760,10 +962,10 @@ export default function Repertoire() {
                 {uploadError && <p className="text-xs text-red-400 text-center">{uploadError}</p>}
 
                 <div className="flex gap-3 pt-2">
-                  <button type="button" disabled={isUploading} onClick={() => setEditingItem(null)} className="w-1/3 bg-stone-800 h-14 rounded-2xl text-stone-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                  <button type="button" disabled={isUploading || isCompressing} onClick={handleCancel} className="w-1/3 bg-stone-800 h-14 rounded-2xl text-stone-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
                     {t('common.cancel')}
                   </button>
-                  <button type="submit" disabled={isUploading} className="flex-1 bg-brand h-14 rounded-2xl text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                  <button type="submit" disabled={isUploading || isCompressing} className="flex-1 bg-brand h-14 rounded-2xl text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {isUploading ? <><Loader2 size={16} className="animate-spin" /> {t('common.uploading') || 'Uploading...'}</> : (t('common.save') || 'Save')}
                   </button>
                 </div>

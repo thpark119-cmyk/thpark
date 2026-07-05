@@ -52,7 +52,7 @@ export default function CloudScoreFileView({ file, onDelete, readOnly }: CloudSc
       
       <div className="flex items-center gap-2 shrink-0 pl-3">
         {error ? (
-          <span className="text-[10px] text-red-400 px-2">Load failed</span>
+          <span className="text-[10px] text-red-400 px-2">{t('repertoire.loadFailed') || 'Load failed'}</span>
         ) : url ? (
           <button 
             onClick={() => window.open(url, '_blank')}

@@ -25,3 +25,23 @@ export type CloudScoreFile = {
   uploadedAt: string;
   source: CloudFileSource;
 };
+
+export type PendingScoreFileUpload = {
+  id: string;
+  file: File | Blob;
+  previewUrl?: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  extension: string;
+  originalSize?: number;
+  compressedSize?: number;
+  isImage: boolean;
+};
+
+export type PendingScoreFileDelete = {
+  id: string;
+  storagePath: string;
+  fileName?: string;
+};
+

@@ -30,7 +30,7 @@ export function validateLessonPhotoFile(file: File, options?: { isCompressed?: b
   return { ok: true };
 }
 
-export function validateScoreUploadFile(file: File): { ok: boolean; reason?: string } {
+export function validateScoreUploadFile(file: File, options?: { isCompressed?: boolean }): { ok: boolean; reason?: string } {
   const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
   const isPdf = file.type === 'application/pdf';
   const isImage = allowedImageTypes.includes(file.type);
@@ -43,8 +43,16 @@ export function validateScoreUploadFile(file: File): { ok: boolean; reason?: str
     return { ok: false, reason: 'PDF file is too large. Maximum size is 15MB.' };
   }
 
-  if (isImage && file.size > 5 * 1024 * 1024) {
-    return { ok: false, reason: 'Image file is too large. Maximum size is 5MB.' };
+  if (isImage) {
+    if (!options?.isCompressed) {
+      if (file.size > 20 * 1024 * 1024) {
+        return { ok: false, reason: 'Image file is too large. Maximum size is 20MB.' };
+      }
+    } else {
+      if (file.size > 950 * 1024) {
+        return { ok: false, reason: 'Compression failed to bring image size under 950KB.' };
+      }
+    }
   }
 
   return { ok: true };
