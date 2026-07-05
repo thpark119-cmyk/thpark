@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Mic, MicOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { isAdminUser } from '../utils/admin';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
 import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes, getToneOutputNode } from '../utils/audioOutput';
@@ -111,7 +112,7 @@ function autoCorrelate(buf: Float32Array, sampleRate: number): number {
 export default function Tuner() {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const isAdmin = user?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(user);
   
   // Load settings from localStorage
   const loadSettings = () => {

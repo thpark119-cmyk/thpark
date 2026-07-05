@@ -13,6 +13,7 @@ import { clearLocalData, deleteUserAccountData } from '../lib/firestore';
 import { BrandLogo } from './BrandLogo';
 import packageJson from '../../package.json';
 import { getStorageUsageSummary, type StorageUsageSummary } from '../utils/storageUsageSummary';
+import { isAdminUser } from '../utils/admin';
 
 const VERSION = packageJson.version || '0.1.0';
 const CONTACT_EMAIL = 'thpark119@gmail.com';
@@ -117,7 +118,7 @@ export default function Settings({ setActiveTab }: SettingsProps) {
   return (
     <div className="max-w-2xl mx-auto pb-10 space-y-3">
       {/* Admin Dashboard Option for Admins */}
-      {user?.email === 'thpark119@gmail.com' && setActiveTab && (
+      {isAdminUser(user) && setActiveTab && (
         <div className="space-y-2">
           <button 
             onClick={() => setActiveTab('admin')}

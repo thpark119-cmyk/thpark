@@ -4,6 +4,7 @@ import { PlusCircle, ListTodo, Search, MessageSquare, Clock, Activity, Settings2
 import { subscribeToCollection } from '../lib/firestore';
 import { ReceivedLesson } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { isAdminUser } from '../utils/admin';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
@@ -22,7 +23,7 @@ export default function Dashboard({ setActiveTab, setTargetLessonId, user }: Das
     return unsubscribe;
   }, [user]);
 
-  const isAdmin = user?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(user);
 
   const quickActions = [
     { id: 'mylessons', label: t('dashboard.quickActionMyLessons'), desc: t('dashboard.quickActionMyLessonsDesc'), color: 'bg-brand/10 text-brand border-brand/20', icon: PlusCircle },

@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { signInWithGoogle } from '../lib/firebase';
 import { getAdminStorageSummary, type AdminStorageSummary, type AdminUserStorageSummary } from '../utils/adminStorageSummary';
+import { isAdminUser } from '../utils/admin';
 
 export default function AdminPanel() {
   const { user, loading } = useAuth();
@@ -25,7 +26,7 @@ export default function AdminPanel() {
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isAdmin = user?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(user);
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -170,13 +171,13 @@ export default function AdminPanel() {
           </div>
           {isPermissionError && (
             <div className="bg-stone-950/40 border border-white/5 p-4 rounded-xl text-[11px] text-stone-400 space-y-2 font-mono leading-relaxed">
-              <p className="font-sans text-stone-300 font-bold">💡 보안 규칙 권한 해결 가이드:</p>
-              <p>관리자 계정(`thpark119@gmail.com`)이라도, Firestore 규칙(`firestore.rules`)에 `/users` 컬렉션에 대한 `list` 권한이 선언되어 있어야 전체 사용자 정보 조회가 정상 실행됩니다.</p>
-              <p>현재 규칙에서 `/users/{"{userId}"}`는 개별 조회(`get`)만 지원하며 목록 조회(`list`)를 지원하지 않습니다.</p>
-              <p className="text-brand-light font-bold">권장 조치: `firestore.rules` 파일에 다음 규칙을 추가하고 배포해야 전체 요약 조회가 기능합니다:</p>
+              <p className="font-sans text-stone-300 font-bold">💡 {t('admin.securityRulesGuide')}:</p>
+              <p>{t('admin.securityRulesGuideDesc')}</p>
+              <p>{t('admin.currentRulesDesc')}</p>
+              <p className="text-brand-light font-bold">{t('admin.recommendedAction')}</p>
               <pre className="p-2 bg-stone-900 rounded overflow-x-auto text-[10px] text-brand-light">
 {`match /users/{userId} {
-  allow list: if isAdmin(); // 이 규칙이 누락되어 조회가 실패함
+  allow list: if isAdmin(); // ${t('admin.ruleMissingCause')}
 }`}
               </pre>
             </div>
@@ -195,13 +196,21 @@ export default function AdminPanel() {
       {/* Summary Content */}
       {summary && !calculating && (
         <div className="space-y-8">
+          {/* Info banner about Auth subscriber vs Firestore document calculation */}
+          <div className="bg-brand/5 border border-brand/10 p-4 rounded-2xl flex items-start gap-3 text-stone-300">
+            <Info size={18} className="text-brand shrink-0 mt-0.5" />
+            <p className="text-xs leading-relaxed">
+              {t('admin.authDiffNotice')}
+            </p>
+          </div>
+
           {/* Top Bento Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 1. Total Users */}
             <div className="bg-stone-900/30 border border-white/5 p-6 rounded-[28px] flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-xs text-stone-500 font-semibold">{t('admin.totalUsers')}</span>
-                <p className="text-3xl font-black text-white">{summary.totals.userCount}<span className="text-sm font-normal text-stone-400 ml-1">명</span></p>
+                <p className="text-3xl font-black text-white">{summary.totals.userCount}<span className="text-sm font-normal text-stone-400 ml-1">{t('admin.userUnit')}</span></p>
               </div>
               <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center">
                 <Users size={22} />
@@ -212,7 +221,7 @@ export default function AdminPanel() {
             <div className="bg-stone-900/30 border border-white/5 p-6 rounded-[28px] flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-xs text-stone-500 font-semibold">{t('admin.totalCloudFiles')}</span>
-                <p className="text-3xl font-black text-white">{summary.totals.fileCount}<span className="text-sm font-normal text-stone-400 ml-1">개</span></p>
+                <p className="text-3xl font-black text-white">{summary.totals.fileCount}<span className="text-sm font-normal text-stone-400 ml-1">{t('admin.fileUnit')}</span></p>
               </div>
               <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center">
                 <FolderOpen size={22} />
@@ -239,7 +248,7 @@ export default function AdminPanel() {
                 <Image size={14} className="text-brand-light" />
                 <span>{t('admin.studentPhotos')}</span>
               </div>
-              <p className="text-lg font-bold text-stone-100">{summary.totals.studentPhotoCount}장</p>
+              <p className="text-lg font-bold text-stone-100">{summary.totals.studentPhotoCount}{t('admin.photoUnit')}</p>
               <p className="text-xs text-stone-500">{formatBytes(summary.totals.studentPhotoBytes)}</p>
             </div>
 
@@ -249,7 +258,7 @@ export default function AdminPanel() {
                 <Image size={14} className="text-brand-light" />
                 <span>{t('admin.lessonPhotos')}</span>
               </div>
-              <p className="text-lg font-bold text-stone-100">{summary.totals.lessonJournalPhotoCount}장</p>
+              <p className="text-lg font-bold text-stone-100">{summary.totals.lessonJournalPhotoCount}{t('admin.photoUnit')}</p>
               <p className="text-xs text-stone-500">{formatBytes(summary.totals.lessonJournalPhotoBytes)}</p>
             </div>
 
@@ -259,7 +268,7 @@ export default function AdminPanel() {
                 <FileText size={14} className="text-brand-light" />
                 <span>{t('admin.repertoireFiles')}</span>
               </div>
-              <p className="text-lg font-bold text-stone-100">{summary.totals.repertoireFileCount}개</p>
+              <p className="text-lg font-bold text-stone-100">{summary.totals.repertoireFileCount}{t('admin.fileUnit')}</p>
               <p className="text-xs text-stone-500">{formatBytes(summary.totals.repertoireFileBytes)}</p>
             </div>
           </div>
@@ -272,33 +281,33 @@ export default function AdminPanel() {
                 <h3 className="text-base font-bold text-white">{t('admin.userStorageSummary')}</h3>
               </div>
               <span className="text-[10px] text-stone-500 font-bold bg-white/5 px-2.5 py-1 rounded-full uppercase">
-                {summary.users.length} Users
+                {summary.users.length} {t('admin.user')}
               </span>
             </div>
 
             <div className="divide-y divide-white/5">
               {summary.users.length === 0 ? (
                 <div className="p-12 text-center text-sm text-stone-500">
-                  데이터가 등록된 사용자가 존재하지 않습니다.
+                  {t('admin.noUsersWithData')}
                 </div>
               ) : (
                 summary.users.map((us) => {
-                  const safeUid = us.uid.substring(0, 8) + '...';
-                  const userDisplayName = us.displayName || `사용자 (${safeUid})`;
+                  const safeUid = us.uid ? (us.uid.substring(0, 8) + '***' + us.uid.substring(us.uid.length - 4)) : '';
+                  const userDisplayName = us.displayName || `${t('admin.user')} (${safeUid})`;
                   return (
                     <div key={us.uid} className="p-6 space-y-4 hover:bg-white/[0.01] transition-all">
                       {/* User Header */}
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-1.5">
-                        <div>
-                          <p className="text-sm font-bold text-white leading-snug">{userDisplayName}</p>
-                          {us.email && <p className="text-[10px] text-stone-500 font-mono">{us.email}</p>}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-white leading-snug truncate break-all">{userDisplayName}</p>
+                          {us.email && <p className="text-[10px] text-stone-500 font-mono truncate break-all">{us.email}</p>}
                         </div>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-brand-light">
+                        <div className="text-left md:text-right shrink-0">
+                          <span className="text-xs font-black text-brand-light block">
                             {t('admin.totalCapacity')}: {formatBytes(us.total.totalBytes)}
                           </span>
                           <p className="text-[10px] text-stone-500 font-mono mt-0.5">
-                            {t('admin.totalFiles')}: {us.total.count}개
+                            {t('admin.totalFiles')}: {us.total.count}{t('admin.fileUnit')}
                           </p>
                         </div>
                       </div>
@@ -307,17 +316,17 @@ export default function AdminPanel() {
                       <div className="grid grid-cols-3 gap-2.5 bg-stone-950/40 p-3 rounded-xl border border-white/5 text-center">
                         <div>
                           <p className="text-[10px] text-stone-500 font-semibold truncate">{t('admin.studentPhotos')}</p>
-                          <p className="text-xs font-bold text-stone-300 mt-1">{us.studentPhotos.count}장</p>
+                          <p className="text-xs font-bold text-stone-300 mt-1">{us.studentPhotos.count}{t('admin.photoUnit')}</p>
                           <p className="text-[10px] text-stone-500 mt-0.5">{formatBytes(us.studentPhotos.totalBytes)}</p>
                         </div>
                         <div className="border-l border-white/5">
                           <p className="text-[10px] text-stone-500 font-semibold truncate">{t('admin.lessonPhotos')}</p>
-                          <p className="text-xs font-bold text-stone-300 mt-1">{us.lessonJournalPhotos.count}장</p>
+                          <p className="text-xs font-bold text-stone-300 mt-1">{us.lessonJournalPhotos.count}{t('admin.photoUnit')}</p>
                           <p className="text-[10px] text-stone-500 mt-0.5">{formatBytes(us.lessonJournalPhotos.totalBytes)}</p>
                         </div>
                         <div className="border-l border-white/5">
                           <p className="text-[10px] text-stone-500 font-semibold truncate">{t('admin.repertoireFiles')}</p>
-                          <p className="text-xs font-bold text-stone-300 mt-1">{us.repertoireFiles.count}개</p>
+                          <p className="text-xs font-bold text-stone-300 mt-1">{us.repertoireFiles.count}{t('admin.fileUnit')}</p>
                           <p className="text-[10px] text-stone-500 mt-0.5">{formatBytes(us.repertoireFiles.totalBytes)}</p>
                         </div>
                       </div>
@@ -332,7 +341,7 @@ export default function AdminPanel() {
           <div className="bg-stone-900/10 border border-white/5 p-6 rounded-[28px] space-y-3.5">
             <div className="flex items-center gap-2 text-stone-400">
               <Info size={16} className="text-brand shrink-0" />
-              <h4 className="text-xs font-bold text-stone-300">알림 및 안내 사항</h4>
+              <h4 className="text-xs font-bold text-stone-300">{t('admin.noticesAndGuides')}</h4>
             </div>
 
             <ul className="space-y-2 text-xs text-stone-500 leading-relaxed list-disc list-inside">

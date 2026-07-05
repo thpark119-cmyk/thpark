@@ -3,6 +3,7 @@ import { Play, Square, Plus, Minus, Volume2, VolumeX, Hand, Save, ListMusic, Tim
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { isAdminUser } from '../utils/admin';
 
 import { ensureAudioContextRunning, getSharedAudioContext, unlockAudioForMobile } from '../utils/audioContext';
 import { ensureOutputAudioRunning, getOutputAudioContext, playAudibleTestBeep, prepareOutputAudioFromGesture, getOutputNodes } from '../utils/audioOutput';
@@ -189,7 +190,7 @@ const defaultSettings: MetronomeSettings = {
 export default function Metronome() {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const isAdmin = user?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(user);
 
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [debugMsg, setDebugMsg] = useState<string>('waiting');

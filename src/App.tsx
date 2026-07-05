@@ -5,6 +5,7 @@ import { useLanguage } from './context/LanguageContext';
 import { signInWithGoogle, logout } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrandLogo } from './components/BrandLogo';
+import { isAdminUser } from './utils/admin';
 
 // Lazy load components for performance optimization
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -61,7 +62,7 @@ export default function App() {
     }
   };
 
-  const isAdmin = user?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(user);
 
   const navItems = [
     { id: 'dashboard', label: t('navigation.dashboard'), icon: LayoutGrid },

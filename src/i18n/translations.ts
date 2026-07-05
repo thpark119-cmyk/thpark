@@ -40,7 +40,18 @@ export const translations = {
       repertoireFiles: '악보함 파일',
       user: '사용자',
       totalFiles: '전체 파일',
-      totalCapacity: '전체 용량'
+      totalCapacity: '전체 용량',
+      userUnit: '명',
+      fileUnit: '개',
+      photoUnit: '장',
+      noUsersWithData: '데이터가 등록된 사용자가 존재하지 않습니다.',
+      noticesAndGuides: '알림 및 안내 사항',
+      authDiffNotice: '이 화면의 사용자 수는 Firestore에 앱 데이터 또는 사용자 문서가 있는 계정을 기준으로 계산됩니다. Firebase Authentication의 전체 가입자 수와 다를 수 있습니다.',
+      securityRulesGuide: '보안 규칙 권한 해결 가이드',
+      securityRulesGuideDesc: '관리자 계정(`thpark119@gmail.com`)이라도, Firestore 규칙(`firestore.rules`)에 `/users` 컬렉션에 대한 `list` 권한이 선언되어 있어야 전체 사용자 정보 조회가 정상 실행됩니다.',
+      currentRulesDesc: '현재 규칙에서 `/users/{"{userId}"}`는 개별 조회(`get`)만 지원하며 목록 조회(`list`)를 지원하지 않습니다.',
+      recommendedAction: '권장 조치: `firestore.rules` 파일에 다음 규칙을 추가하고 배포해야 전체 요약 조회가 기능합니다:',
+      ruleMissingCause: '이 규칙이 누락되어 조회가 실패함'
     },
     navigation: {
       dashboard: '대시보드',
@@ -696,7 +707,18 @@ export const translations = {
       repertoireFiles: 'Repertoire Files',
       user: 'User',
       totalFiles: 'Total Files',
-      totalCapacity: 'Total Capacity'
+      totalCapacity: 'Total Capacity',
+      userUnit: 'user(s)',
+      fileUnit: 'file(s)',
+      photoUnit: 'photo(s)',
+      noUsersWithData: 'No users with registered data found.',
+      noticesAndGuides: 'Notices & Guidelines',
+      authDiffNotice: 'The number of users on this screen is calculated based on accounts with app data or user documents in Firestore. It may differ from the total number of subscribers in Firebase Authentication.',
+      securityRulesGuide: 'Security Rules Permission Guide',
+      securityRulesGuideDesc: 'Even as an administrator account (`thpark119@gmail.com`), the `list` permission for the `/users` collection must be declared in the Firestore rules (`firestore.rules`) for the overall user info lookup to run successfully.',
+      currentRulesDesc: 'In the current rules, `/users/{"{userId}"}` only supports individual lookup (`get`) and does not support list lookup (`list`).',
+      recommendedAction: 'Recommended Action: You must add and deploy the following rule to the `firestore.rules` file for the overall summary lookup to function:',
+      ruleMissingCause: 'Lookup failed because this rule is missing'
     },
     navigation: {
       dashboard: 'Dashboard',
@@ -1360,7 +1382,18 @@ export const translations = {
       repertoireFiles: 'Repertoire-Dateien',
       user: 'Benutzer',
       totalFiles: 'Dateien gesamt',
-      totalCapacity: 'Gesamtkapazität'
+      totalCapacity: 'Gesamtkapazität',
+      userUnit: 'Benutzer',
+      fileUnit: 'Datei(en)',
+      photoUnit: 'Foto(s)',
+      noUsersWithData: 'Keine Benutzer mit registrierten Daten gefunden.',
+      noticesAndGuides: 'Hinweise und Richtlinien',
+      authDiffNotice: 'Die Anzahl der Benutzer auf diesem Bildschirm wird basierend auf Konten mit App-Daten oder Benutzerdokumenten in Firestore berechnet. Sie kann von der Gesamtzahl der Abonnenten in Firebase Authentication abweichen.',
+      securityRulesGuide: 'Sicherheitsregeln Berechtigungsleitfaden',
+      securityRulesGuideDesc: 'Selbst als Administratorkonto (`thpark119@gmail.com`) muss die Berechtigung `list` für die Sammlung `/users` in den Firestore-Regeln (`firestore.rules`) deklariert sein, damit die Abfrage der gesamten Benutzerinformationen erfolgreich ausgeführt werden kann.',
+      currentRulesDesc: 'In den aktuellen Regeln unterstützt `/users/{"{userId}"}` nur die individuelle Abfrage (`get`) und keine Listenabfrage (`list`).',
+      recommendedAction: 'Empfohlene Maßnahme: Sie müssen die folgende Regel zur Datei `firestore.rules` hinzufügen und bereitstellen, damit die Gesamtzusammenfassungsabfrage funktioniert:',
+      ruleMissingCause: 'Abfrage fehlgeschlagen, da diese Regel fehlt'
     },
     navigation: {
       dashboard: 'Startseite',

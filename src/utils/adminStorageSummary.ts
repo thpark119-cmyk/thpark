@@ -1,5 +1,6 @@
 import { collection, doc, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { isAdminUser } from './admin';
 
 export type AdminUserStorageSummary = {
   uid: string;
@@ -44,7 +45,7 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
     throw new Error('Database connection is not available.');
   }
 
-  const isAdmin = currentUser?.email === 'thpark119@gmail.com';
+  const isAdmin = isAdminUser(currentUser);
   if (!isAdmin) {
     throw new Error('Permission denied. Admin authorization is required.');
   }
