@@ -14,6 +14,25 @@ import { validateLessonPhotoFile, getSafeFileExtension } from '../utils/fileVali
 import { buildLessonPhotoStoragePath } from '../utils/storagePaths';
 import { CloudLessonPhoto } from '../types/cloudFiles';
 
+interface PendingPhotoUpload {
+  id: string;
+  file: File;
+  blob: Blob;
+  previewUrl: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  width: number;
+  height: number;
+  extension: 'jpg' | 'webp';
+}
+
+interface PendingPhotoDelete {
+  id: string;
+  source: 'firebase-storage' | 'indexeddb';
+  storagePath?: string;
+}
+
 export default function TeachingStudio() {
   const { user } = useAuth();
   const { t, language } = useLanguage();
@@ -36,6 +55,9 @@ export default function TeachingStudio() {
   const [photoError, setPhotoError] = useState('');
   const [viewingPhotoId, setViewingPhotoId] = useState<string | null>(null);
   const [viewingCloudPhoto, setViewingCloudPhoto] = useState<CloudLessonPhoto | null>(null);
+
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhotoUpload[]>([]);
+  const [pendingDeletes, setPendingDeletes] = useState<PendingPhotoDelete[]>([]);
 
   const canUseIndexedDB = isIndexedDBAvailable();
 
@@ -82,15 +104,36 @@ export default function TeachingStudio() {
     if (activeStudent?.id === id) setActiveStudent(null);
   };
 
+  const handleCancel = () => {
+    const hasTextChanges = editingLesson
+      ? (lessonForm.content !== (editingLesson.content || '') ||
+         lessonForm.homework !== (editingLesson.homework || '') ||
+         lessonForm.nextGoal !== (editingLesson.nextGoal || '') ||
+         lessonForm.memo !== (editingLesson.memo || ''))
+      : (lessonForm.content !== '' || lessonForm.homework !== '' || lessonForm.nextGoal !== '' || lessonForm.memo !== '');
+
+    const hasChanges = hasTextChanges || pendingPhotos.length > 0 || pendingDeletes.length > 0;
+
+    if (hasChanges) {
+      if (!window.confirm(t('common.unsavedChangesWarning'))) {
+        return;
+      }
+    }
+
+    // Revoke all preview URLs
+    for (const pending of pendingPhotos) {
+      URL.revokeObjectURL(pending.previewUrl);
+    }
+    setPendingPhotos([]);
+    setPendingDeletes([]);
+    setIsAddingLesson(false);
+    setEditingLesson(null);
+    setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
+  };
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0 || !activeStudent) return;
     const file = e.target.files[0];
-    
-    const totalPhotos = lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length;
-    if (totalPhotos >= 3) {
-      setPhotoError(t('students.photoLimitReached') || 'You can attach up to 3 photos.');
-      return;
-    }
 
     // 1단계: 원본 파일 형식 및 20MB 이하 검증
     const validation = validateLessonPhotoFile(file);
@@ -124,57 +167,21 @@ export default function TeachingStudio() {
         return;
       }
 
-      setUploadStage('uploading');
+      const previewUrl = URL.createObjectURL(compressed.blob);
+      const newPendingPhoto: PendingPhotoUpload = {
+        id: photoId,
+        file,
+        blob: compressed.blob,
+        previewUrl,
+        fileName: file.name,
+        contentType: compressed.contentType,
+        size: compressed.compressedSize,
+        width: compressed.width,
+        height: compressed.height,
+        extension: compressed.extension
+      };
 
-      if (user) {
-        const ext = compressed.extension; // 'jpg' or 'webp'
-        const storagePath = buildLessonPhotoStoragePath({
-          uid: user.uid,
-          studentId: activeStudent.id,
-          lessonId: currentLessonId,
-          photoId,
-          ext,
-        });
-
-        await uploadFileToStorage({
-          file: compressed.blob,
-          storagePath,
-          contentType: compressed.contentType,
-        });
-
-        // 4단계: metadata 저장 기준 변경 (압축 결과 기준)
-        const cloudPhoto: CloudLessonPhoto = {
-          id: photoId,
-          storagePath,
-          fileName: file.name,
-          contentType: compressed.contentType,
-          size: compressed.compressedSize, // 압축 후 용량 기준 저장
-          width: compressed.width,         // 압축 후 가로 기준 저장
-          height: compressed.height,       // 압축 후 세로 기준 저장
-          createdAt: new Date().toISOString(),
-          uploadedAt: new Date().toISOString(),
-          source: 'firebase-storage',
-        };
-
-        setLessonForm(prev => ({ ...prev, photos: [...prev.photos, cloudPhoto] }));
-      } else {
-        const newPhoto: LocalLessonPhoto = {
-          id: photoId,
-          userId: user?.uid,
-          studentId: activeStudent.id,
-          lessonId: currentLessonId,
-          fileName: file.name,
-          contentType: compressed.contentType,
-          size: compressed.compressedSize, // 압축 후 용량 기준 저장
-          width: compressed.width,         // 압축 후 가로 기준 저장
-          height: compressed.height,       // 압축 후 세로 기준 저장
-          createdAt: Date.now(),
-          blob: compressed.blob
-        };
-
-        await saveLessonPhoto(newPhoto);
-        setLessonForm(prev => ({ ...prev, photoIds: [...prev.photoIds, photoId] }));
-      }
+      setPendingPhotos(prev => [...prev, newPendingPhoto]);
       setUploadStage('success');
     } catch (err) {
       console.error('Failed to compress/save photo', err);
@@ -186,63 +193,195 @@ export default function TeachingStudio() {
     }
   };
 
-  const handleRemovePhoto = async (photoId: string) => {
-    setLessonForm(prev => ({ ...prev, photoIds: prev.photoIds.filter(id => id !== photoId) }));
-    try {
-      await deleteLessonPhotos([photoId]);
-    } catch (err) {
-      console.warn('Failed to delete photo from local storage', err);
-    }
+  const handleRemovePhoto = (photoId: string) => {
+    setPendingDeletes(prev => [...prev, { id: photoId, source: 'indexeddb' }]);
   };
 
-  const handleRemoveCloudPhoto = async (photo: CloudLessonPhoto) => {
-    setLessonForm(prev => ({ ...prev, photos: prev.photos.filter(p => p.id !== photo.id) }));
-    try {
-      console.log('[Mio delete debug]', {
-        action: 'delete_student_photo',
-        collection: 'students',
-        photoId: photo.id,
-        storagePath: photo.storagePath,
-      });
-      await deleteFileFromStorage(photo.storagePath);
-    } catch (err) {
-      console.warn('Failed to delete photo from cloud storage', err);
+  const handleRemoveCloudPhoto = (photo: CloudLessonPhoto) => {
+    setPendingDeletes(prev => [...prev, { id: photo.id, source: 'firebase-storage', storagePath: photo.storagePath }]);
+  };
+
+  const handleRemovePendingPhoto = (photoId: string) => {
+    const photo = pendingPhotos.find(p => p.id === photoId);
+    if (photo) {
+      URL.revokeObjectURL(photo.previewUrl);
     }
+    setPendingPhotos(prev => prev.filter(p => p.id !== photoId));
+  };
+
+  const handleUndoDeletePhoto = (photoId: string) => {
+    setPendingDeletes(prev => prev.filter(d => d.id !== photoId));
   };
 
   const handleSaveLesson = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeStudent || !lessonForm.date || !lessonForm.content) return;
 
-    const lessons = activeStudent.lessons ? [...activeStudent.lessons] : [];
+    setIsUploadingPhoto(true);
+    setUploadStage('uploading');
 
-    if (editingLesson) {
-      const index = lessons.findIndex(l => l.id === editingLesson.id);
-      if (index >= 0) {
-        lessons[index] = { ...lessons[index], ...lessonForm, updatedAt: Date.now() };
-      } else if (editingLesson.id === 'legacy-lesson') {
-        // Saving an edited legacy lesson adds it to the real lessons array
+    const uploadedCloudPhotos: CloudLessonPhoto[] = [];
+    const savedLocalIds: string[] = [];
+
+    try {
+      const targetLessonId = currentLessonId || crypto.randomUUID();
+
+      if (user) {
+        // 1. Upload new pending photos to Cloud Storage
+        for (const pending of pendingPhotos) {
+          const storagePath = buildLessonPhotoStoragePath({
+            uid: user.uid,
+            studentId: activeStudent.id,
+            lessonId: targetLessonId,
+            photoId: pending.id,
+            ext: pending.extension
+          });
+
+          await uploadFileToStorage({
+            file: pending.blob,
+            storagePath,
+            contentType: pending.contentType
+          });
+
+          const cloudPhoto: CloudLessonPhoto = {
+            id: pending.id,
+            storagePath,
+            fileName: pending.fileName,
+            contentType: pending.contentType,
+            size: pending.size,
+            width: pending.width,
+            height: pending.height,
+            createdAt: new Date().toISOString(),
+            uploadedAt: new Date().toISOString(),
+            source: 'firebase-storage'
+          };
+          uploadedCloudPhotos.push(cloudPhoto);
+        }
+      } else {
+        // Save new pending photos to IndexedDB
+        if (pendingPhotos.length > 0 && !canUseIndexedDB) {
+          throw new Error("IndexedDB not available");
+        }
+
+        for (const pending of pendingPhotos) {
+          const localPhoto = {
+            id: pending.id,
+            userId: user?.uid,
+            studentId: activeStudent.id,
+            lessonId: targetLessonId,
+            fileName: pending.fileName,
+            contentType: pending.contentType,
+            size: pending.size,
+            width: pending.width,
+            height: pending.height,
+            createdAt: Date.now(),
+            blob: pending.blob
+          };
+
+          await saveLessonPhoto(localPhoto);
+          savedLocalIds.push(pending.id);
+        }
+      }
+
+      // 2. Prepare final photo collections for the lesson entry
+      const finalCloudPhotos = lessonForm.photos
+        .filter(p => !pendingDeletes.some(d => d.id === p.id))
+        .concat(uploadedCloudPhotos);
+
+      const finalLocalIds = lessonForm.photoIds
+        .filter(id => !pendingDeletes.some(d => d.id === id))
+        .concat(savedLocalIds);
+
+      // 3. Save student lesson entry
+      const lessons = activeStudent.lessons ? [...activeStudent.lessons] : [];
+      const updatedLessonForm = {
+        ...lessonForm,
+        photoIds: finalLocalIds,
+        photos: finalCloudPhotos
+      };
+
+      if (editingLesson) {
+        const index = lessons.findIndex(l => l.id === editingLesson.id);
+        if (index >= 0) {
+          lessons[index] = { ...lessons[index], ...updatedLessonForm, id: targetLessonId, updatedAt: Date.now() };
+        } else if (editingLesson.id === 'legacy-lesson') {
+          lessons.push({
+            id: targetLessonId,
+            ...updatedLessonForm,
+            createdAt: activeStudent.createdAt || Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+      } else {
         lessons.push({
-          id: currentLessonId,
-          ...lessonForm,
-          createdAt: activeStudent.createdAt || Date.now(),
+          id: targetLessonId,
+          ...updatedLessonForm,
+          createdAt: Date.now(),
           updatedAt: Date.now()
         });
       }
-    } else {
-      lessons.push({
-        id: currentLessonId,
-        ...lessonForm,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-    }
 
-    await updateRecord('students', activeStudent.id, { lessons }, user);
-    setIsAddingLesson(false);
-    setEditingLesson(null);
-    setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
+      await updateRecord('students', activeStudent.id, { lessons }, user);
+
+      // 4. Commit actual deletions
+      for (const del of pendingDeletes) {
+        if (del.source === 'firebase-storage' && del.storagePath) {
+          try {
+            await deleteFileFromStorage(del.storagePath);
+          } catch (err) {
+            console.warn('Failed to delete cloud photo on commit', del.storagePath, err);
+          }
+        } else if (del.source === 'indexeddb') {
+          try {
+            await deleteLessonPhotos([del.id]);
+          } catch (err) {
+            console.warn('Failed to delete local photo on commit', del.id, err);
+          }
+        }
+      }
+
+      // Cleanup preview URLs
+      for (const pending of pendingPhotos) {
+        URL.revokeObjectURL(pending.previewUrl);
+      }
+
+      setPendingPhotos([]);
+      setPendingDeletes([]);
+      setIsAddingLesson(false);
+      setEditingLesson(null);
+      setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
+
+    } catch (err: any) {
+      console.error('Failed to save lesson in TeachingStudio', err);
+      // ROLLBACK: clean up uploaded/saved files
+      if (user) {
+        for (const uploaded of uploadedCloudPhotos) {
+          try {
+            await deleteFileFromStorage(uploaded.storagePath);
+          } catch (rErr) {
+            console.error('Rollback failed for cloud storage', uploaded.storagePath, rErr);
+          }
+        }
+      } else {
+        for (const savedId of savedLocalIds) {
+          try {
+            await deleteLessonPhotos([savedId]);
+          } catch (rErr) {
+            console.error('Rollback failed for local database photo', savedId, rErr);
+          }
+        }
+      }
+
+      alert(t('common.saveError') || 'Failed to save. Please check your network connection.');
+    } finally {
+      setIsUploadingPhoto(false);
+      setUploadStage('idle');
+    }
   };
+
+  const displayedLocalIds = lessonForm.photoIds.filter(id => !pendingDeletes.some(d => d.id === id));
+  const displayedCloudPhotos = lessonForm.photos.filter(p => !pendingDeletes.some(d => d.id === p.id));
+  const totalPhotos = displayedLocalIds.length + displayedCloudPhotos.length + pendingPhotos.length;
 
   const handleDeleteLesson = async (lessonId: string) => {
     if (!activeStudent || !window.confirm(t('students.confirmDeleteLesson') || 'Delete this lesson record?')) return;
@@ -383,6 +522,8 @@ export default function TeachingStudio() {
               onClick={() => {
                 setCurrentLessonId(crypto.randomUUID());
                 setLessonForm({ date: new Date().toISOString().split('T')[0], content: '', homework: '', nextGoal: '', memo: '', photoIds: [], photos: [] });
+                setPendingPhotos([]);
+                setPendingDeletes([]);
                 setEditingLesson(null);
                 setIsAddingLesson(true);
               }}
@@ -412,6 +553,8 @@ export default function TeachingStudio() {
                         photoIds: lesson.photoIds || [],
                         photos: lesson.photos || []
                       });
+                      setPendingPhotos([]);
+                      setPendingDeletes([]);
                       setEditingLesson(lesson);
                       setIsAddingLesson(true);
                     }} className="text-stone-500 hover:text-white p-1">
@@ -533,11 +676,11 @@ export default function TeachingStudio() {
         <AnimatePresence>
           {isAddingLesson && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsAddingLesson(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={handleCancel} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-md bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-serif italic text-white leading-none">{editingLesson ? (t('students.editLessonRecord') || 'Edit') : (t('students.addLessonRecord') || 'Add')}</h3>
-                  <button onClick={() => setIsAddingLesson(false)} className="text-stone-600"><X size={24} /></button>
+                  <button type="button" onClick={handleCancel} className="text-stone-600"><X size={24} /></button>
                 </div>
                 <form onSubmit={handleSaveLesson} className="space-y-4">
                   <div className="space-y-1.5">
@@ -564,38 +707,85 @@ export default function TeachingStudio() {
                   <div className="space-y-2 pt-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">
-                        {t('students.photos') || 'Photos'} ({lessonForm.photoIds.length + lessonForm.photos.length}/3)
+                        {t('students.photos') || 'Photos'} ({totalPhotos}/3)
                       </label>
-                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
+                      <label className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${((!canUseIndexedDB && !user) || totalPhotos >= 3) ? 'bg-stone-800 text-stone-600 cursor-not-allowed' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'}`}>
                         {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                         {isUploadingPhoto 
                           ? (uploadStage === 'compressing' ? t('common.photoCompressing') : t('common.photoUploading')) 
                           : (t('students.photoAdd') || 'Add Photo')}
-                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || (lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id))).length + lessonForm.photos.length) >= 3} />
+                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={(!canUseIndexedDB && !user) || isUploadingPhoto || totalPhotos >= 3} />
                       </label>
                     </div>
                     {!canUseIndexedDB && !user && <p className="text-red-400 text-xs px-2">{t('students.photoNotSupported') || 'Local photo storage is not supported in this browser.'}</p>}
                     {photoError && <p className="text-red-400 text-xs px-2">{photoError}</p>}
-                    {(lessonForm.photoIds.length > 0 || lessonForm.photos.length > 0) && (
+                    {(lessonForm.photoIds.length > 0 || lessonForm.photos.length > 0 || pendingPhotos.length > 0) && (
                       <div className="flex flex-wrap gap-2">
-                        {(lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id)))).map((photoId) => (
-                          <div key={photoId} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-stone-800">
-                            <LocalPhotoView photoId={photoId} className="w-full h-full object-cover" />
+                        {(lessonForm.photoIds.filter(id => !(lessonForm.photos?.some(p => p.originalLocalPhotoId === id)))).map((photoId) => {
+                          const isDeleted = pendingDeletes.some(d => d.id === photoId);
+                          return (
+                            <div key={photoId} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10'}`}>
+                              <LocalPhotoView photoId={photoId} className="w-full h-full object-cover" />
+                              {isDeleted ? (
+                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1">
+                                  <span className="text-[9px] font-bold text-red-400 px-1 py-0.5 bg-black/60 rounded uppercase tracking-wider">{t('common.photoPendingDelete')}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUndoDeletePhoto(photoId)}
+                                    className="text-[10px] font-bold text-white bg-stone-800 hover:bg-stone-700 px-1.5 py-0.5 rounded transition-colors"
+                                  >
+                                    {t('common.photoUndoDelete')}
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemovePhoto(photoId)}
+                                  className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {lessonForm.photos.map((photo) => {
+                          const isDeleted = pendingDeletes.some(d => d.id === photo.id);
+                          return (
+                            <div key={photo.id} className={`relative group w-20 h-20 rounded-xl overflow-hidden border bg-stone-800 transition-all ${isDeleted ? 'border-red-500/50 opacity-40' : 'border-white/10'}`}>
+                              <CloudPhotoView photo={photo} className="w-full h-full object-cover" />
+                              {isDeleted ? (
+                                <div className="absolute inset-0 bg-red-950/40 flex items-center justify-center flex-col gap-1">
+                                  <span className="text-[9px] font-bold text-red-400 px-1 py-0.5 bg-black/60 rounded uppercase tracking-wider">{t('common.photoPendingDelete')}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUndoDeletePhoto(photo.id)}
+                                    className="text-[10px] font-bold text-white bg-stone-800 hover:bg-stone-700 px-1.5 py-0.5 rounded transition-colors"
+                                  >
+                                    {t('common.photoUndoDelete')}
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCloudPhoto(photo)}
+                                  className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {pendingPhotos.map((pending) => (
+                          <div key={pending.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-green-500/50 bg-stone-800 transition-all animate-pulse">
+                            <img src={pending.previewUrl} alt="Pending upload preview" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-1 left-1 right-1 flex justify-center">
+                              <span className="text-[8px] font-bold text-green-400 px-1 py-0.5 bg-black/80 rounded uppercase tracking-wider">{t('common.photoWillBeAdded')}</span>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => handleRemovePhoto(photoId)}
-                              className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ))}
-                        {lessonForm.photos.map((photo) => (
-                          <div key={photo.id} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-stone-800">
-                            <CloudPhotoView photo={photo} className="w-full h-full object-cover" />
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCloudPhoto(photo)}
+                              onClick={() => handleRemovePendingPhoto(pending.id)}
                               className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                               <X size={12} />

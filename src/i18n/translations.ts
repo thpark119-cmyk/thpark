@@ -69,7 +69,17 @@ export const translations = {
       photoCompressFailed: '사진 압축에 실패했습니다. 다른 사진을 선택하거나 용량을 줄인 뒤 다시 시도해주세요.',
       photoUploadFailed: '사진 업로드에 실패했습니다. 네트워크 연결을 확인해주세요.',
       photoTooLarge: '사진이 너무 큽니다. 20MB 이하의 사진을 선택해주세요.',
-      photoUnsupportedFormat: '이 형식의 사진은 지원되지 않습니다. JPG, PNG, WEBP, HEIC 사진을 선택해주세요.'
+      photoUnsupportedFormat: '이 형식의 사진은 지원되지 않습니다. JPG, PNG, WEBP, HEIC 사진을 선택해주세요.',
+      photoPendingDelete: '삭제 예정',
+      photoUndoDelete: '삭제 취소',
+      photoWillBeDeleted: '저장하면 이 사진이 삭제됩니다.',
+      photoNewAdded: '새로 추가한 사진',
+      photoWillBeUploaded: '저장하면 이 사진이 업로드됩니다.',
+      unsavedChangesWarning: '저장하지 않은 변경사항이 있습니다. 나가면 작성 중인 내용과 새로 추가한 사진이 사라집니다.',
+      saveError: '저장에 실패했습니다. 네트워크 연결을 확인한 뒤 다시 시도해주세요.',
+      photoError: '사진 업로드 중 문제가 발생했습니다. 다시 시도해주세요.',
+      partialDeleteError: '일부 사진을 삭제하지 못했습니다. 네트워크 연결을 확인해주세요.',
+      unuploadedNotice: '저장하지 않은 사진은 서버에 업로드되지 않았습니다.'
     },
     error: {
       loginError: '구글 로그인 연결 안내',
@@ -657,7 +667,17 @@ export const translations = {
       photoCompressFailed: 'Photo compression failed. Please choose another photo or reduce the size and try again.',
       photoUploadFailed: 'Photo upload failed. Please check your network connection.',
       photoTooLarge: 'Photo is too large. Please select a photo under 20MB.',
-      photoUnsupportedFormat: 'This photo format is not supported. Please select a JPG, PNG, WEBP, or HEIC photo.'
+      photoUnsupportedFormat: 'This photo format is not supported. Please select a JPG, PNG, WEBP, or HEIC photo.',
+      photoPendingDelete: 'Pending Delete',
+      photoUndoDelete: 'Undo Delete',
+      photoWillBeDeleted: 'This photo will be deleted upon saving.',
+      photoNewAdded: 'Newly added photo',
+      photoWillBeUploaded: 'This photo will be uploaded upon saving.',
+      unsavedChangesWarning: 'You have unsaved changes. Leaving will discard your draft and newly added photos.',
+      saveError: 'Failed to save. Please check your network connection and try again.',
+      photoError: 'There was a problem uploading photos. Please try again.',
+      partialDeleteError: 'Failed to delete some photos. Please check your network connection.',
+      unuploadedNotice: 'Unsaved photos were not uploaded to the server.'
     },
     error: {
       loginError: 'Google Login Notice',
@@ -1242,7 +1262,17 @@ export const translations = {
       photoCompressFailed: 'Fotokomprimierung fehlgeschlagen. Bitte wählen Sie ein anderes Foto oder reduzieren Sie die Größe und versuchen Sie es erneut.',
       photoUploadFailed: 'Foto-Upload fehlgeschlagen. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
       photoTooLarge: 'Foto ist zu groß. Bitte wählen Sie ein Foto unter 20 MB.',
-      photoUnsupportedFormat: 'Dieses Fotoformat wird nicht unterstützt. Bitte wählen Sie ein JPG, PNG, WEBP oder HEIC Foto.'
+      photoUnsupportedFormat: 'Dieses Fotoformat wird nicht unterstützt. Bitte wählen Sie ein JPG, PNG, WEBP oder HEIC Foto.',
+      photoPendingDelete: 'Wird gelöscht',
+      photoUndoDelete: 'Löschen rückgängig',
+      photoWillBeDeleted: 'Dieses Foto wird beim Speichern gelöscht.',
+      photoNewAdded: 'Neu hinzugefügtes Foto',
+      photoWillBeUploaded: 'Dieses Foto wird beim Speichern hochgeladen.',
+      unsavedChangesWarning: 'Sie haben ungespeicherte Änderungen. Beim Verlassen wird Ihr Entwurf und neu hinzugefügte Fotos verworfen.',
+      saveError: 'Fehler beim Speichern. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.',
+      photoError: 'Es gab ein Problem beim Hochladen der Fotos. Bitte versuchen Sie es erneut.',
+      partialDeleteError: 'Einige Fotos konnten nicht gelöscht werden. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+      unuploadedNotice: 'Nicht gespeicherte Fotos wurden nicht auf den Server hochgeladen.'
     },
     error: {
       loginError: 'Google Login-Hinweis',
