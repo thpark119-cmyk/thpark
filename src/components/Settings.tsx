@@ -17,7 +17,11 @@ import { getStorageUsageSummary, type StorageUsageSummary } from '../utils/stora
 const VERSION = packageJson.version || '0.1.0';
 const CONTACT_EMAIL = 'thpark119@gmail.com';
 
-export default function Settings() {
+interface SettingsProps {
+  setActiveTab?: (tab: string) => void;
+}
+
+export default function Settings({ setActiveTab }: SettingsProps) {
   const { user } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -112,6 +116,26 @@ export default function Settings() {
 
   return (
     <div className="max-w-2xl mx-auto pb-10 space-y-3">
+      {/* Admin Dashboard Option for Admins */}
+      {user?.email === 'thpark119@gmail.com' && setActiveTab && (
+        <div className="space-y-2">
+          <button 
+            onClick={() => setActiveTab('admin')}
+            className="w-full flex items-center justify-between p-4 bg-brand/10 hover:bg-brand/20 border border-brand/20 rounded-2xl transition-all text-left"
+          >
+            <div className="flex items-center gap-3 text-brand-light font-bold">
+              <div className="text-brand"><ShieldCheck size={18} /></div>
+              <span>{t('admin.dashboard')}</span>
+            </div>
+            <div className="text-brand">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          </button>
+        </div>
+      )}
+
       {/* Profile */}
       <div className="space-y-2">
         {renderSectionHeader('profile', <User size={18} />, t('settings.profile'))}

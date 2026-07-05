@@ -257,9 +257,9 @@ export default function App() {
                 {activeTab === 'studio' && <TeachingStudio />}
                 {activeTab === 'metronome' && <Metronome />}
                 {activeTab === 'tuner' && <Tuner />}
-                {activeTab === 'settings' && <Settings />}
+                {activeTab === 'settings' && <Settings setActiveTab={setActiveTab} />}
                 {activeTab === 'tutor' && (isAdmin ? <AITutor /> : <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />)}
-                {activeTab === 'admin' && isAdmin && <AdminPanel />}
+                {activeTab === 'admin' && <AdminPanel />}
               </motion.div>
             </AnimatePresence>
           </Suspense>

@@ -12,6 +12,14 @@ export const translations = {
       logout: '로그아웃',
       developer: '관리자'
     },
+    admin: {
+      title: '관리자',
+      dashboard: '관리자 대시보드',
+      adminOnly: '관리자 전용 화면입니다.',
+      noPermission: '관리자 권한이 없습니다.',
+      loginRequired: '로그인이 필요합니다.',
+      futureFeature: '전체 사용자 저장 현황은 다음 단계에서 추가됩니다.'
+    },
     navigation: {
       dashboard: '대시보드',
       receivedLessons: '레슨 일지',
@@ -637,6 +645,14 @@ export const translations = {
       loggingIn: 'Signing in...',
       logout: 'Sign out',
       developer: 'Admin'
+    },
+    admin: {
+      title: 'Admin',
+      dashboard: 'Admin Dashboard',
+      adminOnly: 'This screen is for administrators only.',
+      noPermission: 'You do not have administrator permissions.',
+      loginRequired: 'Sign-in is required.',
+      futureFeature: 'Overall user storage status will be added in the next phase.'
     },
     navigation: {
       dashboard: 'Dashboard',
@@ -1271,6 +1287,14 @@ export const translations = {
       loggingIn: 'Anmeldung...',
       logout: 'Abmelden',
       developer: 'Admin'
+    },
+    admin: {
+      title: 'Admin',
+      dashboard: 'Admin-Dashboard',
+      adminOnly: 'Dieser Bereich ist nur für Administratoren.',
+      noPermission: 'Sie haben keine Administratorrechte.',
+      loginRequired: 'Anmeldung erforderlich.',
+      futureFeature: 'Der gesamte Speicherstatus der Benutzer wird im nächsten Schritt hinzugefügt.'
     },
     navigation: {
       dashboard: 'Startseite',
