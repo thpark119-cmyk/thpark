@@ -41,3 +41,11 @@ Users have real-time visibility into their cloud and local storage footprint thr
 - Displays counts of local photos in IndexedDB and fallback local records in LocalStorage.
 - Empowers users with a "Recalculate" feature to instantly refresh their storage metrics on-demand.
 
+## Admin Backfill Metadata Cache (New - Phase 2 & 3)
+To ensure system-wide storage calculations on the admin dashboard are accurate without altering original user documents:
+- **No Personally Identifiable Information (PII)**: The metadata cache (`adminMetadataCache`) stores only the storage path (`storagePath`), owner's UID (`uid`), category (`category`), reference source document path (`sourceDocPath`), exact file size (`size`), contentType, and scanned timestamp.
+- **Strictly Excluded**: Name, email, and original filename are **strictly excluded** from the cache to preserve user privacy.
+- **No Modification on User Docs**: No original user documents in `/users` or any personal file fields are ever modified or written to by the administrator or the backfill service.
+- **Role-Based Access**: Access to `adminMetadataCache` is strictly locked to verified admin accounts via Firestore Security Rules.
+
+

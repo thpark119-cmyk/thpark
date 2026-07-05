@@ -67,7 +67,7 @@
 - [ ] Bottom navigation
 - [ ] Settings access
 
-## Data & Storage Management
+## Data & Storage Management & Admin Backfill (Phase 2 & 3)
 - [ ] "저장 데이터 현황" (Storage Status) section displays under Settings > Data Management
 - [ ] Recalculate button works and displays rotating spinner during refresh
 - [ ] Signed-in user: displays Student Photos, Lesson Journal Photos, Repertoire Files counts and sizes from Cloud
@@ -75,6 +75,15 @@
 - [ ] Local storage: displays local IndexedDB photos count
 - [ ] Local storage: displays LocalStorage fallback records count
 - [ ] Language switching properly translates all storage fields (KO, EN, DE) without English fallback leaks
+- [ ] Admin Backfill: Scan Candidates finds files with size=0 or undefined
+- [ ] Admin Backfill: storage metadata lookup yields proper file sizes and contentTypes
+- [ ] Admin Backfill: 'Save Corrigible Files' is disabled if no scan results, and only saves successful `metadata-found` items
+- [ ] Admin Backfill: cache upsert works (saves to `adminMetadataCache/{cacheId}`) using safe sanitized storagePath keys
+- [ ] Admin Backfill: cache excludes files with failures (permission-denied, not-found) from success logs
+- [ ] Admin Backfill: no PII (emails, original names, names) is written to cache documents or logged in browser console
+- [ ] Admin Backfill: user documents in `/users` remain completely unmodified
+- [ ] Admin Backfill: admin storage dashboard recalculates instantly by joining original Firestore metadata with the admin cache
+- [ ] Admin Backfill: unauthorized users (non-logged-in or standard users) are strictly blocked from seeing or invoking backfill tools
 
 ## Build / Deploy
 - [ ] npm run build

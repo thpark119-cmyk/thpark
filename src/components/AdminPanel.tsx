@@ -101,6 +101,7 @@ export default function AdminPanel() {
   };
 
   const loadCacheEntries = async () => {
+    if (!user || !isAdmin) return;
     try {
       const entries = await fetchMetadataCache();
       setCacheEntries(entries);
@@ -111,7 +112,7 @@ export default function AdminPanel() {
   };
 
   const handleSaveCorrigibleFiles = async () => {
-    if (!scanResults || scanResults.length === 0) return;
+    if (!user || !isAdmin || !scanResults || scanResults.length === 0) return;
     setSavingCache(true);
     setSaveStatus('saving');
     try {
@@ -133,7 +134,7 @@ export default function AdminPanel() {
   };
 
   const calculateStorage = async () => {
-    if (!user) return;
+    if (!user || !isAdmin) return;
     setCalculating(true);
     setError(null);
     try {
