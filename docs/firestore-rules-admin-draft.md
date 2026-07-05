@@ -76,6 +76,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // 1-C. 관리자 Storage 실제 파일 스캔 인벤토리 캐시 컬렉션
+    match /adminStorageInventoryCache/{cacheId} {
+      allow read, write: if isAdmin();
+    }
+
     // 2. 핵심 사용자 데이터 영역 (/users)
     match /users/{userId} {
       // 본인 또는 관리자는 개별 사용자 정보 조회가 가능합니다.

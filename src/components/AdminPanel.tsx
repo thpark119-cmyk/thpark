@@ -32,6 +32,12 @@ import {
   type BackfillScanResult,
   type AdminMetadataCacheEntry
 } from '../utils/adminMetadataBackfill';
+import {
+  performStorageInventoryScan,
+  loadCachedInventorySummary,
+  type AdminStorageInventorySummary,
+  type AdminUserStorageInventorySummary
+} from '../utils/adminStorageInventory';
 
 export default function AdminPanel() {
   const { user, loading } = useAuth();
@@ -39,6 +45,16 @@ export default function AdminPanel() {
   const [summary, setSummary] = useState<AdminStorageSummary | null>(null);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Tab control state
+  const [activeTab, setActiveTab] = useState<'app_records' | 'actual_storage'>('app_records');
+
+  // Storage actual file scan states
+  const [inventorySummary, setInventorySummary] = useState<AdminStorageInventorySummary | null>(null);
+  const [inventoryScanning, setInventoryScanning] = useState(false);
+  const [inventoryScanStage, setInventoryScanStage] = useState<'idle' | 'listing' | 'metadata' | 'users' | 'saving'>('idle');
+  const [inventoryScanProgress, setInventoryScanProgress] = useState({ count: 0, total: 0 });
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
 
   // Backfill scanning states
   const [scanning, setScanning] = useState(false);
@@ -111,6 +127,40 @@ export default function AdminPanel() {
     }
   };
 
+  const loadInventoryCache = async () => {
+    if (!user || !isAdmin) return;
+    try {
+      const cached = await loadCachedInventorySummary();
+      if (cached) {
+        setInventorySummary(cached);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load cached storage inventory:', err);
+    }
+  };
+
+  const handleRunInventoryScan = async () => {
+    if (!user || !isAdmin) return;
+    setInventoryScanning(true);
+    setInventoryError(null);
+    try {
+      const summaryResult = await performStorageInventoryScan(user, (status) => {
+        setInventoryScanStage(status.stage);
+        setInventoryScanProgress({
+          count: status.count,
+          total: status.total || 0
+        });
+      });
+      setInventorySummary(summaryResult);
+    } catch (err: any) {
+      console.error('Storage actual scan inventory error:', err);
+      setInventoryError(err?.message || 'Storage inventory scan failed');
+    } finally {
+      setInventoryScanning(false);
+      setInventoryScanStage('idle');
+    }
+  };
+
   const handleSaveCorrigibleFiles = async () => {
     if (!user || !isAdmin || !scanResults || scanResults.length === 0) return;
     setSavingCache(true);
@@ -152,6 +202,7 @@ export default function AdminPanel() {
     if (user && isAdmin) {
       calculateStorage();
       loadCacheEntries();
+      loadInventoryCache();
     }
   }, [user, isAdmin]);
 
@@ -286,13 +337,45 @@ export default function AdminPanel() {
       {/* Summary Content */}
       {summary && !calculating && (
         <div className="space-y-8">
-          {/* Info banner about Auth subscriber vs Firestore document calculation */}
-          <div className="bg-brand/5 border border-brand/10 p-4 rounded-2xl flex items-start gap-3 text-stone-300">
-            <Info size={18} className="text-brand shrink-0 mt-0.5" />
-            <p className="text-xs leading-relaxed">
-              {t('admin.authDiffNotice')}
-            </p>
+          {/* Tab Selector */}
+          <div className="flex border-b border-white/5 mb-6 overflow-x-auto scrollbar-none shrink-0 gap-1">
+            <button
+              onClick={() => setActiveTab('app_records')}
+              className={`px-4 py-3 text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+                activeTab === 'app_records'
+                  ? 'border-brand text-brand-light font-black'
+                  : 'border-transparent text-stone-500 hover:text-stone-300'
+              }`}
+            >
+              {t('admin.inventorySourceApp')}
+            </button>
+            <button
+              onClick={() => setActiveTab('actual_storage')}
+              className={`px-4 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'actual_storage'
+                  ? 'border-brand text-brand-light font-black'
+                  : 'border-transparent text-stone-500 hover:text-stone-300'
+              }`}
+            >
+              <span>{t('admin.inventorySourceActual')}</span>
+              {inventorySummary && (
+                <span className="text-[9px] bg-brand/10 text-brand px-1.5 py-0.5 rounded-full font-mono font-medium">
+                  {formatBytes(inventorySummary.totals.totalBytes)}
+                </span>
+              )}
+            </button>
           </div>
+
+          {/* 1. App Database Records Tab */}
+          {activeTab === 'app_records' && (
+            <div className="space-y-8">
+              {/* Info banner about Auth subscriber vs Firestore document calculation */}
+              <div className="bg-brand/5 border border-brand/10 p-4 rounded-2xl flex items-start gap-3 text-stone-300">
+                <Info size={18} className="text-brand shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed">
+                  {t('admin.authDiffNotice')}
+                </p>
+              </div>
 
           {/* Top Bento Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -709,6 +792,249 @@ export default function AdminPanel() {
               </div>
             )}
           </div>
+            </div>
+          )}
+
+      {/* 2. Actual Firebase Storage Files Tab */}
+      {activeTab === 'actual_storage' && (
+        <div className="space-y-8">
+          {/* Storage Real File Scanner Box */}
+          <div className="bg-stone-900/30 border border-white/5 p-6 rounded-[28px] space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <HardDrive size={20} className="text-brand" />
+                <div>
+                  <h3 className="text-base font-bold text-white">{t('admin.inventoryTitle')}</h3>
+                  <p className="text-xs text-stone-500 mt-1">
+                    {inventorySummary?.scannedAt ? `${t('admin.inventoryLastScanned')}: ${inventorySummary.scannedAt}` : '아직 스캔 기록이 없습니다.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleRunInventoryScan}
+                disabled={inventoryScanning}
+                className="px-5 py-3 bg-brand hover:bg-brand-light disabled:bg-brand/40 text-stone-950 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed shrink-0"
+              >
+                <RefreshCw size={14} className={inventoryScanning ? 'animate-spin' : ''} />
+                <span>{inventoryScanning ? t('admin.inventoryScanning') : t('admin.inventoryScanBtn')}</span>
+              </button>
+            </div>
+
+            {/* Scan Progress Indicator */}
+            {inventoryScanning && (
+              <div className="bg-stone-950/40 border border-white/5 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between text-xs text-stone-400">
+                  <span className="font-bold tracking-wider uppercase">
+                    {inventoryScanStage === 'listing' && 'Storage 경로 탐색 중 (Listing)...'}
+                    {inventoryScanStage === 'metadata' && '파일 메타데이터 수집 중 (getMetadata)...'}
+                    {inventoryScanStage === 'users' && '사용자 프로필 맵핑 중...'}
+                    {inventoryScanStage === 'saving' && '스캔 결과 캐시 저장 중...'}
+                  </span>
+                  <span className="font-mono text-stone-500 font-bold">
+                    {inventoryScanProgress.count} {inventoryScanProgress.total > 0 ? `/ ${inventoryScanProgress.total}` : ''}
+                  </span>
+                </div>
+                
+                {/* Tiny Progress Bar */}
+                <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
+                  <div 
+                    className="bg-brand h-full rounded-full transition-all duration-300"
+                    style={{ 
+                      width: inventoryScanProgress.total > 0 
+                        ? `${Math.min(100, (inventoryScanProgress.count / inventoryScanProgress.total) * 100)}%` 
+                        : '20%' 
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Inventory Scan Error */}
+            {inventoryError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 flex gap-2 font-mono">
+                <AlertOctagon size={16} className="shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">{t('admin.failedToLoad')}</p>
+                  <p className="mt-1">{inventoryError}</p>
+                  <p className="mt-2 text-stone-500 leading-relaxed text-[11px]">
+                    💡 Storage 목록 탐색(`list`) 및 파일 크기 파악(`getMetadata`) 권한이 부족할 수 있습니다. 자세한 권한 규칙은 `docs/storage-rules-admin-read-draft.md`를 참고해 주십시오.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Inventory Stats Bento Grid */}
+          {inventorySummary ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Total Files */}
+                <div className="bg-stone-900/30 border border-white/5 p-6 rounded-[28px] flex items-center justify-between">
+                  <div className="space-y-1">
+                    <span className="text-xs text-stone-500 font-semibold">{t('admin.inventoryTotalFiles')}</span>
+                    <p className="text-3xl font-black text-white">{inventorySummary.totals.fileCount}<span className="text-sm font-normal text-stone-400 ml-1">{t('admin.fileUnit')}</span></p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center">
+                    <FolderOpen size={22} />
+                  </div>
+                </div>
+
+                {/* Total Storage Bytes */}
+                <div className="bg-stone-900/30 border border-white/5 p-6 rounded-[28px] flex items-center justify-between">
+                  <div className="space-y-1">
+                    <span className="text-xs text-stone-500 font-semibold">{t('admin.inventoryTotalBytes')}</span>
+                    <p className="text-3xl font-black text-white">{formatBytes(inventorySummary.totals.totalBytes)}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-2xl flex items-center justify-center">
+                    <HardDrive size={22} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Categories subtotals including Uncategorized files */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-stone-900/10 border border-white/5 p-6 rounded-[28px]">
+                {/* Student Photos */}
+                <div className="space-y-1 p-2">
+                  <div className="flex items-center gap-1.5 text-stone-400 text-xs font-semibold mb-2">
+                    <Image size={14} className="text-brand-light" />
+                    <span>{t('admin.studentPhotos')}</span>
+                  </div>
+                  <p className="text-base font-bold text-stone-100">{inventorySummary.totals.studentPhotoCount}{t('admin.photoUnit')}</p>
+                  <p className="text-xs text-stone-500">{formatBytes(inventorySummary.totals.studentPhotoBytes)}</p>
+                </div>
+
+                {/* Lesson Journal Photos */}
+                <div className="space-y-1 p-2 border-l border-white/5 pl-4 md:pl-6">
+                  <div className="flex items-center gap-1.5 text-stone-400 text-xs font-semibold mb-2">
+                    <Image size={14} className="text-brand-light" />
+                    <span>{t('admin.lessonPhotos')}</span>
+                  </div>
+                  <p className="text-base font-bold text-stone-100">{inventorySummary.totals.lessonJournalPhotoCount}{t('admin.photoUnit')}</p>
+                  <p className="text-xs text-stone-500">{formatBytes(inventorySummary.totals.lessonJournalPhotoBytes)}</p>
+                </div>
+
+                {/* Repertoire Files */}
+                <div className="space-y-1 p-2 border-l border-white/5 pl-4 md:pl-6">
+                  <div className="flex items-center gap-1.5 text-stone-400 text-xs font-semibold mb-2">
+                    <FileText size={14} className="text-brand-light" />
+                    <span>{t('admin.repertoireFiles')}</span>
+                  </div>
+                  <p className="text-base font-bold text-stone-100">{inventorySummary.totals.repertoireFileCount}{t('admin.fileUnit')}</p>
+                  <p className="text-xs text-stone-500">{formatBytes(inventorySummary.totals.repertoireFileBytes)}</p>
+                </div>
+
+                {/* Uncategorized Unknown Files */}
+                <div className="space-y-1 p-2 border-l border-white/5 pl-4 md:pl-6">
+                  <div className="flex items-center gap-1.5 text-stone-400 text-xs font-semibold mb-2">
+                    <AlertCircle size={14} className="text-amber-400" />
+                    <span>{t('admin.inventoryUnknownFiles')}</span>
+                  </div>
+                  <p className="text-base font-bold text-stone-100">{inventorySummary.totals.unknownFileCount}{t('admin.fileUnit')}</p>
+                  <p className="text-xs text-stone-500">{formatBytes(inventorySummary.totals.unknownFileBytes)}</p>
+                </div>
+              </div>
+
+              {/* User Storage Inventory List */}
+              <div className="bg-stone-900/30 border border-white/5 rounded-[28px] overflow-hidden">
+                <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-stone-200">
+                    <Database size={18} className="text-brand" />
+                    <h3 className="text-base font-bold text-white">{t('admin.inventoryUserLabel')}</h3>
+                  </div>
+                  <span className="text-[10px] text-stone-500 font-bold bg-white/5 px-2.5 py-1 rounded-full uppercase">
+                    {inventorySummary.users.length} {t('admin.user')}
+                  </span>
+                </div>
+
+                <div className="divide-y divide-white/5">
+                  {inventorySummary.users.length === 0 ? (
+                    <div className="p-12 text-center text-sm text-stone-500">
+                      {t('admin.noUsersWithData')}
+                    </div>
+                  ) : (
+                    inventorySummary.users.map((us) => {
+                      const safeUid = us.uid ? (us.uid.substring(0, 8) + '***' + us.uid.substring(us.uid.length - 4)) : '';
+                      const userDisplayName = us.displayName || `${t('admin.user')} (${safeUid})`;
+                      return (
+                        <div key={us.uid} className="p-6 space-y-4 hover:bg-white/[0.01] transition-all">
+                          {/* User Header */}
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-white leading-snug truncate break-all">{userDisplayName}</p>
+                              {us.email && <p className="text-[10px] text-stone-500 font-mono truncate break-all">{us.email}</p>}
+                            </div>
+                            <div className="text-left md:text-right shrink-0">
+                              <span className="text-xs font-black text-brand-light block">
+                                Storage 실제 용량: {formatBytes(us.total.totalBytes)}
+                              </span>
+                              <p className="text-[10px] text-stone-500 font-mono mt-0.5">
+                                Storage 실제 파일: {us.total.count}{t('admin.fileUnit')}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Metrics Breakdown Grid with Uncategorized */}
+                          <div className="grid grid-cols-4 gap-2 bg-stone-950/40 p-3 rounded-xl border border-white/5 text-center">
+                            <div>
+                              <p className="text-[9px] text-stone-500 font-semibold truncate">{t('admin.studentPhotos')}</p>
+                              <p className="text-xs font-bold text-stone-300 mt-1">{us.studentPhotos.count}{t('admin.photoUnit')}</p>
+                              <p className="text-[9px] text-stone-500 mt-0.5 truncate">{formatBytes(us.studentPhotos.totalBytes)}</p>
+                            </div>
+                            <div className="border-l border-white/5">
+                              <p className="text-[9px] text-stone-500 font-semibold truncate">{t('admin.lessonPhotos')}</p>
+                              <p className="text-xs font-bold text-stone-300 mt-1">{us.lessonJournalPhotos.count}{t('admin.photoUnit')}</p>
+                              <p className="text-[9px] text-stone-500 mt-0.5 truncate">{formatBytes(us.lessonJournalPhotos.totalBytes)}</p>
+                            </div>
+                            <div className="border-l border-white/5">
+                              <p className="text-[9px] text-stone-500 font-semibold truncate">{t('admin.repertoireFiles')}</p>
+                              <p className="text-xs font-bold text-stone-300 mt-1">{us.repertoireFiles.count}{t('admin.fileUnit')}</p>
+                              <p className="text-[9px] text-stone-500 mt-0.5 truncate">{formatBytes(us.repertoireFiles.totalBytes)}</p>
+                            </div>
+                            <div className="border-l border-white/5">
+                              <p className="text-[9px] text-stone-500 font-semibold truncate">{t('admin.inventoryUnknownFiles')}</p>
+                              <p className="text-xs font-bold text-stone-300 mt-1">{us.unknownFiles.count}{t('admin.fileUnit')}</p>
+                              <p className="text-[9px] text-stone-500 mt-0.5 truncate">{formatBytes(us.unknownFiles.totalBytes)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-16 bg-stone-900/10 border border-dashed border-white/5 rounded-[28px] text-stone-500">
+              <HardDrive size={32} className="mx-auto text-stone-600 mb-3" />
+              <p className="text-xs">실제 파일 스캔을 완료하면, Storage 기준 용량 통계가 여기에 표시됩니다.</p>
+              <p className="text-[10px] text-stone-600 mt-1">상단의 "실제 파일 스캔" 버튼을 클릭해 주십시오.</p>
+            </div>
+          )}
+
+          {/* Storage Inventory Guides */}
+          <div className="bg-stone-900/10 border border-white/5 p-6 rounded-[28px] space-y-3.5">
+            <div className="flex items-center gap-2 text-stone-400">
+              <Info size={16} className="text-brand shrink-0" />
+              <h4 className="text-xs font-bold text-stone-300">{t('admin.noticesAndGuides')}</h4>
+            </div>
+
+            <ul className="space-y-2 text-xs text-stone-500 leading-relaxed list-disc list-inside">
+              <li>{t('admin.inventoryNoticeLine1')}</li>
+              <li>{t('admin.inventoryNoticeLine2')}</li>
+              <li>{t('admin.inventoryNoticeLine3')}</li>
+              <li>{t('admin.inventoryNoticeLine4')}</li>
+            </ul>
+
+            {inventorySummary?.scannedAt && (
+              <div className="pt-2 border-t border-white/5 flex justify-between text-[10px] text-stone-500 font-bold uppercase tracking-wider">
+                <span>{t('admin.inventoryLastScanned')}</span>
+                <span>{inventorySummary.scannedAt}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
         </div>
       )}
     </motion.div>
