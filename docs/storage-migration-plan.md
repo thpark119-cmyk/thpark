@@ -39,3 +39,15 @@ Once actual file upload to Storage is implemented in Phase 2, the `privacy.html`
 - Added fail-safes: skipping already migrated photos, rollback of Storage file if Firestore update fails, and skipping orphaned local photos.
 - Local photo deletion is NOT forced. Existing IndexedDB photos remain intact but are hidden in UI if the cloud counterpart is present.
 - Updated UI text and Privacy Policy to reflect this explicit opt-in migration step.
+
+## 6. Storage Status Summary (Phase 4)
+- **Features**: Settings > Data Management screen now provides a comprehensive breakdown of stored data.
+- **Data Status Calculation**:
+  - Calculates storage metrics based on Firestore metadata rather than querying Firebase Storage via `listAll` to optimize performance and Firestore cost.
+  - Student photos: counts items in `users/{uid}/students -> lessons -> photos` with a valid `storagePath`.
+  - Lesson journal photos: counts items in `users/{uid}/received_lessons -> photos` with a valid `storagePath`.
+  - Repertoire files: counts items in `users/{uid}/repertoire -> files` and includes legacy files.
+  - Local database status: counts items in IndexedDB (`getAllLocalPhotos()`) and counts serialized arrays in `localStorage` under keys `local_received_lessons`, `local_students`, and `local_repertoire`.
+- **Notes**:
+  - Orphaned files (files on Storage without corresponding Firestore metadata) are not automatically detected in-app; we guide users/developers to check the Firebase Console for absolute billing/usage values.
+

@@ -34,3 +34,10 @@ Users have the ability to explicitly migrate local photos (stored in IndexedDB) 
 - When migrated, a copy of the photo is uploaded to Firebase Storage and linked to the user's account.
 - The original local photos remain on the device and are not automatically deleted.
 - Migrated photos stored in the cloud are fully deleted when the user initiates account deletion.
+
+## Storage Usage Transparency (New)
+Users have real-time visibility into their cloud and local storage footprint through the **Settings > Data Management** dashboard:
+- Displays count and exact file size of student photos, lesson journal photos, and repertoire files saved in Firebase Storage.
+- Displays counts of local photos in IndexedDB and fallback local records in LocalStorage.
+- Empowers users with a "Recalculate" feature to instantly refresh their storage metrics on-demand.
+

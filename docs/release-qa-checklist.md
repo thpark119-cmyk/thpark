@@ -67,6 +67,15 @@
 - [ ] Bottom navigation
 - [ ] Settings access
 
+## Data & Storage Management
+- [ ] "저장 데이터 현황" (Storage Status) section displays under Settings > Data Management
+- [ ] Recalculate button works and displays rotating spinner during refresh
+- [ ] Signed-in user: displays Student Photos, Lesson Journal Photos, Repertoire Files counts and sizes from Cloud
+- [ ] Unsigned user: displays "로그인 후 확인 가능" guidance under Cloud storage
+- [ ] Local storage: displays local IndexedDB photos count
+- [ ] Local storage: displays LocalStorage fallback records count
+- [ ] Language switching properly translates all storage fields (KO, EN, DE) without English fallback leaks
+
 ## Build / Deploy
 - [ ] npm run build
 - [ ] Vercel deploy

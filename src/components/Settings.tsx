@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import LocalPhotoMigration from './LocalPhotoMigration';
 import { 
   User, Globe, Database, ShieldAlert, Mail, Info, 
-  LogOut, Trash2, AlertTriangle, Check, X, ShieldCheck, ExternalLink
+  LogOut, Trash2, AlertTriangle, Check, X, ShieldCheck, ExternalLink,
+  RefreshCw, Cloud, HardDrive
 } from 'lucide-react';
 import { signInWithGoogle, logout } from '../lib/firebase';
 import { clearLocalData, deleteUserAccountData } from '../lib/firestore';
 import { BrandLogo } from './BrandLogo';
 import packageJson from '../../package.json';
+import { getStorageUsageSummary, type StorageUsageSummary } from '../utils/storageUsageSummary';
 
 const VERSION = packageJson.version || '0.1.0';
 const CONTACT_EMAIL = 'thpark119@gmail.com';
@@ -26,6 +28,36 @@ export default function Settings() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   
   const [showClearLocal, setShowClearLocal] = useState(false);
+
+  const [storageSummary, setStorageSummary] = useState<StorageUsageSummary | null>(null);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  const fetchSummary = async () => {
+    setIsLoadingSummary(true);
+    setSummaryError(null);
+    try {
+      const summary = await getStorageUsageSummary(user);
+      setStorageSummary(summary);
+    } catch (err: any) {
+      console.error('Failed to load storage summary:', err);
+      setSummaryError(err.message || String(err));
+    } finally {
+      setIsLoadingSummary(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSummary();
+  }, [user]);
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   const toggleSection = (section: string) => {
     setActiveSection(prev => prev === section ? null : section);
@@ -161,6 +193,123 @@ export default function Settings() {
                 <p className="text-sm text-stone-400 whitespace-pre-line leading-relaxed">
                   {user ? t('settings.dataManagementDescSigned') : t('settings.dataManagementDescUnsigned')}
                 </p>
+
+                {/* Storage Status Sub-panel */}
+                <div className="mt-4 p-4 bg-stone-950/40 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                    <h4 className="text-sm font-bold text-stone-200 flex items-center gap-2">
+                      <Database size={16} className="text-brand-light" />
+                      {t('settings.storageStatusTitle')}
+                    </h4>
+                    <button
+                      onClick={fetchSummary}
+                      disabled={isLoadingSummary}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 text-stone-300 hover:text-white rounded-lg transition-colors text-xs font-medium"
+                    >
+                      <RefreshCw size={12} className={isLoadingSummary ? 'animate-spin' : ''} />
+                      {isLoadingSummary ? t('settings.recalculating') : t('settings.recalculate')}
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-stone-400 whitespace-pre-line leading-relaxed">
+                    {user ? t('settings.storageDescSigned') : t('settings.storageDescUnsigned')}
+                  </p>
+
+                  {summaryError && (
+                    <p className="text-xs text-red-400 bg-red-950/20 border border-red-900/30 p-2 rounded-lg">
+                      {t('settings.failedToFetchStorageStatus')}: {summaryError}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Cloud Storage */}
+                    <div className="space-y-3 p-3 bg-stone-900/40 rounded-xl border border-white/5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-stone-300">
+                        <Cloud size={14} className="text-blue-400" />
+                        {t('settings.cloudStorageTitle')}
+                      </div>
+
+                      {!user ? (
+                        <p className="text-xs text-stone-500 italic py-4 pl-1">
+                          {t('settings.storageDescUnsigned').split('\n')[1] || 'Please sign in to view cloud data.'}
+                        </p>
+                      ) : isLoadingSummary && !storageSummary ? (
+                        <p className="text-xs text-stone-500 animate-pulse py-4 pl-1">{t('common.loading')}</p>
+                      ) : storageSummary ? (
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between items-center text-stone-400 pl-1">
+                            <span>{t('settings.studentPhotos')}</span>
+                            <span className="font-mono text-stone-300">
+                              {storageSummary.cloud.studentPhotos.count}{t('settings.photoUnit')} / {formatBytes(storageSummary.cloud.studentPhotos.totalBytes)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-stone-400 pl-1">
+                            <span>{t('settings.lessonJournalPhotos')}</span>
+                            <span className="font-mono text-stone-300">
+                              {storageSummary.cloud.lessonJournalPhotos.count}{t('settings.photoUnit')} / {formatBytes(storageSummary.cloud.lessonJournalPhotos.totalBytes)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-stone-400 pl-1">
+                            <span>{t('settings.repertoireFiles')}</span>
+                            <span className="font-mono text-stone-300">
+                              {storageSummary.cloud.repertoireFiles.count}{t('settings.fileUnit')} / {formatBytes(storageSummary.cloud.repertoireFiles.totalBytes)}
+                            </span>
+                          </div>
+                          <div className="border-t border-white/5 my-1.5 pt-1.5 flex justify-between items-center font-bold text-stone-300 pl-1">
+                            <span className="text-brand-light">{t('settings.totalCloudFiles')}</span>
+                            <span className="font-mono text-brand-light">
+                              {storageSummary.cloud.total.count}{t('settings.fileUnit')} / {formatBytes(storageSummary.cloud.total.totalBytes)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Local Storage */}
+                    <div className="space-y-3 p-3 bg-stone-900/40 rounded-xl border border-white/5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-stone-300">
+                        <HardDrive size={14} className="text-amber-500" />
+                        {t('settings.localStorageTitle')}
+                      </div>
+
+                      {isLoadingSummary && !storageSummary ? (
+                        <p className="text-xs text-stone-500 animate-pulse py-4 pl-1">{t('common.loading')}</p>
+                      ) : storageSummary ? (
+                        <div className="space-y-2 text-xs text-stone-400 pl-1">
+                          <div className="flex justify-between items-center">
+                            <span>{t('settings.localIndexedDbPhotos')}</span>
+                            <span className="font-mono text-stone-300">{storageSummary.local.indexedDbPhotos.count}{t('settings.photoUnit')}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>{t('settings.localLessons')}</span>
+                            <span className="font-mono text-stone-300">{storageSummary.local.localStorageRecords.receivedLessons}{t('settings.fileUnit')}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>{t('settings.localStudents')}</span>
+                            <span className="font-mono text-stone-300">{storageSummary.local.localStorageRecords.students}{t('settings.fileUnit')}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>{t('settings.localRepertoire')}</span>
+                            <span className="font-mono text-stone-300">{storageSummary.local.localStorageRecords.repertoire}{t('settings.fileUnit')}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {user && storageSummary && (
+                    <div className="space-y-1 bg-stone-900/20 p-2.5 rounded-lg border border-white/5 text-[10px] leading-relaxed text-stone-500">
+                      <div className="flex items-start gap-1">
+                        <span className="text-amber-500/80 font-bold shrink-0">※</span>
+                        <span>{t('settings.legacySizeWarning')}</span>
+                      </div>
+                      <div className="flex items-start gap-1">
+                        <span className="text-stone-500 shrink-0">※</span>
+                        <span className="whitespace-pre-line">{t('settings.orphanFilesNotice')}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 
                 <div className="pt-4 border-t border-white/5">
                   <button 
