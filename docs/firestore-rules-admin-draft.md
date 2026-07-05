@@ -27,6 +27,10 @@
 - `match /users/{userId}/students/{studentId}` 에 대한 **`read` (list, get)** 권한
 - `match /users/{userId}/received_lessons/{lessonId}` 에 대한 **`read` (list, get)** 권한
 - `match /users/{userId}/repertoire/{itemId}` 에 대한 **`read` (list, get)** 권한
+- `collectionGroup` 쿼리(`collectionGroup('students')`, `collectionGroup('received_lessons')`, `collectionGroup('repertoire')`)를 이용해 `/users/{userId}` 프로필 문서가 없는 기존 사용자까지 안전하게 탐색하기 위해, 중첩 서브컬렉션에 대한 **`collectionGroup` 조회 권한**이 추가로 필요합니다:
+  - `match /{path=**}/students/{studentId}` 에 대한 **`read` (list, get)** 권한
+  - `match /{path=**}/received_lessons/{lessonId}` 에 대한 **`read` (list, get)** 권한
+  - `match /{path=**}/repertoire/{itemId}` 에 대한 **`read` (list, get)** 권한
 
 ---
 
@@ -118,6 +122,17 @@ service cloud.firestore {
     match /repertoire/{itemId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow write: if isSignedIn() && (!exists(resource) || resource.data.userId == request.auth.uid);
+    }
+
+    // 4. collectionGroup 쿼리용 관리자 읽기 규칙 (기존 사용자의 중첩 서브컬렉션에서 uid 탐색용)
+    match /{path=**}/students/{studentId} {
+      allow get, list: if isAdmin();
+    }
+    match /{path=**}/received_lessons/{lessonId} {
+      allow get, list: if isAdmin();
+    }
+    match /{path=**}/repertoire/{itemId} {
+      allow get, list: if isAdmin();
     }
   }
 }

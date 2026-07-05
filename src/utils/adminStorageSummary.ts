@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, getDoc } from 'firebase/firestore';
+import { collection, collectionGroup, doc, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { isAdminUser } from './admin';
 
@@ -70,25 +70,43 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
       });
     });
   } catch (error: any) {
-    console.warn('Listing /users collection failed due to permission or rules. Trying legacy fallback...', error);
+    // Suppress personal data in logs
+    console.warn('Listing users collection failed. Trying collectionGroup fallback...');
     hasUsersCollectionPermission = false;
   }
 
-  // 2. Fallback: Query top-level legacy collections if we cannot list users collection
-  // Since top level collections have "allow list: if isAdmin()" rules, this works perfectly for admins.
+  // 2. Fallback: Query subcollections using collectionGroup (actual current nested structure)
+  // This allows finding users even if users/{uid} root document does not exist yet.
   if (!hasUsersCollectionPermission || uniqueUserIds.size === 0) {
-    const legacyCollections = ['students', 'received_lessons', 'repertoire'];
-    for (const colName of legacyCollections) {
+    const subCollections = ['students', 'received_lessons', 'repertoire'];
+    for (const colName of subCollections) {
       try {
-        const snap = await getDocs(collection(db, colName));
-        snap.forEach(docSnap => {
+        const snapGroup = await getDocs(collectionGroup(db, colName));
+        snapGroup.forEach(docSnap => {
+          // In the nested path /users/{userId}/students/{studentId}, 
+          // docSnap.ref.parent is the 'students' collection ref, and its parent is the user doc ref.
+          const userDocRef = docSnap.ref.parent?.parent;
+          const parentUid = userDocRef?.id;
+          if (parentUid && userDocRef?.parent?.id === 'users') {
+            uniqueUserIds.add(parentUid);
+          }
+        });
+      } catch (err) {
+        // Safe console output, no user emails or IDs
+        console.warn(`Failed collectionGroup query for ${colName}, checking rules...`);
+      }
+
+      // Legacy top-level collection query fallback if applicable
+      try {
+        const snapLegacy = await getDocs(collection(db, colName));
+        snapLegacy.forEach(docSnap => {
           const data = docSnap.data();
           if (data.userId) {
             uniqueUserIds.add(data.userId);
           }
         });
       } catch (err) {
-        console.warn(`Failed to list legacy collection ${colName}:`, err);
+        // Suppress legacy collection check failure warnings to keep console clean
       }
     }
   }
@@ -111,7 +129,8 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
           });
         }
       } catch (err) {
-        console.warn(`Failed to fetch user profile for ${uid}:`, err);
+        // Do not print uid or email in logs
+        console.warn('Failed to fetch a user profile.');
       }
     }
   }
@@ -152,7 +171,7 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
         }
       });
     } catch (e) {
-      console.warn(`Failed to calculate subcollection studentPhotos for user ${uid}`, e);
+      console.warn('Failed to calculate subcollection studentPhotos for a user');
     }
 
     // Calculate Lesson Journal Photos
@@ -171,7 +190,7 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
         }
       });
     } catch (e) {
-      console.warn(`Failed to calculate subcollection lessonJournalPhotos for user ${uid}`, e);
+      console.warn('Failed to calculate subcollection lessonJournalPhotos for a user');
     }
 
     // Calculate Repertoire Files
@@ -195,7 +214,7 @@ export async function getAdminStorageSummary(currentUser: any): Promise<AdminSto
         }
       });
     } catch (e) {
-      console.warn(`Failed to calculate subcollection repertoireFiles for user ${uid}`, e);
+      console.warn('Failed to calculate subcollection repertoireFiles for a user');
     }
 
     // Total of the user

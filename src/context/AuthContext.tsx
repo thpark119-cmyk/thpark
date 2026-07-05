@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth, isFirebaseReady } from '../lib/firebase';
+import { auth, isFirebaseReady, db } from '../lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -22,10 +23,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log("Auth state changed:", user ? "logged in" : "logged out");
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log("Auth state changed:", currentUser ? "logged in" : "logged out");
+      setUser(currentUser);
       setLoading(false);
+
+      if (currentUser && db) {
+        try {
+          // Create or update the root profile document so the user list and dashboard calculations work reliably
+          await setDoc(
+            doc(db, 'users', currentUser.uid),
+            {
+              uid: currentUser.uid,
+              email: currentUser.email ?? '',
+              displayName: currentUser.displayName ?? '',
+              photoURL: currentUser.photoURL ?? '',
+              lastSeenAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          // Do not log any personal identifiers in console
+          console.warn("Failed to update user profile document on auth state change.");
+        }
+      }
     }, (err) => {
       console.error("Auth state error:", err);
       setError(err);
