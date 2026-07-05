@@ -82,6 +82,24 @@ export interface RepertoireItem {
   uploadedAt?: number;
 }
 
+export interface PracticeEntry {
+  id: string;
+  userId: string;
+  date: string;
+  practiceTime: number; // in minutes
+  pieceTitle: string;
+  composer?: string;
+  goal?: string;
+  focusArea?: string;
+  whatWentWell?: string;
+  problem?: string;
+  nextAction?: string;
+  memo?: string;
+  mood?: 'good' | 'normal' | 'hard';
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface ChatMessage {
   role: 'user' | 'model';
   content: string;

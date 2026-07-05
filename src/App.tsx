@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { Music, LayoutGrid, BookOpen, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon } from 'lucide-react';
+import { Music, LayoutGrid, BookOpen, ClipboardList, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import { signInWithGoogle, logout } from './lib/firebase';
@@ -17,6 +17,7 @@ const Tuner = lazy(() => import('./components/Tuner'));
 const AITutor = lazy(() => import('./components/AITutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const Settings = lazy(() => import('./components/Settings'));
+const Practice = lazy(() => import('./components/Practice'));
 
 // Reusable Loading Spinner for Suspense
 const LoadingView = () => {
@@ -67,6 +68,7 @@ export default function App() {
   const navItems = [
     { id: 'dashboard', label: t('navigation.dashboard'), icon: LayoutGrid },
     { id: 'mylessons', label: t('navigation.receivedLessons'), icon: BookOpen },
+    { id: 'practice', label: t('navigation.practice'), icon: ClipboardList },
     { id: 'repertoire', label: t('navigation.repertoire'), icon: FileMusic },
     { id: 'studio', label: t('navigation.teachingStudio'), icon: Users },
     { id: 'metronome', label: t('navigation.metronome'), icon: Clock },
@@ -254,6 +256,7 @@ export default function App() {
               >
                 {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />}
                 {activeTab === 'mylessons' && <MyLessons targetLessonId={targetLessonId} setTargetLessonId={setTargetLessonId} />}
+                {activeTab === 'practice' && <Practice />}
                 {activeTab === 'repertoire' && <Repertoire />}
                 {activeTab === 'studio' && <TeachingStudio />}
                 {activeTab === 'metronome' && <Metronome />}
