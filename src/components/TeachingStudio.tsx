@@ -13,6 +13,7 @@ import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorag
 import { validateLessonPhotoFile, getSafeFileExtension } from '../utils/fileValidation';
 import { buildLessonPhotoStoragePath } from '../utils/storagePaths';
 import { CloudLessonPhoto } from '../types/cloudFiles';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface PendingPhotoUpload {
   id: string;
@@ -60,6 +61,9 @@ export default function TeachingStudio() {
   const [pendingDeletes, setPendingDeletes] = useState<PendingPhotoDelete[]>([]);
 
   const canUseIndexedDB = isIndexedDBAvailable();
+
+  // Lock scroll when any modal/overlay is open
+  useBodyScrollLock(isAdding || isEditingStudent || isAddingLesson || !!viewingPhotoId || !!viewingCloudPhoto);
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<Student>('students', (data) => {
@@ -633,7 +637,7 @@ export default function TeachingStudio() {
         {/* Edit Student Modal */}
         <AnimatePresence>
           {isEditingStudent && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0 overscroll-contain">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsEditingStudent(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl">
                 <div className="flex justify-between items-center">
@@ -675,9 +679,9 @@ export default function TeachingStudio() {
         {/* Add/Edit Lesson Modal */}
         <AnimatePresence>
           {isAddingLesson && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0 overscroll-contain">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={handleCancel} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-md bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-md bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl max-h-[90dvh] overflow-y-auto overscroll-contain" style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-serif italic text-white leading-none">{editingLesson ? (t('students.editLessonRecord') || 'Edit') : (t('students.addLessonRecord') || 'Add')}</h3>
                   <button type="button" onClick={handleCancel} className="text-stone-600"><X size={24} /></button>
@@ -849,7 +853,7 @@ export default function TeachingStudio() {
         {/* Photo Viewer Modal */}
         <AnimatePresence>
           {viewingPhotoId && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 overscroll-contain" style={{ touchAction: 'none' }}>
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewingPhotoId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-zoom-out" />
               <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center pointer-events-none">
                 <button onClick={() => setViewingPhotoId(null)} className="absolute -top-12 right-0 text-white/50 hover:text-white pointer-events-auto transition-colors bg-stone-900/50 rounded-full p-2">
@@ -865,7 +869,7 @@ export default function TeachingStudio() {
             </div>
           )}
           {viewingCloudPhoto && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 overscroll-contain" style={{ touchAction: 'none' }}>
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewingCloudPhoto(null)} className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-zoom-out" />
               <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center pointer-events-none">
                 <button onClick={() => setViewingCloudPhoto(null)} className="absolute -top-12 right-0 text-white/50 hover:text-white pointer-events-auto transition-colors bg-stone-900/50 rounded-full p-2">
@@ -941,7 +945,7 @@ export default function TeachingStudio() {
       {/* Add Modal */}
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 lg:p-0 overscroll-contain">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsAdding(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-sm bg-stone-900 border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl">
               <div className="flex justify-between items-center">

@@ -13,6 +13,7 @@ import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorag
 import { validateLessonPhotoFile, getSafeFileExtension } from '../utils/fileValidation';
 import { buildLessonJournalPhotoStoragePath } from '../utils/storagePaths';
 import { CloudLessonPhoto } from '../types/cloudFiles';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface PendingPhotoUpload {
   id: string;
@@ -77,6 +78,9 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
   const [isManagingTeacher, setIsManagingTeacher] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<LessonTeacher | null>(null);
   const [teacherForm, setTeacherForm] = useState({ name: '', instrument: '', memo: '' });
+
+  // Lock body scroll when any overlay or modal is active
+  useBodyScrollLock(isAdding || isManagingTeacher || !!viewingPhotoId || !!viewingCloudPhoto);
 
   useEffect(() => {
     const unsubscribeLogs = subscribeToCollection<ReceivedLesson>('received_lessons', (data) => {
@@ -595,7 +599,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
         {/* Teacher Management Modal */}
         <AnimatePresence>
           {isManagingTeacher && (
-            <div className="fixed inset-0 z-[100] bg-bg-deep/95 backdrop-blur-md flex flex-col items-center justify-center p-6">
+            <div className="fixed inset-0 z-[100] bg-bg-deep/95 backdrop-blur-md flex flex-col items-center justify-center p-6 overscroll-contain">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-serif italic text-white">{editingTeacher ? t('lessons.editTeacher') : t('lessons.addTeacher')}</h3>
@@ -724,7 +728,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
       {/* Lesson Edit/Add Modal */}
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 z-[100] bg-bg-deep flex flex-col p-6 overflow-y-auto">
+          <div className="fixed inset-0 h-[100dvh] z-[100] bg-bg-deep flex flex-col p-6 overflow-y-auto overscroll-contain" style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
             <div className="flex justify-between items-center mb-10 max-w-lg mx-auto w-full">
               <h3 className="text-3xl font-serif italic text-white leading-none">{editingLog ? t('lessons.editRecord') : t('lessons.addRecord')}</h3>
               <button onClick={handleCancel} className="bg-stone-900 w-12 h-12 rounded-full flex items-center justify-center text-stone-500"><X size={24} /></button>
@@ -940,7 +944,7 @@ export default function MyLessons({ targetLessonId, setTargetLessonId }: MyLesso
       {/* Photo Viewer Modals */}
       <AnimatePresence>
         {(viewingPhotoId || viewingCloudPhoto) && (
-          <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overscroll-contain" style={{ touchAction: 'none' }}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center pointer-events-none">
               <button onClick={() => { setViewingPhotoId(null); setViewingCloudPhoto(null); }} className="absolute -top-12 right-0 text-white/50 hover:text-white pointer-events-auto transition-colors bg-stone-900/50 rounded-full p-2">
                 <X size={24} />
