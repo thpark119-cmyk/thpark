@@ -120,6 +120,34 @@ export interface PracticeRoutine {
   updatedAt?: number;
 }
 
+export type PracticeTimerStatus = 'idle' | 'running' | 'paused' | 'finished';
+
+export type PracticeTimerPauseReason =
+  | 'manual'
+  | 'app-hidden'
+  | 'pagehide'
+  | 'window-blur'
+  | 'unknown';
+
+export interface PracticeTimerSession {
+  id: string;
+  status: PracticeTimerStatus;
+  startedAt: number;
+  lastResumedAt?: number;
+  accumulatedSeconds: number;
+  pauseReason?: PracticeTimerPauseReason;
+
+  routineId?: string;
+  routineTitle?: string;
+  routineItemsText?: string;
+  targetMinutes?: number;
+
+  pieceTitle?: string;
+  composer?: string;
+  goal?: string;
+  focusArea?: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'model';
   content: string;

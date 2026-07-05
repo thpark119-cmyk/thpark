@@ -10,6 +10,7 @@ import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '..
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { usePracticeTimer } from '../hooks/usePracticeTimer';
 import PracticeRoutineModal from './PracticeRoutineModal';
 
 // Helper to get local YYYY-MM-DD date string safely without timezone offsets
@@ -25,6 +26,8 @@ export default function Practice() {
   const { t } = useLanguage();
   const [entries, setEntries] = useState<PracticeEntry[]>([]);
   
+  const timer = usePracticeTimer();
+
   // Modals / Form states
   const [isAdding, setIsAdding] = useState(false);
   const [editingEntry, setEditingEntry] = useState<PracticeEntry | null>(null);
@@ -248,6 +251,63 @@ export default function Practice() {
     setEditingRoutine(routine);
   };
 
+  const handleStartTimerFromRoutine = (routine: PracticeRoutine) => {
+    timer.startSession({
+      routineId: routine.id,
+      routineTitle: routine.title,
+      routineItemsText: routine.items.map(i => `${i.label} (${i.minutes}m)`).join(' | '),
+      targetMinutes: routine.totalMinutes,
+      pieceTitle: routine.title
+    });
+    // Scroll to top to see timer
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleStartFreeTimer = () => {
+    timer.startSession({
+      pieceTitle: t('practiceLog.freePractice') || '자유 연습'
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleFinishTimer = () => {
+    if (!window.confirm(t('practiceLog.confirmFinish') || '연습을 종료하고 기록으로 저장할까요?')) {
+      return;
+    }
+    
+    const finalSeconds = timer.finishSession();
+    
+    if (finalSeconds < 30) {
+      alert(t('practiceLog.lessThan30Sec') || '30초 미만의 연습은 기록으로 저장하기 어렵습니다.');
+      timer.clearSession();
+      return;
+    }
+
+    const finalMinutes = Math.max(1, Math.round(finalSeconds / 60));
+    const session = timer.session;
+    
+    setDate(getLocalDateString());
+    setPracticeTime(finalMinutes);
+    setPieceTitle(session?.pieceTitle || '');
+    setComposer(session?.composer || '');
+    setGoal(session?.goal || session?.routineItemsText || '');
+    setFocusArea(session?.focusArea || '');
+    setWhatWentWell('');
+    setProblem('');
+    setNextAction('');
+    setMemo('');
+    setMood('normal');
+    
+    timer.clearSession();
+    setIsAdding(true);
+  };
+
+  const handleCancelTimer = () => {
+    if (window.confirm(t('practiceLog.exitWithoutSaving') || '저장하지 않고 종료할까요?')) {
+      timer.clearSession();
+    }
+  };
+
   // --- Statistics Calculation ---
   // Current week boundaries: Monday to Sunday
   const getWeekRange = () => {
@@ -324,11 +384,106 @@ export default function Practice() {
         </div>
         <button
           onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-5 py-3 bg-brand hover:bg-brand-light text-stone-950 font-bold text-xs rounded-2xl shadow-lg shadow-brand/20 active:scale-95 transition-all w-full sm:w-auto justify-center"
+          className="flex items-center gap-2 px-5 py-3 bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs rounded-2xl shadow-lg active:scale-95 transition-all w-full sm:w-auto justify-center"
         >
           <Plus size={16} strokeWidth={3} />
           <span>{t('practiceLog.addRecord')}</span>
         </button>
+      </div>
+
+      {/* Focus Timer Section */}
+      <div className="bg-stone-900 border border-white/[0.05] rounded-[32px] p-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute -top-32 -right-32 w-64 h-64 bg-brand/10 blur-[100px] rounded-full pointer-events-none"></div>
+        
+        {timer.session ? (
+          <div className="flex flex-col items-center py-4 space-y-6">
+            <div className="space-y-1 text-center">
+              <span className="text-xs text-brand font-bold uppercase tracking-[0.2em]">{t('practiceLog.focusPractice')}</span>
+              <h3 className="text-xl font-bold text-white tracking-tight">
+                {timer.session.pieceTitle || timer.session.routineTitle || t('practiceLog.freePractice')}
+              </h3>
+              {timer.session.targetMinutes && (
+                <p className="text-xs text-stone-400 font-sans">
+                  {t('practiceLog.targetTime')}: {timer.session.targetMinutes} {t('practiceLog.minutes')}
+                </p>
+              )}
+            </div>
+
+            <div className="text-6xl md:text-7xl font-mono font-bold text-white tracking-tighter drop-shadow-lg">
+              {String(Math.floor(timer.currentSeconds / 3600)).padStart(2, '0')}:
+              {String(Math.floor((timer.currentSeconds % 3600) / 60)).padStart(2, '0')}:
+              {String(timer.currentSeconds % 60).padStart(2, '0')}
+            </div>
+
+            {timer.session.status === 'paused' && timer.session.pauseReason && (
+              <div className="text-xs font-bold text-amber-400 bg-amber-400/10 px-4 py-2 rounded-xl flex items-center gap-2 max-w-sm text-center">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>
+                  {timer.session.pauseReason === 'app-hidden' || timer.session.pauseReason === 'window-blur'
+                    ? t('practiceLog.pausedByAppLeave')
+                    : timer.session.pauseReason === 'pagehide'
+                    ? t('practiceLog.pausedByRefresh')
+                    : t('practiceLog.pause')}
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-center gap-3 w-full max-w-md pt-2">
+              {timer.session.status === 'running' ? (
+                <button
+                  onClick={() => timer.pauseSession()}
+                  className="flex-1 min-w-[120px] py-4 rounded-2xl font-bold text-sm border border-white/10 text-stone-300 hover:text-white hover:bg-white/5 transition-all"
+                >
+                  {t('practiceLog.pause')}
+                </button>
+              ) : (
+                <button
+                  onClick={() => timer.resumeSession()}
+                  className="flex-1 min-w-[120px] py-4 rounded-2xl font-bold text-sm bg-brand text-stone-950 shadow-lg shadow-brand/20 active:scale-95 transition-all"
+                >
+                  {t('practiceLog.resume')}
+                </button>
+              )}
+              
+              <button
+                onClick={handleFinishTimer}
+                className="flex-1 min-w-[120px] py-4 rounded-2xl font-bold text-sm bg-stone-100 text-stone-900 shadow-lg active:scale-95 transition-all"
+              >
+                {t('practiceLog.finish')}
+              </button>
+
+              <button
+                onClick={handleCancelTimer}
+                className="w-12 h-12 rounded-2xl border border-red-500/20 text-red-400 flex items-center justify-center hover:bg-red-500/10 transition-all shrink-0"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-stone-500 text-center">
+              {t('practiceLog.onlyActiveTimeRecorded')}
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="space-y-2 text-center sm:text-left flex-1">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2 justify-center sm:justify-start">
+                <Clock className="text-brand" size={20} />
+                <span>{t('practiceLog.focusPractice')}</span>
+              </h3>
+              <p className="text-xs text-stone-400 leading-relaxed max-w-md mx-auto sm:mx-0">
+                {t('practiceLog.onlyActiveTimeRecorded')}
+              </p>
+            </div>
+            <button
+              onClick={handleStartFreeTimer}
+              className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-brand hover:bg-brand-light text-stone-950 font-bold text-sm rounded-2xl shadow-lg shadow-brand/20 active:scale-95 transition-all"
+            >
+              <Activity size={18} strokeWidth={2.5} />
+              <span>{t('practiceLog.freePractice')} {t('practiceLog.startPractice')}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Stats Bento Grid */}
@@ -482,16 +637,29 @@ export default function Practice() {
 
                   {/* Routine Actions */}
                   <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/[0.02] text-[10px] text-stone-600">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStartFromRoutine(routine);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-brand text-stone-950 hover:bg-brand-light font-bold rounded-xl transition-all active:scale-95"
-                    >
-                      <Plus size={11} strokeWidth={3} />
-                      <span>{t('practiceLog.startFromRoutine')}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartTimerFromRoutine(routine);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-brand text-stone-950 hover:bg-brand-light font-bold rounded-xl transition-all active:scale-95"
+                      >
+                        <Activity size={11} strokeWidth={3} />
+                        <span>{t('practiceLog.startPractice')}</span>
+                      </button>
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartFromRoutine(routine);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-stone-800 text-stone-300 hover:bg-stone-700 font-bold rounded-xl transition-all active:scale-95"
+                      >
+                        <Plus size={11} strokeWidth={3} />
+                        <span>{t('practiceLog.startFromRoutineToday')}</span>
+                      </button>
+                    </div>
 
                     <div className="flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button
