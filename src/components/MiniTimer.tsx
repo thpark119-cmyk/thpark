@@ -89,13 +89,19 @@ export function MiniTimer({ onNavigateToPractice }: MiniTimerProps) {
                 </div>
               </div>
               
-              <div className="flex-grow flex flex-col justify-center min-w-0 pr-2 border-r border-white/5">
-                <span className="text-xs font-bold text-stone-200 truncate">{label}</span>
-                <span className="text-[10px] text-stone-500 font-sans truncate flex items-center gap-1 mt-0.5 group cursor-pointer hover:text-stone-300 transition-colors">
-                  {t('practiceLog.moveToPractice') || '연습 탭으로 이동'}
-                  <ChevronRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
-                </span>
-              </div>
+                <div className="flex-grow flex flex-col justify-center min-w-0 pr-2 border-r border-white/5">
+                  <span className="text-xs font-bold text-stone-200 truncate">{label}</span>
+                  {session.routineGoalReached ? (
+                    <span className="text-[10px] text-emerald-400 font-bold font-sans truncate flex items-center gap-1 mt-0.5">
+                      루틴 목표 달성! 🎉
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-stone-500 font-sans truncate flex items-center gap-1 mt-0.5 group cursor-pointer hover:text-stone-300 transition-colors">
+                      {t('practiceLog.moveToPractice') || '연습 탭으로 이동'}
+                      <ChevronRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
+                    </span>
+                  )}
+                </div>
               
               <div className="flex items-center gap-1.5 shrink-0">
                 <button

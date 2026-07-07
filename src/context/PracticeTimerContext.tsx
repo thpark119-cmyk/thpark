@@ -67,7 +67,22 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
 
     if (session && session.status === 'running') {
       intervalId = setInterval(() => {
-        setCurrentSeconds(getCurrentElapsedSeconds(session));
+        const elapsed = getCurrentElapsedSeconds(session);
+        setCurrentSeconds(elapsed);
+        
+        // Check routine goal reached
+        if (session.targetMinutes && session.targetMinutes > 0 && !session.routineGoalReached) {
+          if (elapsed >= session.targetMinutes * 60) {
+            setSession(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                routineGoalReached: true,
+                routineGoalReachedAt: new Date().toISOString()
+              };
+            });
+          }
+        }
       }, 1000);
     } else if (session) {
       setCurrentSeconds(session.accumulatedSeconds);

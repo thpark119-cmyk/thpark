@@ -115,6 +115,11 @@ export interface PracticeEntry {
   routineTitle?: string;
   measuredByTimer?: boolean;
 
+  // Routine Success
+  routineGoalReached?: boolean;
+  routineGoalReachedAt?: string;
+  targetMinutes?: number;
+
   // Admin QA Trust Fields
   adminAdjustedTimer?: boolean;
   adminAdjustedAt?: string;
@@ -167,6 +172,8 @@ export interface PracticeTimerSession {
   routineTitle?: string;
   routineItemsText?: string;
   targetMinutes?: number;
+  routineGoalReached?: boolean;
+  routineGoalNotified?: boolean;
 
   pieceTitle?: string;
   composer?: string;

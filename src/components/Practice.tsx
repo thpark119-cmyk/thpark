@@ -69,10 +69,14 @@ export default function Practice() {
   const [measuredByTimer, setMeasuredByTimer] = useState(false);
   const [adminAdjustedTimer, setAdminAdjustedTimer] = useState<boolean | undefined>(undefined);
   const [adminAdjustedBy, setAdminAdjustedBy] = useState<string | undefined>(undefined);
+  const [routineGoalReached, setRoutineGoalReached] = useState<boolean | undefined>(undefined);
+  const [targetMinutes, setTargetMinutes] = useState<number | undefined>(undefined);
 
   // UI States
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showShareSettings, setShowShareSettings] = useState(false);
   const [sharingEntry, setSharingEntry] = useState<PracticeEntry | null>(null);
 
   // Lock scroll when modal is open
@@ -170,6 +174,8 @@ export default function Practice() {
     setMeasuredByTimer(entry.measuredByTimer || false);
     setAdminAdjustedTimer(entry.adminAdjustedTimer);
     setAdminAdjustedBy(entry.adminAdjustedBy);
+    setRoutineGoalReached(entry.routineGoalReached);
+    setTargetMinutes(entry.targetMinutes);
 
     setErrorMsg('');
   };
@@ -222,6 +228,8 @@ export default function Practice() {
         measuredByTimer,
         adminAdjustedTimer,
         adminAdjustedBy,
+        routineGoalReached,
+        targetMinutes,
         createdAt: editingEntry?.createdAt || Date.now(),
         updatedAt: Date.now()
       };
@@ -235,6 +243,13 @@ export default function Practice() {
       if (memo.trim()) record.memo = memo.trim();
       if (publicMemo.trim()) record.publicMemo = publicMemo.trim();
       if (routineTitle.trim()) record.routineTitle = routineTitle.trim();
+
+      // Clean undefined values for Firestore
+      Object.keys(record).forEach(key => {
+        if ((record as any)[key] === undefined) {
+          delete (record as any)[key];
+        }
+      });
 
       if (editingEntry) {
         await updateRecord('practice_entries', record.id, record, user);
@@ -265,52 +280,6 @@ export default function Practice() {
   };
 
   // --- Routine Helper Actions ---
-  const handleStartFromRoutine = (routine: PracticeRoutine) => {
-    setDate(getLocalDateString());
-    setPracticeTime(routine.totalMinutes);
-    setPieceTitle(routine.title);
-    setComposer('');
-    
-    // Format goal with items
-    const goalText = routine.items.map(item => `${item.label} (${item.minutes}m)`).join(' | ');
-    setGoal(goalText);
-    
-    // Format memo with routine desc and item memos
-    const memoParts = routine.items
-      .filter(item => item.memo)
-      .map(item => `- ${item.label}: ${item.memo}`)
-      .join('\n');
-    
-    const initialMemo = routine.description 
-      ? `${routine.description}${memoParts ? '\n\n' + memoParts : ''}`
-      : memoParts;
-    
-    setMemo(initialMemo);
-    setFocusArea('');
-    setWhatWentWell('');
-    setProblem('');
-    setNextAction('');
-    setMood('normal');
-    
-    // Share & tracking defaults
-    setShareVisibility('private');
-    setPublicMemo('');
-    setShareIncludePiece(true);
-    setShareIncludeGoal(true);
-    setShareIncludeFocusArea(true);
-    setShareIncludeNextAction(true);
-    setShareIncludeMood(true);
-    setShareIncludeRoutine(true);
-    setShareIncludeTimer(true);
-    setSourceType('routine');
-    setRoutineTitle(routine.title);
-    setMeasuredByTimer(false);
-    setAdminAdjustedTimer(undefined);
-    setAdminAdjustedBy(undefined);
-
-    setErrorMsg('');
-    setIsAdding(true);
-  };
 
   const handleToggleFavoriteRoutine = async (routine: PracticeRoutine, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -403,6 +372,8 @@ export default function Practice() {
       setMeasuredByTimer(true);
       setAdminAdjustedTimer(session.adminAdjustedTimer);
       setAdminAdjustedBy(session.adminAdjustedBy);
+      setRoutineGoalReached(session.routineGoalReached);
+      setTargetMinutes(session.targetMinutes);
       
       timer.clearSession();
       setIsAdding(true);
@@ -574,13 +545,6 @@ export default function Practice() {
             {monday.getMonth() + 1}월 {monday.getDate()}일 ~ {sunday.getMonth() + 1}월 {sunday.getDate()}일
           </p>
         </div>
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-5 py-3 bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs rounded-2xl shadow-lg active:scale-95 transition-all w-full sm:w-auto justify-center"
-        >
-          <Plus size={16} strokeWidth={3} />
-          <span>{t('practiceLog.addRecord')}</span>
-        </button>
       </div>
 
       {/* Focus Timer Section */}
@@ -880,17 +844,6 @@ export default function Practice() {
                       >
                         <Activity size={11} strokeWidth={3} />
                         <span>{t('practiceLog.startPractice')}</span>
-                      </button>
-                      
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleStartFromRoutine(routine);
-                        }}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-stone-800 text-stone-300 hover:bg-stone-700 font-bold rounded-xl transition-all active:scale-95"
-                      >
-                        <Plus size={11} strokeWidth={3} />
-                        <span>{t('practiceLog.startFromRoutineToday')}</span>
                       </button>
                     </div>
 
@@ -1259,7 +1212,18 @@ export default function Practice() {
                   </div>
                 </div>
 
-                {/* Goal / Focus Area */}
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="w-full flex items-center justify-between p-4 bg-stone-900 border border-white/5 rounded-2xl text-sm font-bold text-stone-300 hover:text-white transition-colors"
+                >
+                  <span>상세 기록 (선택)</span>
+                  <span className="text-stone-500 text-xs">{showAdvanced ? '접기' : '열기'}</span>
+                </button>
+
+                {showAdvanced && (
+                  <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
+                    {/* Goal / Focus Area */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Today Goal */}
                   <div className="space-y-1.5">
@@ -1348,10 +1312,21 @@ export default function Practice() {
                     className="w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all resize-none font-sans"
                   />
                 </div>
+                  </div>
+                )}
 
-                {/* Share Settings */}
-                <div className="space-y-4 pt-4 border-t border-white/[0.05]">
-                  <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setShowShareSettings(!showShareSettings)}
+                  className="w-full flex items-center justify-between p-4 bg-stone-900 border border-white/5 rounded-2xl text-sm font-bold text-stone-300 hover:text-white transition-colors"
+                >
+                  <span>{t('practiceLog.shareSettings') || '공유 설정'}</span>
+                  <span className="text-stone-500 text-xs">{showShareSettings ? '접기' : '열기'}</span>
+                </button>
+
+                {showShareSettings && (
+                  <div className="space-y-4 pt-4 border-t border-white/[0.05] animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="space-y-2">
                     <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
                       {t('practiceLog.shareSettings') || '공유 설정'}
                     </label>
@@ -1445,7 +1420,8 @@ export default function Practice() {
                       </div>
                     </motion.div>
                   )}
-                </div>
+                  </div>
+                )}
               </form>
 
               {/* Modal Footer */}
