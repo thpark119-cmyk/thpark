@@ -3,6 +3,17 @@ import { PracticeTimerSession, PracticeTimerStatus, PracticeTimerPauseReason } f
 
 const STORAGE_KEY = 'local_active_practice_timer';
 
+function getCurrentElapsedSeconds(session: PracticeTimerSession | null, now = Date.now()): number {
+  if (!session) return 0;
+  const base = Number(session.accumulatedSeconds || 0);
+  if (session.status === 'running' && session.lastResumedAt) {
+    const lastResumedMs = Number(session.lastResumedAt);
+    const runningSeconds = Math.max(0, Math.floor((now - lastResumedMs) / 1000));
+    return base + runningSeconds;
+  }
+  return base;
+}
+
 interface PracticeTimerContextType {
   session: PracticeTimerSession | null;
   currentSeconds: number;
@@ -54,13 +65,9 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
 
     if (session && session.status === 'running') {
       intervalId = setInterval(() => {
-        if (session.lastResumedAt) {
-          const now = Date.now();
-          const elapsedSinceResume = Math.floor((now - session.lastResumedAt) / 1000);
-          setCurrentSeconds(session.accumulatedSeconds + elapsedSinceResume);
-        }
+        setCurrentSeconds(getCurrentElapsedSeconds(session));
       }, 1000);
-    } else if (session && session.status === 'paused') {
+    } else if (session) {
       setCurrentSeconds(session.accumulatedSeconds);
     }
 
@@ -77,14 +84,10 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
       setSession(prev => {
         if (!prev || prev.status !== 'running' || !prev.lastResumedAt) return prev;
         
-        const now = Date.now();
-        const elapsedSinceResume = Math.floor((now - prev.lastResumedAt) / 1000);
-        const newAccumulated = prev.accumulatedSeconds + elapsedSinceResume;
-
         return {
           ...prev,
           status: 'paused',
-          accumulatedSeconds: newAccumulated,
+          accumulatedSeconds: getCurrentElapsedSeconds(prev),
           pauseReason: reason
         };
       });
@@ -153,13 +156,10 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
     setSession(prev => {
       if (!prev || prev.status !== 'running' || !prev.lastResumedAt) return prev;
       
-      const now = Date.now();
-      const elapsedSinceResume = Math.floor((now - prev.lastResumedAt) / 1000);
-      
       return {
         ...prev,
         status: 'paused',
-        accumulatedSeconds: prev.accumulatedSeconds + elapsedSinceResume,
+        accumulatedSeconds: getCurrentElapsedSeconds(prev),
         pauseReason: reason
       };
     });
@@ -184,30 +184,20 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
       if (!prev) return null;
       return {
         ...prev,
-        status: 'finished'
+        status: 'finished',
+        accumulatedSeconds: getCurrentElapsedSeconds(prev)
       };
     });
     
     if (session) {
-      if (session.status === 'running' && session.lastResumedAt) {
-        const now = Date.now();
-        const elapsedSinceResume = Math.floor((now - session.lastResumedAt) / 1000);
-        finalSeconds = session.accumulatedSeconds + elapsedSinceResume;
-      } else {
-        finalSeconds = session.accumulatedSeconds;
-      }
+      finalSeconds = getCurrentElapsedSeconds(session);
     }
     
     return finalSeconds;
   };
   
   const getFinalSeconds = () => {
-    if (!session) return 0;
-    if (session.status === 'running' && session.lastResumedAt) {
-        const now = Date.now();
-        return session.accumulatedSeconds + Math.floor((now - session.lastResumedAt) / 1000);
-    }
-    return session.accumulatedSeconds;
+    return getCurrentElapsedSeconds(session);
   };
 
   const clearSession = () => {

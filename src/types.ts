@@ -147,6 +147,7 @@ export type PracticeTimerPauseReason =
   | 'app-hidden'
   | 'pagehide'
   | 'window-blur'
+  | 'refresh'
   | 'unknown';
 
 export interface PracticeTimerSession {
