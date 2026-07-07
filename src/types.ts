@@ -115,6 +115,11 @@ export interface PracticeEntry {
   routineTitle?: string;
   measuredByTimer?: boolean;
 
+  // Admin QA Trust Fields
+  adminAdjustedTimer?: boolean;
+  adminAdjustedAt?: string;
+  adminAdjustedBy?: string;
+
   sharedAt?: number;
   createdAt?: number;
   updatedAt?: number;
@@ -167,6 +172,10 @@ export interface PracticeTimerSession {
   composer?: string;
   goal?: string;
   focusArea?: string;
+
+  // Admin QA Test
+  adminAdjustedTimer?: boolean;
+  adminAdjustedBy?: string;
 }
 
 export interface ChatMessage {

@@ -12,6 +12,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { usePracticeTimer } from '../context/PracticeTimerContext';
 import PracticeRoutineModal from './PracticeRoutineModal';
+import { isAdminUser } from '../utils/admin';
 
 // Helper to get local YYYY-MM-DD date string safely without timezone offsets
 const getLocalDateString = (d: Date = new Date()) => {
@@ -66,6 +67,8 @@ export default function Practice() {
   const [sourceType, setSourceType] = useState<'manual' | 'routine' | 'timer'>('manual');
   const [routineTitle, setRoutineTitle] = useState('');
   const [measuredByTimer, setMeasuredByTimer] = useState(false);
+  const [adminAdjustedTimer, setAdminAdjustedTimer] = useState<boolean | undefined>(undefined);
+  const [adminAdjustedBy, setAdminAdjustedBy] = useState<string | undefined>(undefined);
 
   // UI States
   const [errorMsg, setErrorMsg] = useState('');
@@ -130,6 +133,8 @@ export default function Practice() {
     setSourceType('manual');
     setRoutineTitle('');
     setMeasuredByTimer(false);
+    setAdminAdjustedTimer(undefined);
+    setAdminAdjustedBy(undefined);
 
     setErrorMsg('');
     setIsAdding(true);
@@ -163,6 +168,8 @@ export default function Practice() {
     setSourceType(entry.sourceType || 'manual');
     setRoutineTitle(entry.routineTitle || '');
     setMeasuredByTimer(entry.measuredByTimer || false);
+    setAdminAdjustedTimer(entry.adminAdjustedTimer);
+    setAdminAdjustedBy(entry.adminAdjustedBy);
 
     setErrorMsg('');
   };
@@ -189,11 +196,18 @@ export default function Practice() {
 
     try {
       const recordId = editingEntry ? editingEntry.id : crypto.randomUUID();
+      const isAdmin = isAdminUser(user);
+      const isEditing = Boolean(editingEntry);
+      
+      const finalPracticeTime = isEditing && !isAdmin
+        ? (editingEntry!.practiceTime || Number(practiceTime))
+        : Number(practiceTime);
+
       const record: PracticeEntry = {
         id: recordId,
         userId: user?.uid || 'local',
         date,
-        practiceTime: Number(practiceTime),
+        practiceTime: finalPracticeTime,
         pieceTitle: pieceTitle.trim(),
         mood,
         shareVisibility,
@@ -206,6 +220,8 @@ export default function Practice() {
         shareIncludeTimer,
         sourceType,
         measuredByTimer,
+        adminAdjustedTimer,
+        adminAdjustedBy,
         createdAt: editingEntry?.createdAt || Date.now(),
         updatedAt: Date.now()
       };
@@ -289,6 +305,8 @@ export default function Practice() {
     setSourceType('routine');
     setRoutineTitle(routine.title);
     setMeasuredByTimer(false);
+    setAdminAdjustedTimer(undefined);
+    setAdminAdjustedBy(undefined);
 
     setErrorMsg('');
     setIsAdding(true);
@@ -383,6 +401,8 @@ export default function Practice() {
       setSourceType('timer');
       setRoutineTitle(session?.routineTitle || '');
       setMeasuredByTimer(true);
+      setAdminAdjustedTimer(session.adminAdjustedTimer);
+      setAdminAdjustedBy(session.adminAdjustedBy);
       
       timer.clearSession();
       setIsAdding(true);
@@ -636,6 +656,46 @@ export default function Practice() {
               {t('practiceLog.timerNavNotice') || '앱 안에서 악보함, 메트로놈, 튜너를 사용하는 동안에는 시간이 계속 기록됩니다.'}<br/>
               {t('practiceLog.timerBackgroundNotice') || '앱을 벗어나면 연습 시간이 자동으로 일시정지됩니다.'}
             </p>
+
+            {isAdminUser(user) && (
+              <div className="w-full max-w-md mt-4 p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col gap-3">
+                <div className="flex items-center gap-2 text-indigo-400">
+                  <Activity size={16} />
+                  <span className="text-xs font-bold tracking-wide">{t('admin.testTool') || '관리자 테스트 도구'}</span>
+                  <span className="text-[10px] bg-indigo-500/20 px-2 py-0.5 rounded-full ml-auto">{t('admin.timerAdjust') || '타이머 시간 조정'}</span>
+                </div>
+                <p className="text-[10px] text-indigo-300/70 leading-tight">
+                  {t('admin.qaNotice') || 'QA용 기능입니다. 일반 사용자에게는 표시되지 않습니다.'}
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  <button onClick={() => timer.adminAdjustTimerSeconds(-60, user.email || 'admin')} className="py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-bold text-stone-300 transition-all">-1m</button>
+                  <button onClick={() => timer.adminAdjustTimerSeconds(-30, user.email || 'admin')} className="py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-bold text-stone-300 transition-all">-30s</button>
+                  <button onClick={() => timer.adminAdjustTimerSeconds(30, user.email || 'admin')} className="py-2 bg-indigo-500/20 hover:bg-indigo-500/30 rounded-lg text-xs font-bold text-indigo-300 transition-all">+30s</button>
+                  <button onClick={() => timer.adminAdjustTimerSeconds(60, user.email || 'admin')} className="py-2 bg-indigo-500/20 hover:bg-indigo-500/30 rounded-lg text-xs font-bold text-indigo-300 transition-all">+1m</button>
+                  <button onClick={() => timer.adminAdjustTimerSeconds(300, user.email || 'admin')} className="py-2 bg-indigo-500/20 hover:bg-indigo-500/30 rounded-lg text-xs font-bold text-indigo-300 transition-all col-span-2">+5m</button>
+                  <button onClick={() => timer.adminAdjustTimerSeconds(600, user.email || 'admin')} className="py-2 bg-indigo-500/20 hover:bg-indigo-500/30 rounded-lg text-xs font-bold text-indigo-300 transition-all col-span-2">+10m</button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    id="admin-timer-input"
+                    placeholder="초 (sec)"
+                    className="flex-1 bg-stone-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => {
+                      const val = (document.getElementById('admin-timer-input') as HTMLInputElement)?.value;
+                      if (val && !isNaN(Number(val))) {
+                        timer.adminSetTimerSeconds(Number(val), user.email || 'admin');
+                      }
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-all"
+                  >
+                    {t('admin.set') || '설정'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
@@ -1064,25 +1124,58 @@ export default function Practice() {
                         max="1440"
                         value={practiceTime}
                         onChange={(e) => setPracticeTime(Math.max(1, Number(e.target.value)))}
-                        className="w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans"
+                        disabled={Boolean(editingEntry) && !isAdminUser(user)}
+                        className={`w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm focus:outline-none transition-all font-sans ${
+                          Boolean(editingEntry) && !isAdminUser(user) 
+                            ? 'opacity-50 cursor-not-allowed bg-stone-900/50' 
+                            : 'focus:ring-2 focus:ring-brand/30'
+                        }`}
                       />
                       {/* Increments buttons for touch/mobile visual flair */}
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setPracticeTime(prev => Math.max(5, prev - 10))}
-                          className="px-2.5 py-3 bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 rounded-xl text-stone-400 hover:text-white text-xs transition-colors font-bold font-sans shrink-0"
-                        >
-                          -10
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPracticeTime(prev => prev + 10)}
-                          className="px-2.5 py-3 bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 rounded-xl text-stone-400 hover:text-white text-xs transition-colors font-bold font-sans shrink-0"
-                        >
-                          +10
-                        </button>
-                      </div>
+                      {(!editingEntry || isAdminUser(user)) && (
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setPracticeTime(prev => Math.max(5, prev - 10))}
+                            className="px-2.5 py-3 bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 rounded-xl text-stone-400 hover:text-white text-xs transition-colors font-bold font-sans shrink-0"
+                          >
+                            -10
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPracticeTime(prev => prev + 10)}
+                            className="px-2.5 py-3 bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 rounded-xl text-stone-400 hover:text-white text-xs transition-colors font-bold font-sans shrink-0"
+                          >
+                            +10
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {/* Trust Notices */}
+                    <div className="pt-1 space-y-1">
+                      {Boolean(editingEntry) && !isAdminUser(user) && (
+                        <p className="text-xs text-amber-500/80 font-medium font-sans flex items-center gap-1.5">
+                          <AlertTriangle size={12} />
+                          {t('practiceLog.timeEditLocked') || '연습 시간은 기록 신뢰도를 위해 수정할 수 없습니다.'}
+                        </p>
+                      )}
+                      {Boolean(editingEntry) && isAdminUser(user) && (
+                        <p className="text-xs text-brand font-medium font-sans flex items-center gap-1.5">
+                          <Activity size={12} />
+                          {t('admin.timeEditAllowed') || '관리자 QA용 시간 수정'}
+                        </p>
+                      )}
+                      {measuredByTimer ? (
+                        <p className="text-[11px] text-emerald-400/70 font-sans flex items-center gap-1">
+                          <Clock size={10} />
+                          {t('practiceLog.measuredByTimer') || '집중 연습 타이머로 측정된 시간입니다.'}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-stone-500 font-sans flex items-center gap-1">
+                          <Edit2 size={10} />
+                          {t('practiceLog.manualRecord') || '수동으로 작성한 기록입니다.'}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

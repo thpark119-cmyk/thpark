@@ -23,6 +23,8 @@ interface PracticeTimerContextType {
   finishSession: () => number;
   clearSession: () => void;
   getFinalSeconds: () => number;
+  adminAdjustTimerSeconds: (deltaSeconds: number, adminUserEmail: string) => void;
+  adminSetTimerSeconds: (totalSeconds: number, adminUserEmail: string) => void;
 }
 
 const PracticeTimerContext = createContext<PracticeTimerContextType | null>(null);
@@ -205,6 +207,50 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
     setCurrentSeconds(0);
   };
 
+  const adminAdjustTimerSeconds = (deltaSeconds: number, adminUserEmail: string) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      let newAccumulated = getCurrentElapsedSeconds(prev) + deltaSeconds;
+      if (newAccumulated < 0) newAccumulated = 0;
+      
+      const newSession: PracticeTimerSession = {
+        ...prev,
+        accumulatedSeconds: newAccumulated,
+        adminAdjustedTimer: true,
+        adminAdjustedBy: adminUserEmail
+      };
+
+      if (newSession.status === 'running') {
+        newSession.lastResumedAt = Date.now();
+      }
+
+      setCurrentSeconds(newAccumulated);
+      return newSession;
+    });
+  };
+
+  const adminSetTimerSeconds = (totalSeconds: number, adminUserEmail: string) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      let newAccumulated = totalSeconds;
+      if (newAccumulated < 0) newAccumulated = 0;
+      
+      const newSession: PracticeTimerSession = {
+        ...prev,
+        accumulatedSeconds: newAccumulated,
+        adminAdjustedTimer: true,
+        adminAdjustedBy: adminUserEmail
+      };
+
+      if (newSession.status === 'running') {
+        newSession.lastResumedAt = Date.now();
+      }
+
+      setCurrentSeconds(newAccumulated);
+      return newSession;
+    });
+  };
+
   return (
     <PracticeTimerContext.Provider
       value={{
@@ -215,7 +261,9 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
         resumeSession,
         finishSession,
         clearSession,
-        getFinalSeconds
+        getFinalSeconds,
+        adminAdjustTimerSeconds,
+        adminSetTimerSeconds
       }}
     >
       {children}
