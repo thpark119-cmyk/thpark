@@ -195,18 +195,8 @@ export default function Practice() {
         date,
         practiceTime: Number(practiceTime),
         pieceTitle: pieceTitle.trim(),
-        composer: composer.trim() || undefined,
-        goal: goal.trim() || undefined,
-        focusArea: focusArea.trim() || undefined,
-        whatWentWell: whatWentWell.trim() || undefined,
-        problem: problem.trim() || undefined,
-        nextAction: nextAction.trim() || undefined,
-        memo: memo.trim() || undefined,
         mood,
-        
-        // Share & Group features
         shareVisibility,
-        publicMemo: publicMemo.trim() || undefined,
         shareIncludePiece,
         shareIncludeGoal,
         shareIncludeFocusArea,
@@ -214,15 +204,21 @@ export default function Practice() {
         shareIncludeMood,
         shareIncludeRoutine,
         shareIncludeTimer,
-        
-        // Source tracking
         sourceType,
-        routineTitle: routineTitle.trim() || undefined,
         measuredByTimer,
-        
         createdAt: editingEntry?.createdAt || Date.now(),
         updatedAt: Date.now()
       };
+
+      if (composer.trim()) record.composer = composer.trim();
+      if (goal.trim()) record.goal = goal.trim();
+      if (focusArea.trim()) record.focusArea = focusArea.trim();
+      if (whatWentWell.trim()) record.whatWentWell = whatWentWell.trim();
+      if (problem.trim()) record.problem = problem.trim();
+      if (nextAction.trim()) record.nextAction = nextAction.trim();
+      if (memo.trim()) record.memo = memo.trim();
+      if (publicMemo.trim()) record.publicMemo = publicMemo.trim();
+      if (routineTitle.trim()) record.routineTitle = routineTitle.trim();
 
       if (editingEntry) {
         await updateRecord('practice_entries', record.id, record, user);

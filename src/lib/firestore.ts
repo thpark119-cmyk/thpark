@@ -15,6 +15,7 @@ import {
 import { db, auth } from './firebase';
 import { deleteUser } from 'firebase/auth';
 import { deleteFileFromStorage } from '../utils/cloudStorage';
+import { removeUndefinedDeep } from '../utils/firestoreSanitize';
 
 enum OperationType {
   CREATE = 'create',
@@ -42,15 +43,14 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth?.currentUser?.uid,
-      email: auth?.currentUser?.email,
-      emailVerified: auth?.currentUser?.emailVerified,
+      // Reduced PII logging
       isAnonymous: auth?.currentUser?.isAnonymous,
     },
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Firestore Error:', errInfo); // Log object for better DevTools experience, not JSON string
+  throw new Error(`Firestore ${operationType} failed. Check console for details.`);
 }
 
 // Memory registry to trigger snapshot-like updates for LocalStorage fallback
@@ -174,8 +174,9 @@ export async function addRecord(collectionName: string, data: any, user?: any) {
 
   const collPath = `users/${targetUser.uid}/${collectionName}`;
   try {
+    const cleanedData = removeUndefinedDeep(data);
     const docRef = await addDoc(collection(db, collPath), {
-      ...data,
+      ...cleanedData,
       userId: targetUser.uid,
       createdAt: serverTimestamp(),
     });
@@ -207,8 +208,9 @@ export async function updateRecord(collectionName: string, id: string, data: any
 
   const collPath = `users/${targetUser.uid}/${collectionName}`;
   try {
+    const cleanedData = removeUndefinedDeep(data);
     const docRef = doc(db, collPath, id);
-    await updateDoc(docRef, data);
+    await updateDoc(docRef, cleanedData);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${collPath}/${id}`);
   }
