@@ -10,7 +10,7 @@ import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '..
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { usePracticeTimer } from '../hooks/usePracticeTimer';
+import { usePracticeTimer } from '../context/PracticeTimerContext';
 import PracticeRoutineModal from './PracticeRoutineModal';
 
 // Helper to get local YYYY-MM-DD date string safely without timezone offsets
@@ -349,50 +349,55 @@ export default function Practice() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  useEffect(() => {
+    if (timer.session?.status === 'finished') {
+      const finalSeconds = timer.getFinalSeconds();
+      
+      if (finalSeconds < 30) {
+        alert(t('practiceLog.lessThan30Sec') || '30초 미만의 연습은 기록으로 저장하기 어렵습니다.');
+        timer.clearSession();
+        return;
+      }
+
+      const finalMinutes = Math.max(1, Math.round(finalSeconds / 60));
+      const session = timer.session;
+      
+      setDate(getLocalDateString());
+      setPracticeTime(finalMinutes);
+      setPieceTitle(session?.pieceTitle || '');
+      setComposer(session?.composer || '');
+      setGoal(session?.goal || session?.routineItemsText || '');
+      setFocusArea(session?.focusArea || '');
+      setWhatWentWell('');
+      setProblem('');
+      setNextAction('');
+      setMemo('');
+      setMood('normal');
+      
+      // Share & tracking defaults for timer
+      setShareVisibility('private');
+      setPublicMemo('');
+      setShareIncludePiece(true);
+      setShareIncludeGoal(true);
+      setShareIncludeFocusArea(true);
+      setShareIncludeNextAction(true);
+      setShareIncludeMood(true);
+      setShareIncludeRoutine(true);
+      setShareIncludeTimer(true);
+      setSourceType('timer');
+      setRoutineTitle(session?.routineTitle || '');
+      setMeasuredByTimer(true);
+      
+      timer.clearSession();
+      setIsAdding(true);
+    }
+  }, [timer.session, timer, t]);
+
   const handleFinishTimer = () => {
     if (!window.confirm(t('practiceLog.confirmFinish') || '연습을 종료하고 기록으로 저장할까요?')) {
       return;
     }
-    
-    const finalSeconds = timer.finishSession();
-    
-    if (finalSeconds < 30) {
-      alert(t('practiceLog.lessThan30Sec') || '30초 미만의 연습은 기록으로 저장하기 어렵습니다.');
-      timer.clearSession();
-      return;
-    }
-
-    const finalMinutes = Math.max(1, Math.round(finalSeconds / 60));
-    const session = timer.session;
-    
-    setDate(getLocalDateString());
-    setPracticeTime(finalMinutes);
-    setPieceTitle(session?.pieceTitle || '');
-    setComposer(session?.composer || '');
-    setGoal(session?.goal || session?.routineItemsText || '');
-    setFocusArea(session?.focusArea || '');
-    setWhatWentWell('');
-    setProblem('');
-    setNextAction('');
-    setMemo('');
-    setMood('normal');
-    
-    // Share & tracking defaults for timer
-    setShareVisibility('private');
-    setPublicMemo('');
-    setShareIncludePiece(true);
-    setShareIncludeGoal(true);
-    setShareIncludeFocusArea(true);
-    setShareIncludeNextAction(true);
-    setShareIncludeMood(true);
-    setShareIncludeRoutine(true);
-    setShareIncludeTimer(true);
-    setSourceType('timer');
-    setRoutineTitle(session?.routineTitle || '');
-    setMeasuredByTimer(true);
-    
-    timer.clearSession();
-    setIsAdding(true);
+    timer.finishSession();
   };
 
   const handleCancelTimer = () => {
@@ -631,8 +636,9 @@ export default function Practice() {
               </button>
             </div>
             
-            <p className="text-[10px] text-stone-500 text-center">
-              {t('practiceLog.onlyActiveTimeRecorded')}
+            <p className="text-[10px] text-stone-500 text-center leading-tight">
+              {t('practiceLog.timerNavNotice') || '앱 안에서 악보함, 메트로놈, 튜너를 사용하는 동안에는 시간이 계속 기록됩니다.'}<br/>
+              {t('practiceLog.timerBackgroundNotice') || '앱을 벗어나면 연습 시간이 자동으로 일시정지됩니다.'}
             </p>
           </div>
         ) : (

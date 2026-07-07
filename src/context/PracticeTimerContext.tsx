@@ -1,9 +1,22 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { PracticeTimerSession, PracticeTimerStatus, PracticeTimerPauseReason } from '../types';
 
 const STORAGE_KEY = 'local_active_practice_timer';
 
-export function usePracticeTimer() {
+interface PracticeTimerContextType {
+  session: PracticeTimerSession | null;
+  currentSeconds: number;
+  startSession: (details: Partial<PracticeTimerSession>) => void;
+  pauseSession: (reason?: PracticeTimerPauseReason) => void;
+  resumeSession: () => void;
+  finishSession: () => number;
+  clearSession: () => void;
+  getFinalSeconds: () => number;
+}
+
+const PracticeTimerContext = createContext<PracticeTimerContextType | null>(null);
+
+export function PracticeTimerProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<PracticeTimerSession | null>(null);
   const [currentSeconds, setCurrentSeconds] = useState(0);
 
@@ -16,13 +29,7 @@ export function usePracticeTimer() {
         // If it was running during a reload, change it to paused
         if (parsed.status === 'running') {
           parsed.status = 'paused';
-          parsed.pauseReason = 'pagehide'; // assuming refresh or leave
-          
-          // Calculate any time elapsed before unload if possible, but 
-          // usually we don't count time while the app was closed.
-          // The accumulatedSeconds is already saved at the moment of pausing.
-          // Wait, if it didn't save right before close, we might lose a few seconds,
-          // but we save to localStorage frequently or on visibilitychange.
+          parsed.pauseReason = 'refresh'; 
         }
         setSession(parsed);
         setCurrentSeconds(parsed.accumulatedSeconds);
@@ -51,11 +58,6 @@ export function usePracticeTimer() {
           const now = Date.now();
           const elapsedSinceResume = Math.floor((now - session.lastResumedAt) / 1000);
           setCurrentSeconds(session.accumulatedSeconds + elapsedSinceResume);
-          
-          // Sync to session occasionally to prevent large data loss on crash
-          // We can do this every 5-10 seconds, but doing it in state might trigger too many renders.
-          // Just update local storage directly here if we want? 
-          // Not strictly necessary since we listen to pagehide.
         }
       }, 1000);
     } else if (session && session.status === 'paused') {
@@ -69,6 +71,8 @@ export function usePracticeTimer() {
 
   // Handle visibility change and window events
   useEffect(() => {
+    let blurTimeout: NodeJS.Timeout;
+    
     const handlePause = (reason: PracticeTimerPauseReason) => {
       setSession(prev => {
         if (!prev || prev.status !== 'running' || !prev.lastResumedAt) return prev;
@@ -93,7 +97,18 @@ export function usePracticeTimer() {
     };
 
     const handleWindowBlur = () => {
-      handlePause('window-blur');
+      // Don't pause immediately to allow internal app navigation to not trigger a pause
+      blurTimeout = setTimeout(() => {
+        if (document.visibilityState === 'hidden') {
+           handlePause('window-blur');
+        }
+      }, 500); // short debounce
+    };
+    
+    const handleWindowFocus = () => {
+      if (blurTimeout) {
+         clearTimeout(blurTimeout);
+      }
     };
     
     const handlePageHide = () => {
@@ -109,12 +124,15 @@ export function usePracticeTimer() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('pagehide', handlePageHide);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pagehide', handlePageHide);
+      if (blurTimeout) clearTimeout(blurTimeout);
     };
   }, []);
 
@@ -197,14 +215,28 @@ export function usePracticeTimer() {
     setCurrentSeconds(0);
   };
 
-  return {
-    session,
-    currentSeconds,
-    startSession,
-    pauseSession,
-    resumeSession,
-    finishSession,
-    clearSession,
-    getFinalSeconds
-  };
+  return (
+    <PracticeTimerContext.Provider
+      value={{
+        session,
+        currentSeconds,
+        startSession,
+        pauseSession,
+        resumeSession,
+        finishSession,
+        clearSession,
+        getFinalSeconds
+      }}
+    >
+      {children}
+    </PracticeTimerContext.Provider>
+  );
+}
+
+export function usePracticeTimer() {
+  const context = useContext(PracticeTimerContext);
+  if (!context) {
+    throw new Error('usePracticeTimer must be used within a PracticeTimerProvider');
+  }
+  return context;
 }
