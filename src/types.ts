@@ -84,11 +84,23 @@ export interface RepertoireItem {
 
 export type PracticeShareVisibility = 'private' | 'shareCard' | 'groupReady';
 
+export type PracticeSubjectType =
+  | 'piece'
+  | 'scale'
+  | 'etude'
+  | 'technique'
+  | 'orchestra'
+  | 'ensemble'
+  | 'lessonHomework'
+  | 'free'
+  | 'other';
+
 export interface PracticeEntry {
   id: string;
   userId: string;
   date: string;
   practiceTime: number; // in minutes
+  practiceSubjectType?: PracticeSubjectType;
   pieceTitle: string;
   composer?: string;
   goal?: string;

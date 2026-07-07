@@ -5,7 +5,7 @@ import {
   AlertTriangle, Smile, Meh, Frown, Save, X, Activity, 
   Trophy, BookOpen as BookIcon, ChevronRight, Star, ListTodo
 } from 'lucide-react';
-import { PracticeEntry, PracticeRoutine, PracticeRoutineItem } from '../types';
+import { PracticeEntry, PracticeRoutine, PracticeRoutineItem, PracticeSubjectType } from '../types';
 import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '../lib/firestore';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -42,6 +42,7 @@ export default function Practice() {
   // Form fields
   const [date, setDate] = useState(getLocalDateString());
   const [practiceTime, setPracticeTime] = useState<number>(30);
+  const [practiceSubjectType, setPracticeSubjectType] = useState<PracticeSubjectType>('piece');
   const [pieceTitle, setPieceTitle] = useState('');
   const [composer, setComposer] = useState('');
   const [goal, setGoal] = useState('');
@@ -114,6 +115,7 @@ export default function Practice() {
   const handleOpenAdd = () => {
     setDate(getLocalDateString());
     setPracticeTime(30);
+    setPracticeSubjectType('piece');
     setPieceTitle('');
     setComposer('');
     setGoal('');
@@ -149,6 +151,7 @@ export default function Practice() {
     setEditingEntry(entry);
     setDate(entry.date);
     setPracticeTime(entry.practiceTime);
+    setPracticeSubjectType(entry.practiceSubjectType || 'piece');
     setPieceTitle(entry.pieceTitle);
     setComposer(entry.composer || '');
     setGoal(entry.goal || '');
@@ -214,6 +217,7 @@ export default function Practice() {
         userId: user?.uid || 'local',
         date,
         practiceTime: finalPracticeTime,
+        practiceSubjectType,
         pieceTitle: pieceTitle.trim(),
         mood,
         shareVisibility,
@@ -405,7 +409,10 @@ export default function Practice() {
       lines.push(`${t('practiceLog.measureMethod') || '측정 방식'}: ${t('practiceLog.focusPracticeTimer') || '집중 연습 타이머'}`);
     }
     if (entry.shareIncludePiece !== false && entry.pieceTitle) {
-      lines.push(`${t('practiceLog.pieceTitle')}: ${entry.pieceTitle}${entry.composer ? ` (${entry.composer})` : ''}`);
+      const typeText = entry.practiceSubjectType && entry.practiceSubjectType !== 'piece' 
+        ? `[${t(`practiceLog.subjectType${entry.practiceSubjectType.charAt(0).toUpperCase() + entry.practiceSubjectType.slice(1)}` as any) || entry.practiceSubjectType}] `
+        : '';
+      lines.push(`${t('practiceLog.practiceSubjectName') || '연습 대상'}: ${typeText}${entry.pieceTitle}${entry.composer ? ` (${entry.composer})` : ''}`);
     }
     if (entry.shareIncludeRoutine !== false && entry.routineTitle) {
       lines.push(`${t('practiceLog.routineName')}: ${entry.routineTitle}`);
@@ -943,12 +950,17 @@ export default function Practice() {
 
                   {/* Title / Composer */}
                   <div className="space-y-1">
-                    <h4 className="text-base font-bold text-stone-200 group-hover:text-white transition-colors tracking-tight line-clamp-1">
-                      {entry.pieceTitle}
+                    <h4 className="text-base font-bold text-stone-200 group-hover:text-white transition-colors tracking-tight line-clamp-1 flex items-center gap-2">
+                      {entry.practiceSubjectType && entry.practiceSubjectType !== 'piece' && (
+                        <span className="text-[10px] bg-stone-800 text-stone-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-sans shrink-0">
+                          {t(`practiceLog.subjectType${entry.practiceSubjectType.charAt(0).toUpperCase() + entry.practiceSubjectType.slice(1)}` as any) || entry.practiceSubjectType}
+                        </span>
+                      )}
+                      <span>{entry.pieceTitle}</span>
                     </h4>
                     {entry.composer && (
                       <p className="text-xs text-stone-500 font-sans line-clamp-1">
-                        {entry.composer}
+                        {t('practiceLog.composer')}: {entry.composer}
                       </p>
                     )}
                   </div>
@@ -1133,33 +1145,44 @@ export default function Practice() {
                   </div>
                 </div>
 
-                {/* Piece Title & Composer */}
+                {/* Practice Subject Area */}
                 <div className="space-y-4 bg-white/[0.01] border border-white/[0.02] p-4 rounded-3xl">
-                  {/* Piece Title */}
+                  {/* Subject Type */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
-                      {t('practiceLog.pieceTitle')} *
+                      {t('practiceLog.practiceSubjectType') || '연습 유형'} *
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={practiceSubjectType}
+                        onChange={(e) => setPracticeSubjectType(e.target.value as PracticeSubjectType)}
+                        className="w-full bg-stone-950 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans appearance-none"
+                      >
+                        <option value="piece">{t('practiceLog.subjectTypePiece') || '곡 / 레퍼토리'}</option>
+                        <option value="scale">{t('practiceLog.subjectTypeScale') || '스케일'}</option>
+                        <option value="etude">{t('practiceLog.subjectTypeEtude') || '에튀드'}</option>
+                        <option value="technique">{t('practiceLog.subjectTypeTechnique') || '테크닉'}</option>
+                        <option value="orchestra">{t('practiceLog.subjectTypeOrchestra') || '오케스트라 파트'}</option>
+                        <option value="ensemble">{t('practiceLog.subjectTypeEnsemble') || '실내악 / 앙상블'}</option>
+                        <option value="lessonHomework">{t('practiceLog.subjectTypeLessonHomework') || '레슨 숙제'}</option>
+                        <option value="free">{t('practiceLog.subjectTypeFree') || '자유 연습'}</option>
+                        <option value="other">{t('practiceLog.subjectTypeOther') || '기타'}</option>
+                      </select>
+                      <ChevronRight size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none rotate-90" />
+                    </div>
+                  </div>
+
+                  {/* Piece Title (Subject Name) */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
+                      {t('practiceLog.practiceSubjectName') || '연습 대상 이름'} *
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. 바흐 무반주 첼로 모음곡 1번 프렐류드"
+                      placeholder={t('practiceLog.practiceSubjectPlaceholder') || '예: Dvořák Cello Concerto 3악장, C major scale'}
                       value={pieceTitle}
                       onChange={(e) => setPieceTitle(e.target.value)}
-                      className="w-full bg-stone-950 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans"
-                    />
-                  </div>
-
-                  {/* Composer */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
-                      {t('practiceLog.composer')} (선택)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. J.S. Bach"
-                      value={composer}
-                      onChange={(e) => setComposer(e.target.value)}
                       className="w-full bg-stone-950 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans"
                     />
                   </div>
@@ -1223,6 +1246,23 @@ export default function Practice() {
 
                 {showAdvanced && (
                   <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
+                    {/* Composer */}
+                    <div className="space-y-1.5 bg-white/[0.01] border border-white/[0.02] p-4 rounded-2xl">
+                      <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
+                        {t('practiceLog.composer')} (선택)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. J.S. Bach"
+                        value={composer}
+                        onChange={(e) => setComposer(e.target.value)}
+                        className="w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans mt-2"
+                      />
+                      <p className="text-[10px] text-stone-600 font-sans mt-1">
+                        {t('practiceLog.composerHint') || '작곡가는 자세히 쓰기에서 입력할 수 있습니다.'}
+                      </p>
+                    </div>
+
                     {/* Goal / Focus Area */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Today Goal */}
@@ -1395,7 +1435,7 @@ export default function Practice() {
                         </label>
                         <div className="flex flex-wrap gap-2">
                           {[
-                            { state: shareIncludePiece, setter: setShareIncludePiece, label: t('practiceLog.includePiece') || '곡명 포함' },
+                            { state: shareIncludePiece, setter: setShareIncludePiece, label: t('practiceLog.shareIncludeSubject') || '연습 대상 포함' },
                             { state: shareIncludeGoal, setter: setShareIncludeGoal, label: t('practiceLog.includeGoal') || '오늘 목표 포함' },
                             { state: shareIncludeFocusArea, setter: setShareIncludeFocusArea, label: t('practiceLog.includeFocusArea') || '집중한 부분 포함' },
                             { state: shareIncludeNextAction, setter: setShareIncludeNextAction, label: t('practiceLog.includeNextAction') || '다음에 할 것 포함' },
