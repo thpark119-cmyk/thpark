@@ -698,7 +698,12 @@ export default function Practice() {
             <div className="space-y-1 text-center">
               <span className="text-xs text-brand font-bold uppercase tracking-[0.2em]">{t('practiceLog.focusPractice')}</span>
               <h3 className="text-xl font-bold text-white tracking-tight">
-                {timer.session.pieceTitle || timer.session.routineTitle || t('practiceLog.freePractice')}
+                {timer.session.sourceType === 'routine' 
+                  ? (timer.session.routineTitle || (t('practiceLog.routinePracticeing') || '루틴 연습 중'))
+                  : ((timer.session.pieceTitle && timer.session.pieceTitle !== t('practiceLog.freePractice') && timer.session.pieceTitle !== '자유 연습') 
+                      ? timer.session.pieceTitle 
+                      : (t('practiceLog.practicing') || '연습 중'))
+                }
               </h3>
               {timer.session.targetMinutes && (
                 <p className="text-xs text-stone-400 font-sans">

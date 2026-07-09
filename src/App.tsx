@@ -273,7 +273,7 @@ export default function App() {
           </main>
         </div>
 
-        <MiniTimer onNavigateToPractice={() => setActiveTab('practice')} />
+        <MiniTimer onNavigateToPractice={() => setActiveTab('practice')} isPracticeTab={activeTab === 'practice'} />
 
         {/* Mobile Bottom Navigation */}
         <nav 
