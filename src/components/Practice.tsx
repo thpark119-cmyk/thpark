@@ -82,6 +82,10 @@ export default function Practice() {
   const [showShareSettings, setShowShareSettings] = useState(false);
   const [sharingEntry, setSharingEntry] = useState<PracticeEntry | null>(null);
 
+  // Filter states
+  const [filterMode, setFilterMode] = useState<'all' | 'today' | 'week' | 'custom'>('all');
+  const [filterDate, setFilterDate] = useState<string>(getLocalDateString());
+
   // Lock scroll when modal is open
   useBodyScrollLock(isAdding || !!editingEntry || isAddingRoutine || !!editingRoutine || !!sharingEntry);
 
@@ -538,6 +542,11 @@ export default function Practice() {
   // Format date nicely for rendering (e.g. 7월 5일 (토))
   const formatEntryDate = (dateStr: string) => {
     try {
+      if (dateStr === todayStr) return t('practiceLog.today') || '오늘';
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (dateStr === getLocalDateString(yesterday)) return t('practiceLog.yesterday') || '어제';
+
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
       
@@ -552,6 +561,56 @@ export default function Practice() {
       return dateStr;
     }
   };
+
+  const getEntryDateSafely = (entry: PracticeEntry) => {
+    if (entry.date) return entry.date;
+    if (entry.createdAt) return getLocalDateString(new Date(entry.createdAt));
+    return getLocalDateString();
+  };
+
+  // Safe entries with guaranteed date
+  const safeEntries = entries.map(entry => ({
+    ...entry,
+    date: getEntryDateSafely(entry)
+  }));
+
+  // Apply filters
+  const filteredEntries = safeEntries.filter(entry => {
+    if (filterMode === 'today') return entry.date === todayStr;
+    if (filterMode === 'week') return entry.date >= mondayStr && entry.date <= sundayStr;
+    if (filterMode === 'custom') return entry.date === filterDate;
+    return true; // 'all'
+  });
+
+  // Calculate summary for currently filtered entries
+  const filteredTotalMinutes = filteredEntries.reduce((sum, e) => sum + e.practiceTime, 0);
+  const filteredRecordCount = filteredEntries.length;
+  const filteredRoutineSuccess = filteredEntries.filter(e => e.routineGoalReached).length;
+  
+  // Calculate most frequent practice subject
+  const subjectCounts = filteredEntries.reduce((acc, e) => {
+    const type = e.practiceSubjectType || 'free';
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  let topSubjectType = '';
+  let maxCount = 0;
+  for (const [type, count] of Object.entries(subjectCounts) as [string, number][]) {
+    if (count > maxCount) {
+      maxCount = count;
+      topSubjectType = type;
+    }
+  }
+
+  // Group filtered entries by date
+  const groupedEntries = filteredEntries.reduce((acc, entry) => {
+    if (!acc[entry.date]) acc[entry.date] = [];
+    acc[entry.date].push(entry);
+    return acc;
+  }, {} as Record<string, PracticeEntry[]>);
+  
+  // Sort dates descending
+  const sortedDates = Object.keys(groupedEntries).sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="space-y-6 md:space-y-8 px-1 pb-12">
@@ -897,136 +956,253 @@ export default function Practice() {
       </div>
 
       {/* Practice Log List */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-stone-400 tracking-wider uppercase font-sans">
-          {t('practiceLog.practiceLog')}
-        </h3>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <h3 className="text-sm font-semibold text-stone-400 tracking-wider uppercase font-sans">
+            {t('practiceLog.dateViewTitle') || '날짜별 연습 기록'}
+          </h3>
+          
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setFilterMode('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                filterMode === 'all' 
+                  ? 'bg-brand text-stone-900' 
+                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+              }`}
+            >
+              {t('practiceLog.filterAll') || '전체'}
+            </button>
+            <button
+              onClick={() => setFilterMode('today')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                filterMode === 'today' 
+                  ? 'bg-brand text-stone-900' 
+                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+              }`}
+            >
+              {t('practiceLog.filterToday') || '오늘'}
+            </button>
+            <button
+              onClick={() => setFilterMode('week')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                filterMode === 'week' 
+                  ? 'bg-brand text-stone-900' 
+                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+              }`}
+            >
+              {t('practiceLog.filterWeek') || '이번 주'}
+            </button>
+            
+            <div className="relative flex items-center">
+              <input
+                type="date"
+                value={filterMode === 'custom' ? filterDate : ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setFilterDate(e.target.value);
+                    setFilterMode('custom');
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-brand/30 appearance-none bg-stone-900 border border-white/5 ${
+                  filterMode === 'custom' ? 'text-brand border-brand/30' : 'text-stone-400 hover:text-stone-200'
+                }`}
+                title={t('practiceLog.filterDateSelect') || '날짜 선택'}
+              />
+            </div>
+          </div>
+        </div>
 
-        {entries.length === 0 ? (
+        {/* Summary Card */}
+        {entries.length > 0 && filterMode !== 'all' && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-brand/5 border border-brand/10 rounded-3xl p-5 md:p-6 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6"
+          >
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1 font-sans">
+                {filterMode === 'today' ? (t('practiceLog.summaryToday') || '오늘의 연습') : 
+                 filterMode === 'week' ? (t('practiceLog.summaryWeek') || '이번 주 연습') : 
+                 (t('practiceLog.summarySelected') || '선택한 기간')}
+              </p>
+              <p className="text-xl font-bold text-white tracking-tight">{formatDuration(filteredTotalMinutes)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1 font-sans">{t('practiceLog.summaryCount') || '기록 수'}</p>
+              <p className="text-xl font-bold text-white tracking-tight">{filteredRecordCount}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1 font-sans">{t('practiceLog.summaryRoutineSuccess') || '루틴 성공'}</p>
+              <p className="text-xl font-bold text-brand tracking-tight">{filteredRoutineSuccess}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1 font-sans line-clamp-1">{t('practiceLog.summaryTopType') || '가장 많이 한 연습 유형'}</p>
+              <p className="text-sm font-bold text-stone-300 tracking-tight line-clamp-1 mt-1">
+                {topSubjectType ? (t(`practiceLog.subjectType${topSubjectType.charAt(0).toUpperCase() + topSubjectType.slice(1)}` as any) || topSubjectType) : '-'}
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {filteredEntries.length === 0 ? (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="flex flex-col items-center justify-center py-16 px-4 bg-stone-900/20 border border-white/[0.02] rounded-3xl text-center space-y-3"
           >
             <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center text-stone-500">
-              <Music size={20} />
+              <Calendar size={20} />
             </div>
             <div className="space-y-1">
-              <p className="text-sm text-stone-400 font-medium">{t('practiceLog.empty')}</p>
-              <p className="text-xs text-stone-600">{t('practiceLog.emptySub')}</p>
+              <p className="text-sm text-stone-400 font-medium">{t('practiceLog.emptyDate') || '이 날짜에는 아직 연습 기록이 없습니다.'}</p>
+              <p className="text-xs text-stone-600">{t('practiceLog.emptyDateSub') || '연습 시작을 눌러 오늘의 연습을 기록해보세요.'}</p>
             </div>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {entries.map((entry, index) => (
-              <motion.div
-                key={entry.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(index * 0.05, 0.3) }}
-                onClick={() => handleOpenEdit(entry)}
-                className="bg-stone-900/30 hover:bg-stone-900/50 border border-white/[0.03] hover:border-white/[0.08] rounded-3xl p-5 md:p-6 transition-all duration-200 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
-              >
-                <div className="space-y-4 z-10">
-                  {/* Top line with date, duration and mood */}
-                  <div className="flex justify-between items-center">
-                    <span className="flex items-center gap-1.5 text-[10px] text-stone-500 font-mono">
-                      <Calendar size={12} className="shrink-0" />
-                      <span>{formatEntryDate(entry.date)}</span>
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      {entry.mood === 'good' && (
-                        <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
-                          <Smile size={11} />
-                          <span>{t('practiceLog.moodGood')}</span>
-                        </span>
-                      )}
-                      {entry.mood === 'normal' && (
-                        <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
-                          <Meh size={11} />
-                          <span>{t('practiceLog.moodNormal')}</span>
-                        </span>
-                      )}
-                      {entry.mood === 'hard' && (
-                        <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
-                          <Frown size={11} />
-                          <span>{t('practiceLog.moodHard')}</span>
-                        </span>
-                      )}
-
-                      <span className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2.5 py-0.5 rounded-full font-sans font-bold">
-                        <Clock size={11} />
-                        <span>{entry.practiceTime} {t('practiceLog.minutes')}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Title / Composer */}
-                  <div className="space-y-1">
-                    <h4 className="text-base font-bold text-stone-200 group-hover:text-white transition-colors tracking-tight line-clamp-1 flex items-center gap-2">
-                      {entry.practiceSubjectType && entry.practiceSubjectType !== 'piece' && (
-                        <span className="text-[10px] bg-stone-800 text-stone-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-sans shrink-0">
-                          {t(`practiceLog.subjectType${entry.practiceSubjectType.charAt(0).toUpperCase() + entry.practiceSubjectType.slice(1)}` as any) || entry.practiceSubjectType}
-                        </span>
-                      )}
-                      <span>{entry.pieceTitle}</span>
+          <div className="space-y-8">
+            {sortedDates.map((dateKey) => {
+              const dayEntries = groupedEntries[dateKey];
+              const dayTotalMinutes = dayEntries.reduce((sum, e) => sum + e.practiceTime, 0);
+              const dayRoutineSuccess = dayEntries.filter(e => e.routineGoalReached).length;
+              
+              return (
+                <div key={dateKey} className="space-y-4">
+                  <div className="flex items-end justify-between border-b border-white/[0.05] pb-2 px-1">
+                    <h4 className="text-lg font-bold text-stone-200 flex items-center gap-2">
+                      <Calendar size={16} className="text-stone-500" />
+                      {formatEntryDate(dateKey)}
                     </h4>
-                    {entry.composer && (
-                      <p className="text-xs text-stone-500 font-sans line-clamp-1">
-                        {t('practiceLog.composer')}: {entry.composer}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Goal and Focus area snippet */}
-                  {(entry.goal || entry.focusArea) && (
-                    <div className="bg-white/[0.01] border border-white/[0.03] rounded-2xl p-3 space-y-1.5 text-xs text-stone-400 font-sans">
-                      {entry.goal && (
-                        <div className="flex gap-1.5 items-start">
-                          <span className="text-[10px] uppercase tracking-wider text-brand font-bold shrink-0 mt-0.5">G</span>
-                          <span className="line-clamp-1 leading-relaxed">{entry.goal}</span>
-                        </div>
-                      )}
-                      {entry.focusArea && (
-                        <div className="flex gap-1.5 items-start">
-                          <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold shrink-0 mt-0.5">F</span>
-                          <span className="line-clamp-1 leading-relaxed">{entry.focusArea}</span>
-                        </div>
+                    <div className="flex items-center gap-3 text-xs font-sans">
+                      <span className="text-stone-400 font-medium">총 {formatDuration(dayTotalMinutes)}</span>
+                      <span className="text-stone-600">•</span>
+                      <span className="text-stone-400 font-medium">기록 {dayEntries.length}개</span>
+                      {dayRoutineSuccess > 0 && (
+                        <>
+                          <span className="text-stone-600">•</span>
+                          <span className="text-brand font-bold">루틴 성공 {dayRoutineSuccess}개</span>
+                        </>
                       )}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Memo snippet */}
-                  {entry.memo && (
-                    <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed italic font-sans border-l-2 border-stone-800 pl-2">
-                      {entry.memo}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex justify-between mt-4 pt-3 border-t border-white/[0.02] items-center">
-                  <div className="flex items-center">
-                    {(entry.shareVisibility === 'shareCard' || entry.shareVisibility === 'groupReady') && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSharingEntry(entry);
-                        }}
-                        className="px-3 py-1.5 bg-brand/10 hover:bg-brand/20 text-brand rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {dayEntries.map((entry, index) => (
+                      <motion.div
+                        key={entry.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(index * 0.05, 0.3) }}
+                        onClick={() => handleOpenEdit(entry)}
+                        className="bg-stone-900/30 hover:bg-stone-900/50 border border-white/[0.03] hover:border-white/[0.08] rounded-3xl p-5 md:p-6 transition-all duration-200 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
                       >
-                        <Activity size={12} />
-                        <span>{t('practiceLog.share') || '공유'}</span>
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 text-[10px] text-stone-600 group-hover:text-stone-400 font-medium transition-colors">
-                    <span>{t('common.edit')}</span>
-                    <ChevronRight size={10} />
+                        <div className="space-y-4 z-10">
+                          {/* Top line with duration and mood */}
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                              {entry.mood === 'good' && (
+                                <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
+                                  <Smile size={11} />
+                                  <span>{t('practiceLog.moodGood')}</span>
+                                </span>
+                              )}
+                              {entry.mood === 'normal' && (
+                                <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
+                                  <Meh size={11} />
+                                  <span>{t('practiceLog.moodNormal')}</span>
+                                </span>
+                              )}
+                              {entry.mood === 'hard' && (
+                                <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
+                                  <Frown size={11} />
+                                  <span>{t('practiceLog.moodHard')}</span>
+                                </span>
+                              )}
+                              {entry.measuredByTimer && (
+                                <span className="flex items-center gap-1 text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full font-sans font-bold">
+                                  <Activity size={11} />
+                                  <span>타이머 측정됨</span>
+                                </span>
+                              )}
+                              {entry.routineGoalReached && (
+                                <span className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2 py-0.5 rounded-full font-sans font-bold">
+                                  <Star size={11} />
+                                  <span>루틴 성공</span>
+                                </span>
+                              )}
+                            </div>
+        
+                            <span className="flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-2.5 py-0.5 rounded-full font-sans font-bold">
+                              <Clock size={11} />
+                              <span>{entry.practiceTime} {t('practiceLog.minutes')}</span>
+                            </span>
+                          </div>
+        
+                          {/* Title */}
+                          <div className="space-y-1">
+                            <h4 className="text-base font-bold text-stone-200 group-hover:text-white transition-colors tracking-tight line-clamp-1 flex items-center gap-2">
+                              {entry.practiceSubjectType && entry.practiceSubjectType !== 'piece' && (
+                                <span className="text-[10px] bg-stone-800 text-stone-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-sans shrink-0">
+                                  {t(`practiceLog.subjectType${entry.practiceSubjectType.charAt(0).toUpperCase() + entry.practiceSubjectType.slice(1)}` as any) || entry.practiceSubjectType}
+                                </span>
+                              )}
+                              <span>{entry.pieceTitle}</span>
+                            </h4>
+                          </div>
+        
+                          {/* Goal and Focus area snippet */}
+                          {(entry.goal || entry.focusArea) && (
+                            <div className="bg-white/[0.01] border border-white/[0.03] rounded-2xl p-3 space-y-1.5 text-xs text-stone-400 font-sans">
+                              {entry.goal && (
+                                <div className="flex gap-1.5 items-start">
+                                  <span className="text-[10px] uppercase tracking-wider text-brand font-bold shrink-0 mt-0.5">G</span>
+                                  <span className="line-clamp-1 leading-relaxed">{entry.goal}</span>
+                                </div>
+                              )}
+                              {entry.focusArea && (
+                                <div className="flex gap-1.5 items-start">
+                                  <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold shrink-0 mt-0.5">F</span>
+                                  <span className="line-clamp-1 leading-relaxed">{entry.focusArea}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+        
+                          {/* Memo snippet */}
+                          {entry.memo && (
+                            <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed italic font-sans border-l-2 border-stone-800 pl-2">
+                              {entry.memo}
+                            </p>
+                          )}
+                        </div>
+        
+                        <div className="flex justify-between mt-4 pt-3 border-t border-white/[0.02] items-center">
+                          <div className="flex items-center">
+                            {(entry.shareVisibility === 'shareCard' || entry.shareVisibility === 'groupReady') && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSharingEntry(entry);
+                                }}
+                                className="px-3 py-1.5 bg-brand/10 hover:bg-brand/20 text-brand rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                              >
+                                <Activity size={12} />
+                                <span>{t('practiceLog.share') || '공유'}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-[10px] text-stone-600 group-hover:text-stone-400 font-medium transition-colors">
+                            <span>{t('common.edit')}</span>
+                            <ChevronRight size={10} />
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
                   </div>
                 </div>
-              </motion.div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1142,15 +1318,15 @@ export default function Practice() {
                         max="1440"
                         value={practiceTime}
                         onChange={(e) => setPracticeTime(Math.max(1, Number(e.target.value)))}
-                        disabled={Boolean(editingEntry) && !isAdminUser(user)}
+                        disabled={!isAdminUser(user)}
                         className={`w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm focus:outline-none transition-all font-sans ${
-                          Boolean(editingEntry) && !isAdminUser(user) 
+                          !isAdminUser(user) 
                             ? 'opacity-50 cursor-not-allowed bg-stone-900/50' 
                             : 'focus:ring-2 focus:ring-brand/30'
                         }`}
                       />
                       {/* Increments buttons for touch/mobile visual flair */}
-                      {(!editingEntry || isAdminUser(user)) && (
+                      {isAdminUser(user) && (
                         <div className="flex gap-1 shrink-0">
                           <button
                             type="button"
@@ -1171,7 +1347,7 @@ export default function Practice() {
                     </div>
                     {/* Trust Notices */}
                     <div className="pt-1 space-y-1">
-                      {Boolean(editingEntry) && !isAdminUser(user) && (
+                      {!isAdminUser(user) && (
                         <p className="text-xs text-amber-500/80 font-medium font-sans flex items-center gap-1.5">
                           <AlertTriangle size={12} />
                           {t('practiceLog.timeEditLocked') || '연습 시간은 기록 신뢰도를 위해 수정할 수 없습니다.'}
