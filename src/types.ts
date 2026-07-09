@@ -86,14 +86,9 @@ export type PracticeShareVisibility = 'private' | 'shareCard' | 'groupReady';
 
 export type PracticeSubjectType =
   | 'piece'
-  | 'scale'
-  | 'etude'
-  | 'technique'
-  | 'orchestra'
-  | 'ensemble'
-  | 'lessonHomework'
-  | 'free'
-  | 'other';
+  | 'fundamentalsTechnique'
+  | 'ensembleOrchestra'
+  | 'free';
 
 export interface PracticeEntry {
   id: string;

@@ -39,6 +39,8 @@ export default function Practice() {
   const [editingRoutine, setEditingRoutine] = useState<PracticeRoutine | null>(null);
   const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
   
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
   // Form fields
   const [date, setDate] = useState(getLocalDateString());
   const [practiceTime, setPracticeTime] = useState<number>(30);
@@ -183,10 +185,19 @@ export default function Practice() {
     setErrorMsg('');
   };
 
-  const handleCloseModal = () => {
+  const forceCloseModal = () => {
     setIsAdding(false);
     setEditingEntry(null);
     setErrorMsg('');
+    setShowCancelConfirm(false);
+  };
+
+  const handleCloseModal = () => {
+    if (isAdding || editingEntry) {
+      setShowCancelConfirm(true);
+    } else {
+      forceCloseModal();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -197,6 +208,10 @@ export default function Practice() {
     }
     if (practiceTime <= 0) {
       setErrorMsg(t('practiceLog.practiceTime') + ' ' + (t('common.saveError') || '0보다 커야 합니다.'));
+      return;
+    }
+
+    if (!window.confirm(t('practiceLog.confirmSave') || '연습 기록을 저장하시겠습니까?')) {
       return;
     }
 
@@ -238,7 +253,6 @@ export default function Practice() {
         updatedAt: Date.now()
       };
 
-      if (composer.trim()) record.composer = composer.trim();
       if (goal.trim()) record.goal = goal.trim();
       if (focusArea.trim()) record.focusArea = focusArea.trim();
       if (whatWentWell.trim()) record.whatWentWell = whatWentWell.trim();
@@ -261,7 +275,7 @@ export default function Practice() {
         await addRecord('practice_entries', record, user);
       }
 
-      handleCloseModal();
+      forceCloseModal();
     } catch (err) {
       console.error('Error saving practice log:', err);
       setErrorMsg(t('practiceLog.saveFailed') || '저장에 실패했습니다.');
@@ -276,7 +290,7 @@ export default function Practice() {
     }
     try {
       await deleteRecord('practice_entries', entryId, user);
-      handleCloseModal();
+      forceCloseModal();
     } catch (err) {
       console.error('Error deleting practice log:', err);
       alert(t('practiceLog.deleteFailed') || '삭제에 실패했습니다.');
@@ -1037,6 +1051,45 @@ export default function Practice() {
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-[#12100E] border border-white/[0.08] w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl relative z-10 max-h-[90vh] flex flex-col"
             >
+              {/* Cancel Confirm Overlay */}
+              <AnimatePresence>
+                {showCancelConfirm && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-50 bg-[#12100E]/95 backdrop-blur-md flex items-center justify-center p-8"
+                  >
+                    <div className="text-center space-y-6">
+                      <div className="space-y-3">
+                        <h3 className="text-xl font-bold text-stone-200">
+                          {t('practiceLog.saveConfirmDesc') || '저장하지 않고 닫을까요?'}
+                        </h3>
+                        <p className="text-sm text-stone-400 leading-relaxed font-sans whitespace-pre-line">
+                          {t('practiceLog.saveConfirmSub') || '아직 저장되지 않은 연습 기록입니다.\n취소하면 이 연습 기록은 저장되지 않습니다.'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        <button
+                          type="button"
+                          onClick={forceCloseModal}
+                          className="px-6 py-3.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 font-bold text-sm rounded-2xl transition-all"
+                        >
+                          {t('practiceLog.saveConfirmYes') || '저장하지 않고 닫기'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCancelConfirm(false)}
+                          className="px-6 py-3.5 bg-white/5 hover:bg-white/10 text-stone-300 font-bold text-sm rounded-2xl transition-all"
+                        >
+                          {t('practiceLog.saveConfirmNo') || '계속 작성'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Modal Header */}
               <div className="flex justify-between items-center p-6 border-b border-white/[0.05] shrink-0">
                 <h3 className="text-lg font-bold text-white tracking-tight font-sans">
@@ -1158,15 +1211,15 @@ export default function Practice() {
                         onChange={(e) => setPracticeSubjectType(e.target.value as PracticeSubjectType)}
                         className="w-full bg-stone-950 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans appearance-none"
                       >
-                        <option value="piece">{t('practiceLog.subjectTypePiece') || '곡 / 레퍼토리'}</option>
-                        <option value="scale">{t('practiceLog.subjectTypeScale') || '스케일'}</option>
-                        <option value="etude">{t('practiceLog.subjectTypeEtude') || '에튀드'}</option>
-                        <option value="technique">{t('practiceLog.subjectTypeTechnique') || '테크닉'}</option>
-                        <option value="orchestra">{t('practiceLog.subjectTypeOrchestra') || '오케스트라 파트'}</option>
-                        <option value="ensemble">{t('practiceLog.subjectTypeEnsemble') || '실내악 / 앙상블'}</option>
-                        <option value="lessonHomework">{t('practiceLog.subjectTypeLessonHomework') || '레슨 숙제'}</option>
+                        {!['piece', 'fundamentalsTechnique', 'ensembleOrchestra', 'free'].includes(practiceSubjectType) && (
+                          <option value={practiceSubjectType}>
+                            {t(`practiceLog.subjectType${practiceSubjectType.charAt(0).toUpperCase() + practiceSubjectType.slice(1)}` as any) || practiceSubjectType}
+                          </option>
+                        )}
+                        <option value="piece">{t('practiceLog.subjectTypePiece') || '곡 연습'}</option>
+                        <option value="fundamentalsTechnique">{t('practiceLog.subjectTypeFundamentalsTechnique') || '기본기 / 테크닉'}</option>
+                        <option value="ensembleOrchestra">{t('practiceLog.subjectTypeEnsembleOrchestra') || '합주 / 오케스트라'}</option>
                         <option value="free">{t('practiceLog.subjectTypeFree') || '자유 연습'}</option>
-                        <option value="other">{t('practiceLog.subjectTypeOther') || '기타'}</option>
                       </select>
                       <ChevronRight size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none rotate-90" />
                     </div>
@@ -1246,23 +1299,6 @@ export default function Practice() {
 
                 {showAdvanced && (
                   <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
-                    {/* Composer */}
-                    <div className="space-y-1.5 bg-white/[0.01] border border-white/[0.02] p-4 rounded-2xl">
-                      <label className="text-[10px] text-stone-500 uppercase tracking-widest font-bold font-sans">
-                        {t('practiceLog.composer')} (선택)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. J.S. Bach"
-                        value={composer}
-                        onChange={(e) => setComposer(e.target.value)}
-                        className="w-full bg-stone-900 border border-white/5 rounded-xl px-4 py-3 text-stone-200 text-sm placeholder:text-stone-700 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all font-sans mt-2"
-                      />
-                      <p className="text-[10px] text-stone-600 font-sans mt-1">
-                        {t('practiceLog.composerHint') || '작곡가는 자세히 쓰기에서 입력할 수 있습니다.'}
-                      </p>
-                    </div>
-
                     {/* Goal / Focus Area */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Today Goal */}
