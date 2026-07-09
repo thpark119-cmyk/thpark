@@ -757,7 +757,7 @@ export default function Practice() {
               className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-brand hover:bg-brand-light text-stone-950 font-bold text-sm rounded-2xl shadow-lg shadow-brand/20 active:scale-95 transition-all"
             >
               <Activity size={18} strokeWidth={2.5} />
-              <span>{t('practiceLog.freePractice')} {t('practiceLog.startPractice')}</span>
+              <span>{t('practiceLog.startPractice')}</span>
             </button>
           </div>
         )}
@@ -963,41 +963,44 @@ export default function Practice() {
           </h3>
           
           {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setFilterMode('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterMode === 'all' 
-                  ? 'bg-brand text-stone-900' 
-                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
-              }`}
-            >
-              {t('practiceLog.filterAll') || '전체'}
-            </button>
-            <button
-              onClick={() => setFilterMode('today')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterMode === 'today' 
-                  ? 'bg-brand text-stone-900' 
-                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
-              }`}
-            >
-              {t('practiceLog.filterToday') || '오늘'}
-            </button>
-            <button
-              onClick={() => setFilterMode('week')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterMode === 'week' 
-                  ? 'bg-brand text-stone-900' 
-                  : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
-              }`}
-            >
-              {t('practiceLog.filterWeek') || '이번 주'}
-            </button>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => setFilterMode('all')}
+                className={`px-3 py-1.5 h-10 rounded-xl text-sm font-bold transition-all flex-1 sm:flex-none ${
+                  filterMode === 'all' 
+                    ? 'bg-brand text-stone-900' 
+                    : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+                }`}
+              >
+                {t('practiceLog.filterAll') || '전체'}
+              </button>
+              <button
+                onClick={() => setFilterMode('today')}
+                className={`px-3 py-1.5 h-10 rounded-xl text-sm font-bold transition-all flex-1 sm:flex-none ${
+                  filterMode === 'today' 
+                    ? 'bg-brand text-stone-900' 
+                    : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+                }`}
+              >
+                {t('practiceLog.filterToday') || '오늘'}
+              </button>
+              <button
+                onClick={() => setFilterMode('week')}
+                className={`px-3 py-1.5 h-10 rounded-xl text-sm font-bold transition-all flex-1 sm:flex-none ${
+                  filterMode === 'week' 
+                    ? 'bg-brand text-stone-900' 
+                    : 'bg-stone-900 border border-white/5 text-stone-400 hover:text-stone-200'
+                }`}
+              >
+                {t('practiceLog.filterWeek') || '이번 주'}
+              </button>
+            </div>
             
-            <div className="relative flex items-center">
+            <div className="relative flex items-center w-full sm:w-auto">
               <input
                 type="date"
+                aria-label={t('practiceLog.filterDateSelect') || '날짜 선택'}
                 value={filterMode === 'custom' ? filterDate : ''}
                 onChange={(e) => {
                   if (e.target.value) {
@@ -1005,7 +1008,7 @@ export default function Practice() {
                     setFilterMode('custom');
                   }
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-brand/30 appearance-none bg-stone-900 border border-white/5 ${
+                className={`w-full sm:w-auto h-10 px-3 py-2 rounded-xl text-sm font-bold transition-all focus:outline-none focus:ring-2 focus:ring-brand/30 bg-stone-900 border border-white/5 ${
                   filterMode === 'custom' ? 'text-brand border-brand/30' : 'text-stone-400 hover:text-stone-200'
                 }`}
                 title={t('practiceLog.filterDateSelect') || '날짜 선택'}
