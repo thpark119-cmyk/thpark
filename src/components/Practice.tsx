@@ -196,8 +196,70 @@ export default function Practice() {
     setShowCancelConfirm(false);
   };
 
+  const checkIsDirty = () => {
+    if (isAdding && sourceType === 'timer') {
+      return true;
+    }
+    
+    if (editingEntry) {
+      const normForm = {
+        practiceSubjectType: practiceSubjectType || 'free',
+        pieceTitle: pieceTitle.trim(),
+        composer: composer.trim(),
+        goal: goal.trim(),
+        focusArea: focusArea.trim(),
+        whatWentWell: whatWentWell.trim(),
+        problem: problem.trim(),
+        nextAction: nextAction.trim(),
+        memo: memo.trim(),
+        mood: mood || 'normal',
+        shareVisibility: shareVisibility || 'private',
+        publicMemo: publicMemo.trim(),
+        shareIncludePiece,
+        shareIncludeGoal,
+        shareIncludeFocusArea,
+        shareIncludeNextAction,
+        shareIncludeMood,
+        shareIncludeRoutine,
+        shareIncludeTimer,
+      };
+      
+      const normEntry = {
+        practiceSubjectType: editingEntry.practiceSubjectType || 'free',
+        pieceTitle: (editingEntry.pieceTitle || '').trim(),
+        composer: (editingEntry.composer || '').trim(),
+        goal: (editingEntry.goal || '').trim(),
+        focusArea: (editingEntry.focusArea || '').trim(),
+        whatWentWell: (editingEntry.whatWentWell || '').trim(),
+        problem: (editingEntry.problem || '').trim(),
+        nextAction: (editingEntry.nextAction || '').trim(),
+        memo: (editingEntry.memo || '').trim(),
+        mood: editingEntry.mood || 'normal',
+        shareVisibility: editingEntry.shareVisibility || 'private',
+        publicMemo: (editingEntry.publicMemo || '').trim(),
+        shareIncludePiece: editingEntry.shareIncludePiece ?? true,
+        shareIncludeGoal: editingEntry.shareIncludeGoal ?? true,
+        shareIncludeFocusArea: editingEntry.shareIncludeFocusArea ?? true,
+        shareIncludeNextAction: editingEntry.shareIncludeNextAction ?? true,
+        shareIncludeMood: editingEntry.shareIncludeMood ?? true,
+        shareIncludeRoutine: editingEntry.shareIncludeRoutine ?? true,
+        shareIncludeTimer: editingEntry.shareIncludeTimer ?? true,
+      };
+
+      return JSON.stringify(normForm) !== JSON.stringify(normEntry);
+    }
+    
+    if (isAdding) {
+      if (pieceTitle.trim() !== '') return true;
+      if (memo.trim() !== '') return true;
+      if (practiceTime !== 30) return true;
+    }
+
+    return false;
+  };
+
   const handleCloseModal = () => {
-    if (isAdding || editingEntry) {
+    if ((isAdding || editingEntry) && checkIsDirty()) {
       setShowCancelConfirm(true);
     } else {
       forceCloseModal();
@@ -998,21 +1060,33 @@ export default function Practice() {
             </div>
             
             <div className="relative flex items-center w-full sm:w-auto">
-              <input
-                type="date"
-                aria-label={t('practiceLog.filterDateSelect') || '날짜 선택'}
-                value={filterMode === 'custom' ? filterDate : ''}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setFilterDate(e.target.value);
-                    setFilterMode('custom');
-                  }
-                }}
-                className={`w-full sm:w-auto h-10 px-3 py-2 rounded-xl text-sm font-bold transition-all focus:outline-none focus:ring-2 focus:ring-brand/30 bg-stone-900 border border-white/5 ${
+              <div 
+                className={`flex items-center justify-between w-full sm:w-auto h-10 px-3 py-2 rounded-xl text-sm font-bold transition-all bg-stone-900 border border-white/5 overflow-hidden ${
                   filterMode === 'custom' ? 'text-brand border-brand/30' : 'text-stone-400 hover:text-stone-200'
                 }`}
-                title={t('practiceLog.filterDateSelect') || '날짜 선택'}
-              />
+              >
+                <div className="flex items-center gap-2 pointer-events-none">
+                  <Calendar size={14} />
+                  <span>
+                    {filterMode === 'custom' && filterDate 
+                      ? filterDate.replace(/-/g, '.') 
+                      : (t('practiceLog.filterDateSelect') || '날짜 선택')}
+                  </span>
+                </div>
+                <input
+                  type="date"
+                  aria-label={t('practiceLog.filterDateSelect') || '날짜 선택'}
+                  value={filterDate}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setFilterDate(e.target.value);
+                      setFilterMode('custom');
+                    }
+                  }}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  title={t('practiceLog.filterDateSelect') || '날짜 선택'}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -1242,10 +1316,14 @@ export default function Practice() {
                     <div className="text-center space-y-6">
                       <div className="space-y-3">
                         <h3 className="text-xl font-bold text-stone-200">
-                          {t('practiceLog.saveConfirmDesc') || '저장하지 않고 닫을까요?'}
+                          {isAdding && sourceType === 'timer'
+                            ? (t('practiceLog.unsavedTimerWarning') || '아직 저장되지 않은 연습 기록입니다.')
+                            : (t('practiceLog.unsavedChangesWarning') || '변경사항이 저장되지 않았습니다.')}
                         </h3>
                         <p className="text-sm text-stone-400 leading-relaxed font-sans whitespace-pre-line">
-                          {t('practiceLog.saveConfirmSub') || '아직 저장되지 않은 연습 기록입니다.\n취소하면 이 연습 기록은 저장되지 않습니다.'}
+                          {isAdding && sourceType === 'timer'
+                            ? (t('practiceLog.unsavedTimerWarningDesc') || '닫으면 이 연습 기록은 저장되지 않습니다.')
+                            : (t('practiceLog.unsavedChangesWarningDesc') || '닫으면 수정한 내용이 사라집니다.')}
                         </p>
                       </div>
                       <div className="flex flex-col gap-3">
