@@ -8,6 +8,49 @@ import AnnotationLayer from './AnnotationLayer';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
+type PdfRuntimeStage =
+  | 'download-bytes'
+  | 'parse-document'
+  | 'load-page'
+  | 'render-page';
+
+class PdfRuntimeTimeoutError extends Error {
+  stage: PdfRuntimeStage;
+
+  constructor(stage: PdfRuntimeStage, timeoutMs: number) {
+    super(`PDF runtime timeout: ${stage} after ${timeoutMs}ms`);
+    this.name = 'PdfRuntimeTimeoutError';
+    this.stage = stage;
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  stage: PdfRuntimeStage,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timeoutId: number | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      try {
+        onTimeout?.();
+      } finally {
+        reject(new PdfRuntimeTimeoutError(stage, timeoutMs));
+      }
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
 interface PdfPageCanvasProps {
   storagePath: string;
   pageNumber: number;
@@ -59,6 +102,9 @@ export default function PdfPageCanvas({
   const [renderSize, setRenderSize] = useState({ width: 0, height: 0 });
   const [retryToken, setRetryToken] = useState(0);
 
+  const documentAttemptRef = useRef(0);
+  const renderAttemptRef = useRef(0);
+
   const isLoadingPdf = isLoadingDocument || isRenderingPage;
 
   // 1. Measure Container Width
@@ -90,6 +136,11 @@ export default function PdfPageCanvas({
     let localTask: pdfjsLib.PDFDocumentLoadingTask | null = null;
     let localDoc: pdfjsLib.PDFDocumentProxy | null = null;
 
+    const documentAttempt = ++documentAttemptRef.current;
+    
+    const isCurrentDocumentAttempt = () =>
+      !disposed && documentAttemptRef.current === documentAttempt;
+
     const loadDocument = async () => {
       setIsLoadingDocument(true);
       setIsPageReady(false);
@@ -101,23 +152,36 @@ export default function PdfPageCanvas({
           throw new Error('PDF_STORAGE_PATH_MISSING');
         }
 
-        console.info('[Mio PDF Viewer]', { event: 'document-load-start', storagePath });
+        console.info('[Mio PDF Viewer]', { event: 'document-load-start', storagePath, documentAttempt });
         
-        const bytes = await getFileBytesFromStorage(storagePath);
+        const bytes = await withTimeout(
+          getFileBytesFromStorage(storagePath),
+          20_000,
+          'download-bytes'
+        );
 
         if (!hasPdfHeader(bytes)) {
           throw new Error('INVALID_PDF_HEADER');
         }
 
         localTask = pdfjsLib.getDocument({ data: bytes });
-        localDoc = await localTask.promise;
+        localDoc = await withTimeout(
+          localTask.promise,
+          20_000,
+          'parse-document',
+          () => {
+            void localTask?.destroy().catch(() => undefined);
+          }
+        );
 
-        if (disposed) return;
+        if (!isCurrentDocumentAttempt()) {
+          return;
+        }
 
         pdfDocRef.current = localDoc;
         onPageCountChange(localDoc.numPages);
         
-        console.info('[Mio PDF Viewer]', { event: 'document-load-complete', pages: localDoc.numPages });
+        console.info('[Mio PDF Viewer]', { event: 'document-load-complete', pages: localDoc.numPages, documentAttempt });
         setDocumentRevision(value => value + 1);
       } catch (error: any) {
         if (!disposed) {
@@ -128,7 +192,13 @@ export default function PdfPageCanvas({
 
           let userMessage = 'PDF 악보를 불러오지 못했습니다.';
           
-          if (errorCode === 'storage/object-not-found') {
+          if (error instanceof PdfRuntimeTimeoutError) {
+            if (error.stage === 'download-bytes') {
+              userMessage = 'PDF 다운로드 시간이 초과되었습니다.';
+            } else if (error.stage === 'parse-document') {
+              userMessage = 'PDF 문서를 분석하는 시간이 초과되었습니다.';
+            }
+          } else if (errorCode === 'storage/object-not-found') {
             userMessage = '저장된 PDF 파일을 찾을 수 없습니다.';
           } else if (errorCode === 'storage/unauthorized') {
             userMessage = '이 PDF 파일을 불러올 권한이 없습니다.';
@@ -145,10 +215,17 @@ export default function PdfPageCanvas({
           }
 
           setPdfError(userMessage);
-          setDebugError(`Load Error: ${errorCode || errorName || errorMessage}`);
+          
+          if (error instanceof PdfRuntimeTimeoutError) {
+             console.info('[Mio PDF Viewer]', { event: 'document-load-timeout', storagePath, documentAttempt, stage: error.stage });
+             setDebugError(`Load Timeout: ${error.stage}`);
+          } else {
+             console.info('[Mio PDF Viewer]', { event: 'document-load-error', storagePath, documentAttempt });
+             setDebugError(`Load Error: ${errorCode || errorName || errorMessage}`);
+          }
         }
       } finally {
-        if (!disposed) {
+        if (isCurrentDocumentAttempt()) {
           setIsLoadingDocument(false);
         }
       }
@@ -158,13 +235,19 @@ export default function PdfPageCanvas({
 
     return () => {
       disposed = true;
-      void localTask?.destroy().catch(() => undefined);
-      try {
-        if (localDoc && typeof (localDoc as any).cleanup === 'function') {
-          (localDoc as any).cleanup();
-        }
-      } catch (e) {
-        // ignore cleanup error
+      if (documentAttemptRef.current === documentAttempt) {
+        documentAttemptRef.current += 1;
+      }
+      renderAttemptRef.current += 1;
+      
+      if (pdfDocRef.current === localDoc) {
+        pdfDocRef.current = null;
+      }
+      
+      if (localTask) {
+        void localTask.destroy().catch(() => undefined);
+      } else if (localDoc) {
+        void (localDoc as unknown as { destroy: () => Promise<void> }).destroy().catch(() => undefined);
       }
     };
   }, [storagePath, retryToken]);
@@ -180,6 +263,10 @@ export default function PdfPageCanvas({
 
     let disposed = false;
     let localRenderTask: pdfjsLib.RenderTask | null = null;
+    
+    const renderAttempt = ++renderAttemptRef.current;
+    const isCurrentRenderAttempt = () => 
+      !disposed && renderAttemptRef.current === renderAttempt;
 
     const renderCurrentPage = async () => {
       setIsRenderingPage(true);
@@ -187,9 +274,16 @@ export default function PdfPageCanvas({
       setPdfError(null);
       setDebugError(null);
 
+      const startTime = performance.now();
+
       try {
-        console.info('[Mio PDF Viewer]', { event: 'page-render-start', pageNumber });
-        const page = await pdfDoc.getPage(pageNumber);
+        console.info('[Mio PDF Viewer]', { event: 'page-render-start', pageNumber, renderAttempt });
+        
+        const page = await withTimeout<pdfjsLib.PDFPageProxy>(
+          pdfDoc.getPage(pageNumber),
+          10_000,
+          'load-page'
+        );
         
         if (disposed) return;
 
@@ -209,7 +303,7 @@ export default function PdfPageCanvas({
         const rawDpr = window.devicePixelRatio || 1;
         const preferredDpr = Math.min(rawDpr, 2);
         const MAX_CANVAS_DIMENSION = 4096;
-        const MAX_CANVAS_PIXELS = 12000000;
+        const MAX_CANVAS_PIXELS = 12_000_000;
         
         const safeDpr = Math.min(
           preferredDpr,
@@ -219,45 +313,75 @@ export default function PdfPageCanvas({
         );
         
         const outputScale = safeDpr;
-
-        stagingCanvas.width = Math.floor(cssWidth * outputScale);
-        stagingCanvas.height = Math.floor(cssHeight * outputScale);
         
-        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
+        if (!Number.isFinite(outputScale) || outputScale <= 0) {
+          throw new Error('PDF_OUTPUT_SCALE_INVALID');
+        }
+
+        stagingCanvas.width = Math.max(1, Math.floor(cssWidth * outputScale));
+        stagingCanvas.height = Math.max(1, Math.floor(cssHeight * outputScale));
+        
+        const transform: [number, number, number, number, number, number] | undefined = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
 
         const renderContext = {
           canvasContext: stagingContext,
+          canvas: stagingCanvas,
           viewport,
           transform,
           background: 'rgb(255,255,255)',
         };
 
         localRenderTask = page.render(renderContext);
-        await localRenderTask.promise;
-
-        if (disposed) return;
-
-        console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber });
         
+        await withTimeout(
+          localRenderTask.promise,
+          15_000,
+          'render-page',
+          () => {
+            localRenderTask?.cancel();
+          }
+        );
+
+        if (!isCurrentRenderAttempt()) return;
+        
+        const durationMs = Math.round(performance.now() - startTime);
+
+        console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber, renderAttempt, durationMs });
+        
+        const displayContext = displayCanvas.getContext('2d', { alpha: false });
+        if (!displayContext) {
+          throw new Error('PDF_DISPLAY_CONTEXT_MISSING');
+        }
+        
+        if (!isCurrentRenderAttempt()) return;
+
         // Swap to display canvas
         displayCanvas.width = stagingCanvas.width;
         displayCanvas.height = stagingCanvas.height;
         displayCanvas.style.width = `${cssWidth}px`;
         displayCanvas.style.height = `${cssHeight}px`;
 
-        const displayContext = displayCanvas.getContext('2d');
-        if (displayContext) {
-          displayContext.setTransform(1, 0, 0, 1, 0, 0);
-          displayContext.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-          displayContext.drawImage(stagingCanvas, 0, 0);
-          console.info('[Mio PDF Viewer]', { event: 'display-canvas-swap', pageNumber });
-        }
+        displayContext.setTransform(1, 0, 0, 1, 0, 0);
+        displayContext.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+        displayContext.drawImage(stagingCanvas, 0, 0);
 
         setRenderSize({ width: cssWidth, height: cssHeight });
         setIsPageReady(true);
+        
+        console.info('[Mio PDF Viewer]', { 
+          event: 'display-canvas-swap', 
+          pageNumber, 
+          renderAttempt,
+          cssWidth,
+          cssHeight,
+          backingWidth: stagingCanvas.width,
+          backingHeight: stagingCanvas.height,
+          outputScale,
+          durationMs
+        });
       } catch (error: any) {
         if (error instanceof Error && error.name === 'RenderingCancelledException') {
-          console.info('[Mio PDF Viewer]', { event: 'page-render-cancelled', pageNumber });
+          console.info('[Mio PDF Viewer]', { event: 'page-render-cancelled', pageNumber, renderAttempt });
           return;
         }
 
@@ -267,18 +391,31 @@ export default function PdfPageCanvas({
           const errorMessage = error instanceof Error ? error.message : String(error);
           
           let userMessage = 'PDF 페이지를 화면에 표시하지 못했습니다.';
-          if (errorCode === 'PDF_CANVAS_SIZE_UNSUPPORTED') {
+          if (error instanceof PdfRuntimeTimeoutError) {
+            if (error.stage === 'load-page') {
+              userMessage = 'PDF 페이지를 불러오는 시간이 초과되었습니다.';
+            } else if (error.stage === 'render-page') {
+              userMessage = 'PDF 페이지를 화면에 표시하는 시간이 초과되었습니다.';
+            }
+          } else if (errorCode === 'PDF_CANVAS_SIZE_UNSUPPORTED') {
             userMessage = '이 기기에서 PDF 페이지를 표시할 수 있는 크기를 초과했습니다.';
           } else if (errorMessage === 'PDF_CANVAS_CONTEXT_MISSING') {
             userMessage = '캔버스 컨텍스트를 가져오지 못했습니다.';
+          } else if (errorMessage === 'PDF_DISPLAY_CONTEXT_MISSING') {
+            userMessage = '화면 캔버스 컨텍스트를 가져오지 못했습니다.';
           }
           
           setPdfError(userMessage);
-          setDebugError(`Render Error: ${errorCode || errorMessage}`);
-          console.info('[Mio PDF Viewer]', { event: 'page-render-error', pageNumber });
+          if (error instanceof PdfRuntimeTimeoutError) {
+             setDebugError(`Render Timeout: ${error.stage}`);
+             console.info('[Mio PDF Viewer]', { event: 'page-render-timeout', pageNumber, renderAttempt, stage: error.stage });
+          } else {
+             setDebugError(`Render Error: ${errorCode || errorMessage}`);
+             console.info('[Mio PDF Viewer]', { event: 'page-render-error', pageNumber, renderAttempt });
+          }
         }
       } finally {
-        if (!disposed) {
+        if (isCurrentRenderAttempt()) {
           setIsRenderingPage(false);
         }
       }
@@ -293,6 +430,13 @@ export default function PdfPageCanvas({
   }, [documentRevision, pageNumber, measuredWidth]);
 
   const handleRetry = () => {
+    documentAttemptRef.current += 1;
+    renderAttemptRef.current += 1;
+
+    setPdfError(null);
+    setDebugError(null);
+    setIsPageReady(false);
+
     setRetryToken(v => v + 1);
   };
 
