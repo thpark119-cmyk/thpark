@@ -298,7 +298,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-auto relative bg-stone-900 flex justify-center py-4">
+      <div className="flex-1 min-h-0 overflow-auto relative bg-stone-900 flex justify-center py-4">
         <PdfPageCanvas
           storagePath={file.storagePath}
           pageNumber={currentPage}

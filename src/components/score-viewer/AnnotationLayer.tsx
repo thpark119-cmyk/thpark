@@ -164,7 +164,7 @@ export default function AnnotationLayer({
       width={width}
       height={height}
       className={`absolute top-0 left-0 ${currentTool === 'none' ? 'pointer-events-none' : 'touch-none cursor-crosshair'}`}
-      style={{ width: `${width}px`, height: `${height}px` }}
+      style={{ width: `${width}px`, height: `${height}px`, zIndex: 10 }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
