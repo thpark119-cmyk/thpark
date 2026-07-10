@@ -1246,22 +1246,46 @@ ${t('metronome.invalidTimeSignatureDesc')}`);
             `}>
               {settings.beatStates.map((state, i) => {
                 const isCurrentVisualBeat = isPlaying && currentBeat === i && !isSilentPhase;
+                
+                let circleClass = 'rounded-full transition-[filter,opacity,box-shadow,background-color] duration-100 ease-out flex items-center justify-center ';
+                
+                if (state === 'accent') {
+                  circleClass += 'w-7 h-7 md:w-8 md:h-8 border-2 border-brand bg-brand ';
+                  if (isCurrentVisualBeat) {
+                    circleClass += 'brightness-125 shadow-[0_0_14px_rgba(var(--brand),0.8)]';
+                  }
+                } else if (state === 'secondary') {
+                  circleClass += 'w-5 h-5 md:w-6 md:h-6 border-[1.5px] border-brand bg-brand/80 ';
+                  if (isCurrentVisualBeat) {
+                    circleClass += 'brightness-125 opacity-100 shadow-[0_0_10px_rgba(var(--brand),0.6)]';
+                  } else {
+                    circleClass += 'opacity-90';
+                  }
+                } else if (state === 'normal') {
+                  circleClass += 'w-4 h-4 md:w-[18px] md:h-[18px] border border-stone-500 bg-stone-500/50 ';
+                  if (isCurrentVisualBeat) {
+                    circleClass += 'brightness-125 opacity-100 shadow-[0_0_8px_rgba(120,113,108,0.6)]';
+                  } else {
+                    circleClass += 'opacity-80';
+                  }
+                } else if (state === 'mute') {
+                  circleClass += 'w-[18px] h-[18px] md:w-5 md:h-5 border-[1.5px] border-dashed border-stone-600 bg-transparent ';
+                  if (isCurrentVisualBeat) {
+                    circleClass += 'brightness-125 opacity-80 shadow-[0_0_6px_rgba(120,113,108,0.4)]';
+                  } else {
+                    circleClass += 'opacity-40';
+                  }
+                }
+
                 return (
                 <button
                   key={i}
                   onClick={() => cycleBeatState(i)}
                   aria-label={`${i+1}${t('metronome.beat') || '박'}: ${state}`}
                   title={`${i+1}${t('metronome.beat') || '박'}: ${state}`}
-                  className={`w-11 h-11 md:w-12 md:h-12 flex items-center justify-center relative transition-all group shrink-0`}
+                  className={`w-11 h-11 md:w-12 md:h-12 flex items-center justify-center relative group shrink-0`}
                 >
-                  <span
-                    className={`rounded-full transition-[filter,opacity,background-color,box-shadow,border-color] duration-100 ease-out flex items-center justify-center
-                      ${state === 'accent' ? `w-7 h-7 md:w-8 md:h-8 border-2 border-brand ${isCurrentVisualBeat ? 'bg-white brightness-110 shadow-[0_0_16px_rgba(var(--brand),0.9)]' : 'bg-brand shadow-[0_0_12px_rgba(var(--brand),0.6)]'}` : ''}
-                      ${state === 'secondary' ? `w-5 h-5 md:w-6 md:h-6 border-[1.5px] border-brand ${isCurrentVisualBeat ? 'bg-brand brightness-125 opacity-100 shadow-[0_0_10px_rgba(var(--brand),0.5)]' : 'bg-brand/80 opacity-90'}` : ''}
-                      ${state === 'normal' ? `w-4 h-4 md:w-[18px] md:h-[18px] border ${isCurrentVisualBeat ? 'bg-stone-300 border-stone-400 brightness-110 opacity-100 shadow-[0_0_8px_rgba(255,255,255,0.2)]' : 'bg-stone-500/50 border-stone-500 opacity-80'}` : ''}
-                      ${state === 'mute' ? `w-[18px] h-[18px] md:w-5 md:h-5 border-[1.5px] border-dashed ${isCurrentVisualBeat ? 'bg-stone-800 border-stone-500 opacity-80 shadow-[0_0_5px_rgba(255,255,255,0.1)]' : 'bg-transparent border-stone-600 opacity-40'}` : ''}
-                    `}
-                  />
+                  <span className={circleClass} />
                 </button>
               )})}
             </div>
