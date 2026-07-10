@@ -1252,10 +1252,6 @@ ${t('metronome.invalidTimeSignatureDesc')}`);
                   title={`${i+1}${t('metronome.beat') || '박'}: ${state}`}
                   className={`w-11 h-11 md:w-12 md:h-12 flex items-center justify-center relative transition-all group shrink-0`}
                 >
-                  {isPlaying && currentBeat === i && !isSilentPhase && (
-                    <span className="absolute inset-0 rounded-full border-2 border-white/30 animate-pulse scale-125 md:scale-[1.2]" />
-                  )}
-                  
                   <span
                     className={`rounded-full transition-all duration-200 ease-out flex items-center justify-center
                       ${state === 'accent' ? 'w-7 h-7 md:w-8 md:h-8 bg-brand border-2 border-brand shadow-[0_0_12px_rgba(var(--brand),0.6)]' : ''}
