@@ -20,6 +20,47 @@ interface PdfPageCanvasProps {
   onDirtyChange: (dirty: boolean) => void;
 }
 
+type PdfLoadStage =
+  | 'idle'
+  | 'validate-input'
+  | 'download-bytes'
+  | 'validate-bytes'
+  | 'initialize-pdfjs'
+  | 'parse-document'
+  | 'load-page'
+  | 'render-page'
+  | 'ready'
+  | 'error';
+
+class PdfStageTimeoutError extends Error {
+  stage: PdfLoadStage;
+  constructor(stage: PdfLoadStage, timeoutMs: number) {
+    super(`PDF stage timed out: ${stage} after ${timeoutMs}ms`);
+    this.name = 'PdfStageTimeoutError';
+    this.stage = stage;
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  stage: PdfLoadStage,
+): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new PdfStageTimeoutError(stage, timeoutMs));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
 function hasPdfHeader(data: Uint8Array): boolean {
   if (data.length < 5) return false;
   return (
@@ -45,125 +86,187 @@ export default function PdfPageCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
+  const loadAttemptIdRef = useRef(0);
   const loadingTaskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
 
+  const [loadStage, setLoadStage] = useState<PdfLoadStage>('idle');
   const [isLoadingPdf, setIsLoadingPdf] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
   
   const [renderSize, setRenderSize] = useState({ width: 0, height: 0 });
-  const [retryCount, setRetryCount] = useState(0);
+  const [retryToken, setRetryToken] = useState(0);
 
-  // Load PDF Document
+  // Core loading function
   useEffect(() => {
-    let isMounted = true;
+    const attemptId = ++loadAttemptIdRef.current;
     
-    // Cleanup previous tasks
-    if (renderTaskRef.current) {
-      renderTaskRef.current.cancel();
-      renderTaskRef.current = null;
-    }
-    if (loadingTaskRef.current) {
-      loadingTaskRef.current.destroy();
-      loadingTaskRef.current = null;
-    }
-    if (pdfDocRef.current) {
-      pdfDocRef.current.destroy();
-      pdfDocRef.current = null;
-    }
+    let localLoadingTask: pdfjsLib.PDFDocumentLoadingTask | null = null;
+    let localPdfDoc: pdfjsLib.PDFDocumentProxy | null = null;
+    let disposed = false;
+    
+    const isCurrentAttempt = () => !disposed && loadAttemptIdRef.current === attemptId;
 
-    const loadPdf = async () => {
-      let currentStage = 'validate-storage-path';
+    const load = async () => {
+      if (!isCurrentAttempt()) return;
       
-      if (!storagePath || storagePath.trim().length === 0) {
-        if (isMounted) {
-          setError('PDF 파일 경로를 찾을 수 없습니다.');
-          setIsLoadingPdf(false);
-        }
-        return;
-      }
-
       setIsLoadingPdf(true);
-      setError(null);
+      setPdfError(null);
+      setDebugError(null);
+      setLoadStage('validate-input');
+
+      let currentStage: PdfLoadStage = 'validate-input' as PdfLoadStage;
+      let currentStageStartTime = Date.now();
+
+      const logStageStart = (stage: PdfLoadStage) => {
+        currentStage = stage;
+        currentStageStartTime = Date.now();
+        if (isCurrentAttempt()) setLoadStage(stage);
+        console.info('[Mio PDF Viewer]', {
+          event: 'stage-start',
+          stage,
+          storagePath,
+          attemptId,
+        });
+      };
+
+      const logStageComplete = (extra?: any) => {
+        console.info('[Mio PDF Viewer]', {
+          event: 'stage-complete',
+          stage: currentStage,
+          attemptId,
+          durationMs: Date.now() - currentStageStartTime,
+          ...extra,
+        });
+      };
 
       try {
-        currentStage = 'download-storage-bytes';
-        const pdfBytes = await getFileBytesFromStorage(storagePath);
+        if (!storagePath || storagePath.trim().length === 0) {
+          throw new Error('PDF_STORAGE_PATH_MISSING');
+        }
+
+        // 1. Download Bytes
+        logStageStart('download-bytes');
+        const pdfBytes = await withTimeout(
+          getFileBytesFromStorage(storagePath),
+          20000,
+          'download-bytes'
+        );
+        logStageComplete({ byteLength: pdfBytes.byteLength });
+
+        // 2. Validate Bytes
+        logStageStart('validate-bytes');
+        const isPdf = hasPdfHeader(pdfBytes);
+        logStageComplete({ hasPdfHeader: isPdf });
         
-        currentStage = 'validate-pdf-bytes';
-        if (!hasPdfHeader(pdfBytes)) {
+        if (!isPdf) {
           throw new Error('INVALID_PDF_HEADER');
         }
 
-        currentStage = 'create-pdf-loading-task';
-        const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
-        loadingTaskRef.current = loadingTask;
-        
-        currentStage = 'load-pdf-document';
-        const doc = await loadingTask.promise;
-        pdfDocRef.current = doc;
+        // 3. Initialize PDF.js
+        logStageStart('initialize-pdfjs');
+        localLoadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+        loadingTaskRef.current = localLoadingTask;
+        logStageComplete();
 
-        if (isMounted) {
-          onPageCountChange(pdfDocRef.current.numPages);
+        // 4. Parse Document
+        logStageStart('parse-document');
+        localPdfDoc = await withTimeout(
+          localLoadingTask.promise,
+          20000,
+          'parse-document'
+        );
+        pdfDocRef.current = localPdfDoc;
+        logStageComplete({ pageCount: localPdfDoc.numPages });
+
+        if (isCurrentAttempt()) {
+          onPageCountChange(localPdfDoc.numPages);
+          // Wait for page change & resize observer to trigger render.
+          // The actual 'ready' stage will be set by renderPage.
+          setLoadStage('ready');
           setIsLoadingPdf(false);
         }
-      } catch (err: any) {
-        if (isMounted) {
-          console.error('[Mio PDF Viewer]', {
-            stage: currentStage,
-            storagePath,
-            errorName: err instanceof Error ? err.name : 'UnknownError',
-            errorMessage: err instanceof Error ? err.message : String(err),
-            errorCode: typeof err === 'object' && err && 'code' in err ? String(err.code) : undefined,
-          });
+      } catch (error: any) {
+        if (!isCurrentAttempt()) return;
+        
+        console.error('[Mio PDF Viewer]', {
+          event: 'stage-error',
+          stage: currentStage,
+          attemptId,
+          storagePath,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorCode: typeof error === 'object' && error && 'code' in error ? String(error.code) : undefined,
+        });
 
-          // Determine user message
-          let userMessage = 'PDF 악보를 불러오지 못했습니다.';
-          const errorCode = typeof err === 'object' && err && 'code' in err ? String(err.code) : '';
-          
-          if (errorCode === 'storage/object-not-found') {
-            userMessage = '저장된 PDF 파일을 찾을 수 없습니다.';
-          } else if (errorCode === 'storage/unauthorized') {
-            userMessage = '이 PDF 파일을 불러올 권한이 없습니다.';
-          } else if (errorCode === 'storage/download-size-exceeded') {
-            userMessage = '이 PDF 파일은 앱에서 열기에는 너무 큽니다.';
-          } else if (err.message === 'INVALID_PDF_HEADER') {
-            userMessage = '이 파일은 올바른 PDF 형식이 아닙니다.';
-          } else if (err.name === 'InvalidPDFException') {
-            userMessage = 'PDF 파일이 손상되었거나 지원되지 않는 형식입니다.';
-          }
+        const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorName = error instanceof Error ? error.name : '';
 
-          setError(userMessage);
+        let userMessage = 'PDF 악보를 불러오지 못했습니다.';
+        
+        if (errorCode === 'storage/object-not-found') {
+          userMessage = '저장된 PDF 파일을 찾을 수 없습니다.';
+        } else if (errorCode === 'storage/unauthorized') {
+          userMessage = '이 PDF 파일을 불러올 권한이 없습니다.';
+        } else if (errorCode === 'storage/download-size-exceeded' || errorMessage === 'PDF_FILE_TOO_LARGE') {
+          userMessage = '이 PDF 파일은 앱에서 열기에는 너무 큽니다.';
+        } else if (errorCode === 'storage/unauthenticated') {
+          userMessage = '로그인 후 다시 시도해 주세요.';
+        } else if (errorMessage === 'INVALID_PDF_HEADER' || errorName === 'InvalidPDFException') {
+          userMessage = 'PDF 파일이 손상되었거나 지원되지 않는 형식입니다.';
+        } else if (errorMessage === 'PDF_STORAGE_PATH_MISSING') {
+          userMessage = 'PDF 파일 경로를 찾을 수 없습니다.';
+        } else if (errorName === 'PdfStageTimeoutError' && (currentStage as PdfLoadStage) === 'download-bytes') {
+          userMessage = 'PDF 다운로드 시간이 초과되었습니다.';
+        } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Network Error')) {
+          userMessage = 'PDF 파일을 다운로드하지 못했습니다. 네트워크 또는 저장소 설정을 확인해 주세요.';
+        }
+
+        setPdfError(userMessage);
+        setDebugError(`오류 단계: ${currentStage} | 오류 코드: ${errorCode || errorName || errorMessage}`);
+        setLoadStage('error');
+      } finally {
+        if (isCurrentAttempt()) {
           setIsLoadingPdf(false);
         }
       }
     };
 
-    loadPdf();
+    void load();
 
     return () => {
-      isMounted = false;
-      if (renderTaskRef.current) {
-        renderTaskRef.current.cancel();
-        renderTaskRef.current = null;
+      disposed = true;
+
+      if (loadAttemptIdRef.current === attemptId) {
+        loadAttemptIdRef.current += 1;
       }
-      if (loadingTaskRef.current) {
-        loadingTaskRef.current.destroy();
+
+      if (loadingTaskRef.current === localLoadingTask) {
         loadingTaskRef.current = null;
       }
-      if (pdfDocRef.current) {
-        pdfDocRef.current.destroy();
+      if (pdfDocRef.current === localPdfDoc) {
         pdfDocRef.current = null;
       }
+
+      void localLoadingTask?.destroy().catch(() => undefined);
+      void localPdfDoc?.cleanup();
     };
-  }, [storagePath, retryCount, onPageCountChange]);
+  }, [storagePath, retryToken, onPageCountChange]);
 
   const renderPage = useCallback(async () => {
     if (!pdfDocRef.current || !canvasRef.current || !containerRef.current) return;
     
+    // We create a local reference to ensure we can check cancellation
+    const localDoc = pdfDocRef.current;
+    
     try {
-      const page = await pdfDocRef.current.getPage(pageNumber);
+      console.info('[Mio PDF Viewer]', { event: 'stage-start', stage: 'load-page', pageNumber });
+      const page = await withTimeout<pdfjsLib.PDFPageProxy>(localDoc.getPage(pageNumber), 10000, 'load-page');
+      console.info('[Mio PDF Viewer]', { event: 'stage-complete', stage: 'load-page', pageNumber });
+
       const viewport = page.getViewport({ scale: 1 });
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
@@ -191,6 +294,7 @@ export default function PdfPageCanvas({
 
       const renderContext = {
         canvasContext: context,
+        canvas: canvas,
         transform: transform || undefined,
         viewport: scaledViewport
       };
@@ -199,41 +303,64 @@ export default function PdfPageCanvas({
         renderTaskRef.current.cancel();
       }
 
+      console.info('[Mio PDF Viewer]', { event: 'stage-start', stage: 'render-page', pageNumber });
       const renderTask = page.render(renderContext);
       renderTaskRef.current = renderTask;
       
-      await renderTask.promise;
+      await withTimeout<void>(renderTask.promise, 15000, 'render-page');
       
       if (renderTaskRef.current === renderTask) {
         renderTaskRef.current = null;
+        console.info('[Mio PDF Viewer]', { event: 'stage-complete', stage: 'render-page', pageNumber });
       }
     } catch (err: any) {
       if (err.name === 'RenderingCancelledException') {
         // Ignore cancelled
       } else {
-        console.error('Error rendering page', err);
+        console.error('[Mio PDF Viewer]', {
+          event: 'stage-error',
+          stage: 'render-page',
+          pageNumber,
+          errorName: err instanceof Error ? err.name : 'UnknownError',
+          errorMessage: err instanceof Error ? err.message : String(err)
+        });
       }
     }
   }, [pageNumber]);
 
-  // Render on page change or loading finish
+  // Render on page change or document ready
   useEffect(() => {
-    if (!isLoadingPdf && !error && pdfDocRef.current) {
-      renderPage();
+    if (loadStage === 'ready' && !pdfError && pdfDocRef.current) {
+      void renderPage();
     }
-  }, [pageNumber, isLoadingPdf, error, renderPage]);
+  }, [pageNumber, loadStage, pdfError, renderPage]);
 
   // Handle Resize
   useEffect(() => {
     if (!containerRef.current) return;
+    let resizeTimer: number;
     const observer = new ResizeObserver(() => {
-      if (!isLoadingPdf && !error && pdfDocRef.current) {
-        renderPage();
-      }
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (loadStage === 'ready' && !pdfError && pdfDocRef.current) {
+          void renderPage();
+        }
+      }, 100);
     });
     observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [isLoadingPdf, error, renderPage]);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(resizeTimer);
+    };
+  }, [loadStage, pdfError, renderPage]);
+
+  const handleRetry = () => {
+    setPdfError(null);
+    setDebugError(null);
+    setLoadStage('idle');
+    setIsLoadingPdf(true);
+    setRetryToken(v => v + 1);
+  };
 
   if (isLoadingPdf) {
     return (
@@ -244,13 +371,16 @@ export default function PdfPageCanvas({
     );
   }
 
-  if (error) {
+  if (pdfError) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-red-400 gap-4 h-full">
-        <p>{error}</p>
+        <p>{pdfError}</p>
+        {debugError && (
+          <p className="text-xs text-stone-500 font-mono mt-2">{debugError}</p>
+        )}
         <button 
-          onClick={() => setRetryCount(c => c + 1)}
-          className="px-4 py-2 bg-stone-800 rounded-lg hover:bg-stone-700 text-stone-200 transition-colors"
+          onClick={handleRetry}
+          className="mt-4 px-4 py-2 bg-stone-800 rounded-lg hover:bg-stone-700 text-stone-200 transition-colors"
         >
           다시 시도
         </button>
@@ -262,7 +392,7 @@ export default function PdfPageCanvas({
     <div ref={containerRef} className="relative flex flex-col items-center w-full max-w-full overflow-hidden">
       <div className="relative shadow-xl">
         <canvas ref={canvasRef} className="block bg-white" />
-        {renderSize.width > 0 && renderSize.height > 0 && !!pdfDocRef.current && (
+        {renderSize.width > 0 && renderSize.height > 0 && !!pdfDocRef.current && loadStage === 'ready' && (
           <AnnotationLayer
             width={renderSize.width}
             height={renderSize.height}

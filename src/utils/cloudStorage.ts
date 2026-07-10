@@ -17,11 +17,27 @@ export async function getFileBytesFromStorage(
 
   const storageRef = ref(storage, storagePath);
 
-  // Maximum limit set to 15MB to protect browser memory
-  const MAX_SCORE_PDF_BYTES = 15 * 1024 * 1024;
-  const arrayBuffer = await getBytes(storageRef, MAX_SCORE_PDF_BYTES);
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await getBytes(storageRef);
+  } catch (error: any) {
+    throw error;
+  }
 
-  return new Uint8Array(arrayBuffer);
+  const bytes = new Uint8Array(arrayBuffer);
+
+  if (bytes.byteLength === 0) {
+    throw new Error('PDF_FILE_EMPTY');
+  }
+
+  const MAX_SCORE_PDF_BYTES = 15 * 1024 * 1024;
+  if (bytes.byteLength > MAX_SCORE_PDF_BYTES) {
+    const err = new Error('PDF_FILE_TOO_LARGE');
+    (err as any).code = 'storage/download-size-exceeded';
+    throw err;
+  }
+
+  return bytes;
 }
 
 export async function uploadFileToStorage(params: {
