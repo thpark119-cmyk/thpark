@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { ScoreAnnotationStroke, ScoreAnnotationTool } from './annotationTypes';
-import { getFileDownloadUrl } from '../../utils/cloudStorage';
+import { getFileBytesFromStorage } from '../../utils/cloudStorage';
 import AnnotationLayer from './AnnotationLayer';
 
 // Initialize PDF.js worker
@@ -18,6 +18,17 @@ interface PdfPageCanvasProps {
   strokeColor: string;
   strokeWidth: number;
   onDirtyChange: (dirty: boolean) => void;
+}
+
+function hasPdfHeader(data: Uint8Array): boolean {
+  if (data.length < 5) return false;
+  return (
+    data[0] === 0x25 && // %
+    data[1] === 0x50 && // P
+    data[2] === 0x44 && // D
+    data[3] === 0x46 && // F
+    data[4] === 0x2d    // -
+  );
 }
 
 export default function PdfPageCanvas({
@@ -63,9 +74,11 @@ export default function PdfPageCanvas({
     }
 
     const loadPdf = async () => {
+      let currentStage = 'validate-storage-path';
+      
       if (!storagePath || storagePath.trim().length === 0) {
         if (isMounted) {
-          setError('PDF 파일 경로가 없습니다.');
+          setError('PDF 파일 경로를 찾을 수 없습니다.');
           setIsLoadingPdf(false);
         }
         return;
@@ -75,29 +88,21 @@ export default function PdfPageCanvas({
       setError(null);
 
       try {
-        const downloadUrl = await getFileDownloadUrl(storagePath);
-        if (typeof downloadUrl !== 'string' || downloadUrl.trim().length === 0) {
-          throw new Error('PDF 다운로드 주소를 가져오지 못했습니다.');
+        currentStage = 'download-storage-bytes';
+        const pdfBytes = await getFileBytesFromStorage(storagePath);
+        
+        currentStage = 'validate-pdf-bytes';
+        if (!hasPdfHeader(pdfBytes)) {
+          throw new Error('INVALID_PDF_HEADER');
         }
 
-        let loadingTask: pdfjsLib.PDFDocumentLoadingTask;
-        try {
-          loadingTask = pdfjsLib.getDocument({ url: downloadUrl });
-          loadingTaskRef.current = loadingTask;
-          const doc = await loadingTask.promise;
-          pdfDocRef.current = doc;
-        } catch (urlError) {
-          console.warn('URL loading failed, trying data fallback', urlError);
-          const response = await fetch(downloadUrl);
-          if (!response.ok) throw urlError;
-          const arrayBuffer = await response.arrayBuffer();
-          const data = new Uint8Array(arrayBuffer);
-          
-          loadingTask = pdfjsLib.getDocument({ data });
-          loadingTaskRef.current = loadingTask;
-          const doc = await loadingTask.promise;
-          pdfDocRef.current = doc;
-        }
+        currentStage = 'create-pdf-loading-task';
+        const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+        loadingTaskRef.current = loadingTask;
+        
+        currentStage = 'load-pdf-document';
+        const doc = await loadingTask.promise;
+        pdfDocRef.current = doc;
 
         if (isMounted) {
           onPageCountChange(pdfDocRef.current.numPages);
@@ -105,8 +110,31 @@ export default function PdfPageCanvas({
         }
       } catch (err: any) {
         if (isMounted) {
-          console.error('PDF Load Error:', err);
-          setError('PDF 악보를 불러오지 못했습니다.');
+          console.error('[Mio PDF Viewer]', {
+            stage: currentStage,
+            storagePath,
+            errorName: err instanceof Error ? err.name : 'UnknownError',
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorCode: typeof err === 'object' && err && 'code' in err ? String(err.code) : undefined,
+          });
+
+          // Determine user message
+          let userMessage = 'PDF 악보를 불러오지 못했습니다.';
+          const errorCode = typeof err === 'object' && err && 'code' in err ? String(err.code) : '';
+          
+          if (errorCode === 'storage/object-not-found') {
+            userMessage = '저장된 PDF 파일을 찾을 수 없습니다.';
+          } else if (errorCode === 'storage/unauthorized') {
+            userMessage = '이 PDF 파일을 불러올 권한이 없습니다.';
+          } else if (errorCode === 'storage/download-size-exceeded') {
+            userMessage = '이 PDF 파일은 앱에서 열기에는 너무 큽니다.';
+          } else if (err.message === 'INVALID_PDF_HEADER') {
+            userMessage = '이 파일은 올바른 PDF 형식이 아닙니다.';
+          } else if (err.name === 'InvalidPDFException') {
+            userMessage = 'PDF 파일이 손상되었거나 지원되지 않는 형식입니다.';
+          }
+
+          setError(userMessage);
           setIsLoadingPdf(false);
         }
       }
@@ -234,7 +262,7 @@ export default function PdfPageCanvas({
     <div ref={containerRef} className="relative flex flex-col items-center w-full max-w-full overflow-hidden">
       <div className="relative shadow-xl">
         <canvas ref={canvasRef} className="block bg-white" />
-        {renderSize.width > 0 && renderSize.height > 0 && (
+        {renderSize.width > 0 && renderSize.height > 0 && !!pdfDocRef.current && (
           <AnnotationLayer
             width={renderSize.width}
             height={renderSize.height}
