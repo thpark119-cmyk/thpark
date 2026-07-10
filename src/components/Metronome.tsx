@@ -113,7 +113,20 @@ const STANDARD_TIME_SIGNATURES = [
   '2/4', '3/4', '4/4', '6/8', '9/8', '12/8'
 ];
 
-type BeatState = 'accent' | 'normal' | 'mute';
+export type BeatState = 'accent' | 'secondary' | 'normal' | 'mute';
+
+const getDefaultBeatStates = (num: number, den: number): BeatState[] => {
+  const ts = `${num}/${den}`;
+  if (ts === '2/4') return ['accent', 'normal'];
+  if (ts === '3/4') return ['accent', 'normal', 'normal'];
+  if (ts === '4/4') return ['accent', 'normal', 'normal', 'normal'];
+  if (ts === '6/8') return ['accent', 'normal', 'normal', 'secondary', 'normal', 'normal'];
+  if (ts === '9/8') return ['accent', 'normal', 'normal', 'secondary', 'normal', 'normal', 'secondary', 'normal', 'normal'];
+  if (ts === '12/8') return ['accent', 'normal', 'normal', 'secondary', 'normal', 'normal', 'secondary', 'normal', 'normal', 'secondary', 'normal', 'normal'];
+  const arr: BeatState[] = Array(num).fill('normal');
+  if (num > 0) arr[0] = 'accent';
+  return arr;
+};
 
 export type MetronomeMode = 'basic' | 'preset' | 'setlist' | 'practice' | 'gig';
 export type SoundType = 'classic' | 'woodblock' | 'digital' | 'soft' | 'drum';
@@ -511,13 +524,14 @@ export default function Metronome() {
     const { masterGainNode } = getOutputNodes(ctx);
 
     const isAccent = beatState === 'accent';
+    const isSecondary = beatState === 'secondary';
     const type = isAccent ? (settingsRef.current.accentSound || 'classic') : (settingsRef.current.normalSound || 'classic');
     const volume = Math.min(Math.max(settingsRef.current.volume || 0.5, 0.05), 0.75);
-    const peak = isAccent ? Math.min(volume * 0.48, 0.36) : Math.min(volume * 0.32, 0.24);
+    const peak = isAccent ? Math.min(volume * 0.48, 0.36) : (isSecondary ? Math.min(volume * 0.4, 0.3) : Math.min(volume * 0.32, 0.24));
 
     if (type === 'classic') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(isAccent ? 1050 : 760, time);
+      osc.frequency.setValueAtTime(isAccent ? 1050 : (isSecondary ? 880 : 760), time);
       gainNode.gain.setValueAtTime(0.0001, time);
       gainNode.gain.exponentialRampToValueAtTime(peak, time + 0.008);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.10);
@@ -527,7 +541,7 @@ export default function Metronome() {
       osc.stop(time + 0.13);
     } else if (type === 'digital') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
+      osc.frequency.setValueAtTime(isAccent ? 1200 : (isSecondary ? 1000 : 800), time);
       gainNode.gain.setValueAtTime(0.0001, time);
       gainNode.gain.exponentialRampToValueAtTime(peak * 0.8, time + 0.005);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.08);
@@ -537,8 +551,8 @@ export default function Metronome() {
       osc.stop(time + 0.1);
     } else if (type === 'woodblock') {
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
-      osc.frequency.exponentialRampToValueAtTime(isAccent ? 800 : 400, time + 0.05);
+      osc.frequency.setValueAtTime(isAccent ? 1200 : (isSecondary ? 950 : 800), time);
+      osc.frequency.exponentialRampToValueAtTime(isAccent ? 800 : (isSecondary ? 550 : 400), time + 0.05);
       gainNode.gain.setValueAtTime(0.0001, time);
       gainNode.gain.exponentialRampToValueAtTime(peak * 0.9, time + 0.005);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
@@ -548,7 +562,7 @@ export default function Metronome() {
       osc.stop(time + 0.07);
     } else if (type === 'soft') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(isAccent ? 600 : 400, time);
+      osc.frequency.setValueAtTime(isAccent ? 600 : (isSecondary ? 480 : 400), time);
       gainNode.gain.setValueAtTime(0.0001, time);
       gainNode.gain.linearRampToValueAtTime(peak * 0.6, time + 0.015);
       gainNode.gain.linearRampToValueAtTime(0.0001, time + 0.08);
@@ -558,7 +572,7 @@ export default function Metronome() {
       osc.stop(time + 0.1);
     } else if (type === 'drum') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(isAccent ? 250 : 180, time);
+      osc.frequency.setValueAtTime(isAccent ? 250 : (isSecondary ? 210 : 180), time);
       osc.frequency.exponentialRampToValueAtTime(40, time + 0.08);
       gainNode.gain.setValueAtTime(0.0001, time);
       gainNode.gain.exponentialRampToValueAtTime(peak * 1.2, time + 0.005);
@@ -717,17 +731,7 @@ export default function Metronome() {
 
   const updateTimeSignature = (num: number, den: number) => {
     setSettings(s => {
-      const newStates = [...s.beatStates];
-      if (num > newStates.length) {
-        for (let i = newStates.length; i < num; i++) {
-          newStates.push('normal');
-        }
-      } else if (num < newStates.length) {
-        newStates.length = num;
-      }
-      if (newStates.length > 0) {
-        newStates[0] = 'accent';
-      }
+      const newStates = getDefaultBeatStates(num, den);
       return { ...s, numerator: num, denominator: den, beatStates: newStates };
     });
   };
@@ -771,7 +775,7 @@ export default function Metronome() {
       bpm: preset.bpm,
       numerator: preset.numerator,
       denominator: preset.denominator,
-      beatStates: preset.beatStates,
+      beatStates: preset.beatStates && preset.beatStates.length === preset.numerator ? preset.beatStates : getDefaultBeatStates(preset.numerator, preset.denominator),
       volume: preset.volume,
       isMuted: preset.isMuted,
     });
@@ -857,7 +861,11 @@ export default function Metronome() {
     setSettings(s => {
       const newStates = [...s.beatStates];
       const current = newStates[index];
-      const next: BeatState = current === 'accent' ? 'normal' : current === 'normal' ? 'mute' : 'accent';
+      let next: BeatState = 'normal';
+      if (current === 'accent') next = 'secondary';
+      else if (current === 'secondary') next = 'normal';
+      else if (current === 'normal') next = 'mute';
+      else if (current === 'mute') next = 'accent';
       newStates[index] = next;
       return { ...s, beatStates: newStates };
     });
@@ -1214,22 +1222,43 @@ ${t('metronome.invalidTimeSignatureDesc')}`);
             </div>
           </div>
 
-          <div className="flex flex-wrap justify-center gap-2 md:gap-3 py-4">
-            {settings.beatStates.map((state, i) => (
+          <div className="space-y-4 pt-4 border-t border-white/5">
+            <div className="flex justify-between items-center">
+              <p className="text-[10px] font-bold text-stone-500 uppercase tracking-widest">{t('metronome.beatAccents') || '박 강약 설정'}</p>
               <button
-                key={i}
-                onClick={() => cycleBeatState(i)}
-                className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 transition-all flex items-center justify-center
-                  ${isPlaying && currentBeat === i ? 'ring-4 ring-white/20' : ''}
-                  ${state === 'accent' ? 'bg-brand border-brand' : 
-                    state === 'normal' ? 'bg-stone-700 border-stone-600' : 
-                    'bg-transparent border-stone-800 text-stone-600'
-                  }
-                `}
+                onClick={() => updateTimeSignature(settings.numerator, settings.denominator)}
+                className="text-[10px] font-bold text-stone-400 hover:text-white uppercase tracking-widest transition-colors"
               >
-                {state === 'mute' && <VolumeX size={16} />}
+                {t('metronome.resetPattern') || '기본 패턴으로 초기화'}
               </button>
-            ))}
+            </div>
+            <p className="text-[10px] text-stone-500">{t('metronome.tapToChangeAccent') || '각 박을 눌러 강약을 변경할 수 있습니다.'}</p>
+            <div className="flex flex-wrap gap-2 md:gap-3 justify-center bg-stone-900/50 p-4 rounded-2xl border border-white/5">
+              {settings.beatStates.map((state, i) => (
+                <button
+                  key={i}
+                  onClick={() => cycleBeatState(i)}
+                  aria-label={`${i+1}${t('metronome.beat') || '박'}: ${state}`}
+                  className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 transition-all flex flex-col items-center justify-center
+                    ${isPlaying && currentBeat === i ? 'ring-4 ring-white/20' : ''}
+                    ${state === 'accent' ? 'bg-brand border-brand text-stone-950 shadow-[0_0_15px_rgba(var(--brand),0.3)]' : 
+                      state === 'secondary' ? 'bg-brand/30 border-brand/50 text-brand' :
+                      state === 'normal' ? 'bg-stone-700 border-stone-600 text-stone-300' : 
+                      'bg-transparent border-stone-800 text-stone-600'
+                    }
+                  `}
+                >
+                  {state === 'mute' ? <VolumeX size={14} className="mb-0.5" /> : (
+                    <span className="text-[10px] md:text-xs font-bold leading-none mb-0.5">
+                      {state === 'accent' ? (t('metronome.accentLabel') || '강') :
+                       state === 'secondary' ? (t('metronome.secondaryLabel') || '중') :
+                       (t('metronome.normalLabel') || '약')}
+                    </span>
+                  )}
+                  <span className="text-[8px] opacity-60 font-mono">{i + 1}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <p className="text-center text-[10px] text-stone-600">{t('metronome.beatSettings')}</p>
         </div>
@@ -1237,13 +1266,15 @@ ${t('metronome.invalidTimeSignatureDesc')}`);
         <div className="flex flex-col items-center gap-6">
           {/* LED Display */}
           {settings.ledEnabled && (
-            <div className="flex gap-4">
+            <div className="flex flex-wrap justify-center gap-4">
               {settings.beatStates.map((state, i) => (
                 <div
                   key={i}
                   className={`w-4 h-4 rounded-full transition-all duration-75 ${
                     isPlaying && currentBeat === i && !isSilentPhase
-                      ? state === 'accent' ? 'bg-brand scale-125 shadow-[0_0_15px_rgba(var(--brand),0.5)]' : 'bg-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]'
+                      ? state === 'accent' ? 'bg-brand scale-125 shadow-[0_0_15px_rgba(var(--brand),0.5)]' : 
+                        state === 'secondary' ? 'bg-brand/50 scale-110 shadow-[0_0_10px_rgba(var(--brand),0.3)]' :
+                        'bg-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]'
                       : 'bg-stone-800'
                   }`}
                 />
