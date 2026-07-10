@@ -1,3 +1,15 @@
+export function buildScoreAnnotationStoragePath(params: {
+  uid: string;
+  repertoireId: string;
+  fileId: string;
+}): string {
+  const { uid, repertoireId, fileId } = params;
+  if (!uid || !repertoireId || !fileId) {
+    throw new Error('Missing required parameters for building score annotation storage path.');
+  }
+  return `users/${uid}/repertoire/${repertoireId}/annotations/${fileId}/current.json`;
+}
+
 export function buildLessonPhotoStoragePath(params: {
   uid: string;
   studentId: string;

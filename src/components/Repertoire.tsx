@@ -6,12 +6,14 @@ import { subscribeToCollection, addRecord, updateRecord, deleteRecord } from '..
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { validateScoreUploadFile, getSafeFileExtension } from '../utils/fileValidation';
-import { uploadFileToStorage, deleteFileFromStorage } from '../utils/cloudStorage';
+import { deleteFileFromStorage, uploadFileToStorage } from '../utils/cloudStorage';
+import { deleteScoreAnnotations } from '../utils/scoreAnnotationStorage';
 import { buildScoreFileStoragePath } from '../utils/storagePaths';
 import { CloudScoreFile, PendingScoreFileUpload, PendingScoreFileDelete } from '../types/cloudFiles';
 import { compressImageForUpload } from '../utils/imageCompression';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import CloudScoreFileView from './CloudScoreFileView';
+import ScoreViewer from './score-viewer/ScoreViewer';
 
 const MAX_SCORE_FILES_PER_ITEM = 5;
 
@@ -19,6 +21,7 @@ export default function Repertoire() {
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [items, setItems] = useState<RepertoireItem[]>([]);
+  const [activePdfFile, setActivePdfFile] = useState<{file: CloudScoreFile, repertoireId: string} | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [imslpQuery, setImslpQuery] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -235,6 +238,7 @@ export default function Repertoire() {
             storagePath: delFile.storagePath
           });
           await deleteFileFromStorage(delFile.storagePath);
+          await deleteScoreAnnotations(user!.uid, editingItem.id, delFile.id);
         } catch (delErr) {
           console.error('Failed to delete file from storage during update finalization:', delFile.storagePath, delErr);
           deleteFailed = true;
@@ -281,6 +285,7 @@ export default function Repertoire() {
             storagePath: file.storagePath,
           });
           await deleteFileFromStorage(file.storagePath);
+          await deleteScoreAnnotations(user!.uid, id, file.id);
         } catch (e: any) {
           console.error('Failed to delete file from storage', file.storagePath, e);
           storageDeleteFailed = true;
@@ -570,7 +575,13 @@ export default function Repertoire() {
                   </div>
                 )}
                 {item.files?.map(file => (
-                  <div key={file.id}><CloudScoreFileView file={file} readOnly /></div>
+                  <div key={file.id}>
+                    <CloudScoreFileView 
+                      file={file} 
+                      readOnly 
+                      onOpenPdf={(f) => setActivePdfFile({ file: f, repertoireId: item.id })}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -984,6 +995,28 @@ export default function Repertoire() {
           </div>
         )}
       </AnimatePresence>
+
+      {activePdfFile && (
+        <ScoreViewer
+          file={activePdfFile.file}
+          repertoireId={activePdfFile.repertoireId}
+          onClose={() => setActivePdfFile(null)}
+          onAnnotatedPdfSaved={(newFile) => {
+            // Add the new file to the active piece
+            setItems(prev => prev.map(i => {
+              if (i.id === activePdfFile.repertoireId) {
+                return {
+                  ...i,
+                  files: [...(i.files || []), newFile]
+                };
+              }
+              return i;
+            }));
+            // Close the viewer or let it stay? Close it for now.
+            // setActivePdfFile(null); // Or don't close, keep it open on original
+          }}
+        />
+      )}
     </motion.div>
   );
 }

@@ -24,6 +24,8 @@
     "firebase-admin": "^14.0.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "terser": "^5.46.2",

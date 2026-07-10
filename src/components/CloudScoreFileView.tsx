@@ -8,9 +8,10 @@ interface CloudScoreFileViewProps {
   file: CloudScoreFile;
   onDelete?: () => void;
   readOnly?: boolean;
+  onOpenPdf?: (file: CloudScoreFile) => void;
 }
 
-export default function CloudScoreFileView({ file, onDelete, readOnly }: CloudScoreFileViewProps) {
+export default function CloudScoreFileView({ file, onDelete, readOnly, onOpenPdf }: CloudScoreFileViewProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const { t } = useLanguage();
@@ -55,7 +56,13 @@ export default function CloudScoreFileView({ file, onDelete, readOnly }: CloudSc
           <span className="text-[10px] text-red-400 px-2">{t('repertoire.loadFailed') || 'Load failed'}</span>
         ) : url ? (
           <button 
-            onClick={() => window.open(url, '_blank')}
+            onClick={() => {
+              if (isPdf && onOpenPdf) {
+                onOpenPdf(file);
+              } else {
+                window.open(url, '_blank');
+              }
+            }}
             className="w-8 h-8 rounded-lg bg-white/5 hover:bg-brand/20 text-stone-400 hover:text-brand flex items-center justify-center transition-colors"
             title={t('repertoire.openFile') || 'Open file'}
             type="button"
