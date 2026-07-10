@@ -24,8 +24,8 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   const [document, setDocument] = useState<ScoreAnnotationDocument>({
     schemaVersion: 1,
     repertoireId,
-    fileId: file.id,
-    sourceStoragePath: file.storagePath,
+    fileId: file?.id || '',
+    sourceStoragePath: file?.storagePath || '',
     pages: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -48,7 +48,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
 
   // Load annotations
   useEffect(() => {
-    if (!user) return;
+    if (!user || !file?.id) return;
     loadScoreAnnotations(user.uid, repertoireId, file.id).then(doc => {
       if (doc) {
         setDocument(doc);
@@ -57,7 +57,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       console.error('Failed to load annotations', err);
       // We still allow viewing the PDF even if annotations fail to load
     });
-  }, [user, repertoireId, file.id]);
+  }, [user, repertoireId, file?.id]);
 
   const currentPageStrokes = document.pages[currentPage]?.strokes || [];
 
@@ -172,7 +172,9 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
         storagePath: uploadResult.storagePath,
         contentType: uploadResult.contentType,
         size: uploadResult.size,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        uploadedAt: new Date().toISOString(),
+        source: 'firebase-storage'
       };
 
       if (onAnnotatedPdfSaved) {
@@ -232,6 +234,22 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     }
     onClose();
   };
+
+  if (!file || !file.storagePath) {
+    return (
+      <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col">
+        <div className="h-14 bg-stone-800 border-b border-white/10 flex items-center px-4 shrink-0 safe-top">
+          <button onClick={handleClose} className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
+            <X size={24} />
+          </button>
+          <span className="text-white font-medium ml-2">오류</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-8 text-stone-400">
+          <p>PDF 파일 경로를 찾을 수 없습니다.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col">

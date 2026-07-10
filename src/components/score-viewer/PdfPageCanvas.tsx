@@ -31,128 +31,223 @@ export default function PdfPageCanvas({
   strokeWidth,
   onDirtyChange
 }: PdfPageCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
-  const [renderTask, setRenderTask] = useState<pdfjsLib.RenderTask | null>(null);
+  
+  const loadingTaskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null);
+  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+
+  const [isLoadingPdf, setIsLoadingPdf] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [scale, setScale] = useState(1); // logical scale
+  
+  const [renderSize, setRenderSize] = useState({ width: 0, height: 0 });
+  const [retryCount, setRetryCount] = useState(0);
 
   // Load PDF Document
   useEffect(() => {
     let isMounted = true;
-    const loadPdf = async () => {
-      try {
-        const url = await getFileDownloadUrl(storagePath);
-        const loadingTask = pdfjsLib.getDocument(url);
-        const doc = await loadingTask.promise;
-        if (isMounted) {
-          setPdfDoc(doc);
-          onPageCountChange(doc.numPages);
-        }
-      } catch (err: any) {
-        if (isMounted) {
-          setError(err.message || 'Failed to load PDF');
-        }
-      }
-    };
-    loadPdf();
-    return () => {
-      isMounted = false;
-    };
-  }, [storagePath, onPageCountChange]);
-
-  // Render Page
-  useEffect(() => {
-    if (!pdfDoc || !canvasRef.current) return;
     
-    let isMounted = true;
-    let currentRenderTask: pdfjsLib.RenderTask | null = null;
+    // Cleanup previous tasks
+    if (renderTaskRef.current) {
+      renderTaskRef.current.cancel();
+      renderTaskRef.current = null;
+    }
+    if (loadingTaskRef.current) {
+      loadingTaskRef.current.destroy();
+      loadingTaskRef.current = null;
+    }
+    if (pdfDocRef.current) {
+      pdfDocRef.current.destroy();
+      pdfDocRef.current = null;
+    }
 
-    const renderPage = async () => {
+    const loadPdf = async () => {
+      if (!storagePath || storagePath.trim().length === 0) {
+        if (isMounted) {
+          setError('PDF 파일 경로가 없습니다.');
+          setIsLoadingPdf(false);
+        }
+        return;
+      }
+
+      setIsLoadingPdf(true);
+      setError(null);
+
       try {
-        const page = await pdfDoc.getPage(pageNumber);
-        if (!isMounted) return;
-
-        const viewport = page.getViewport({ scale: 1 });
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        
-        const context = canvas.getContext('2d');
-        if (!context) return;
-
-        // Fit to container width (or just device width)
-        const containerWidth = window.innerWidth;
-        const pageScale = containerWidth / viewport.width;
-        setScale(pageScale);
-        
-        const scaledViewport = page.getViewport({ scale: pageScale });
-        
-        const outputScale = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(scaledViewport.width * outputScale);
-        canvas.height = Math.floor(scaledViewport.height * outputScale);
-        
-        // CSS dimensions
-        canvas.style.width = Math.floor(scaledViewport.width) + "px";
-        canvas.style.height = Math.floor(scaledViewport.height) + "px";
-
-        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
-
-        const renderContext = {
-          canvasContext: context,
-          transform: transform || undefined,
-          viewport: scaledViewport
-        };
-
-        if (renderTask) {
-          await renderTask.cancel();
+        const downloadUrl = await getFileDownloadUrl(storagePath);
+        if (typeof downloadUrl !== 'string' || downloadUrl.trim().length === 0) {
+          throw new Error('PDF 다운로드 주소를 가져오지 못했습니다.');
         }
 
-        currentRenderTask = page.render(renderContext);
-        setRenderTask(currentRenderTask);
-        await currentRenderTask.promise;
-        
+        let loadingTask: pdfjsLib.PDFDocumentLoadingTask;
+        try {
+          loadingTask = pdfjsLib.getDocument({ url: downloadUrl });
+          loadingTaskRef.current = loadingTask;
+          const doc = await loadingTask.promise;
+          pdfDocRef.current = doc;
+        } catch (urlError) {
+          console.warn('URL loading failed, trying data fallback', urlError);
+          const response = await fetch(downloadUrl);
+          if (!response.ok) throw urlError;
+          const arrayBuffer = await response.arrayBuffer();
+          const data = new Uint8Array(arrayBuffer);
+          
+          loadingTask = pdfjsLib.getDocument({ data });
+          loadingTaskRef.current = loadingTask;
+          const doc = await loadingTask.promise;
+          pdfDocRef.current = doc;
+        }
+
         if (isMounted) {
-          setRenderTask(null);
+          onPageCountChange(pdfDocRef.current.numPages);
+          setIsLoadingPdf(false);
         }
       } catch (err: any) {
-        if (err.name === 'RenderingCancelledException') {
-          // Ignore cancelled
-        } else {
-          console.error('Error rendering page', err);
+        if (isMounted) {
+          console.error('PDF Load Error:', err);
+          setError('PDF 악보를 불러오지 못했습니다.');
+          setIsLoadingPdf(false);
         }
       }
     };
 
-    renderPage();
+    loadPdf();
 
     return () => {
       isMounted = false;
-      if (currentRenderTask) {
-        currentRenderTask.cancel();
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+        renderTaskRef.current = null;
+      }
+      if (loadingTaskRef.current) {
+        loadingTaskRef.current.destroy();
+        loadingTaskRef.current = null;
+      }
+      if (pdfDocRef.current) {
+        pdfDocRef.current.destroy();
+        pdfDocRef.current = null;
       }
     };
-  }, [pdfDoc, pageNumber]); // Remove renderTask from deps
+  }, [storagePath, retryCount, onPageCountChange]);
+
+  const renderPage = useCallback(async () => {
+    if (!pdfDocRef.current || !canvasRef.current || !containerRef.current) return;
+    
+    try {
+      const page = await pdfDocRef.current.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      const containerWidth = containerRef.current.clientWidth || window.innerWidth;
+      const availableWidth = Math.max(1, containerWidth);
+      const pageScale = availableWidth / viewport.width;
+      
+      const scaledViewport = page.getViewport({ scale: pageScale });
+      
+      const outputScale = window.devicePixelRatio || 1;
+      const renderWidth = Math.floor(scaledViewport.width);
+      const renderHeight = Math.floor(scaledViewport.height);
+
+      canvas.width = Math.floor(renderWidth * outputScale);
+      canvas.height = Math.floor(renderHeight * outputScale);
+      
+      canvas.style.width = renderWidth + "px";
+      canvas.style.height = renderHeight + "px";
+
+      setRenderSize({ width: renderWidth, height: renderHeight });
+
+      const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+
+      const renderContext = {
+        canvasContext: context,
+        transform: transform || undefined,
+        viewport: scaledViewport
+      };
+
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+      }
+
+      const renderTask = page.render(renderContext);
+      renderTaskRef.current = renderTask;
+      
+      await renderTask.promise;
+      
+      if (renderTaskRef.current === renderTask) {
+        renderTaskRef.current = null;
+      }
+    } catch (err: any) {
+      if (err.name === 'RenderingCancelledException') {
+        // Ignore cancelled
+      } else {
+        console.error('Error rendering page', err);
+      }
+    }
+  }, [pageNumber]);
+
+  // Render on page change or loading finish
+  useEffect(() => {
+    if (!isLoadingPdf && !error && pdfDocRef.current) {
+      renderPage();
+    }
+  }, [pageNumber, isLoadingPdf, error, renderPage]);
+
+  // Handle Resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      if (!isLoadingPdf && !error && pdfDocRef.current) {
+        renderPage();
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [isLoadingPdf, error, renderPage]);
+
+  if (isLoadingPdf) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-stone-400 gap-4 h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
+        <p>PDF 악보를 불러오는 중입니다...</p>
+      </div>
+    );
+  }
 
   if (error) {
-    return <div className="flex items-center justify-center p-8 text-red-400">{error}</div>;
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-red-400 gap-4 h-full">
+        <p>{error}</p>
+        <button 
+          onClick={() => setRetryCount(c => c + 1)}
+          className="px-4 py-2 bg-stone-800 rounded-lg hover:bg-stone-700 text-stone-200 transition-colors"
+        >
+          다시 시도
+        </button>
+      </div>
+    );
   }
 
   return (
-    <div className="relative flex flex-col items-center max-w-full overflow-hidden">
+    <div ref={containerRef} className="relative flex flex-col items-center w-full max-w-full overflow-hidden">
       <div className="relative shadow-xl">
         <canvas ref={canvasRef} className="block bg-white" />
-        <AnnotationLayer
-          width={canvasRef.current ? parseInt(canvasRef.current.style.width) : 0}
-          height={canvasRef.current ? parseInt(canvasRef.current.style.height) : 0}
-          strokes={strokes}
-          onStrokesChange={(newStrokes) => {
-            onStrokesChange(newStrokes);
-            onDirtyChange(true);
-          }}
-          currentTool={currentTool}
-          strokeColor={strokeColor}
-          strokeWidth={strokeWidth}
-        />
+        {renderSize.width > 0 && renderSize.height > 0 && (
+          <AnnotationLayer
+            width={renderSize.width}
+            height={renderSize.height}
+            strokes={strokes}
+            onStrokesChange={(newStrokes) => {
+              onStrokesChange(newStrokes);
+              onDirtyChange(true);
+            }}
+            currentTool={currentTool}
+            strokeColor={strokeColor}
+            strokeWidth={strokeWidth}
+          />
+        )}
       </div>
     </div>
   );
