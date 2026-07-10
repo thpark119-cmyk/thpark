@@ -43,11 +43,9 @@ export default function PdfPageCanvas({
   onDirtyChange
 }: PdfPageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const displayCanvasRef = useRef<HTMLCanvasElement>(null);
   
-  const loadingTaskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
-  const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
 
   const [isLoadingDocument, setIsLoadingDocument] = useState(true);
   const [isRenderingPage, setIsRenderingPage] = useState(false);
@@ -56,41 +54,35 @@ export default function PdfPageCanvas({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [debugError, setDebugError] = useState<string | null>(null);
   
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
   const [documentRevision, setDocumentRevision] = useState(0);
   const [renderSize, setRenderSize] = useState({ width: 0, height: 0 });
   const [retryToken, setRetryToken] = useState(0);
 
   const isLoadingPdf = isLoadingDocument || isRenderingPage;
 
-  // 1. ResizeObserver for containerWidth
+  // 1. Measure Container Width
   useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
+    let frameId1: number;
+    let frameId2: number;
 
-    let frameId = 0;
-
-    const updateWidth = () => {
-      const nextWidth = Math.floor(element.clientWidth);
-      if (nextWidth < 40) return;
-
-      setContainerWidth(previous => Math.abs(previous - nextWidth) >= 2 ? nextWidth : previous);
-    };
-
-    updateWidth();
-
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frameId);
-      frameId = requestAnimationFrame(updateWidth);
+    frameId1 = requestAnimationFrame(() => {
+      frameId2 = requestAnimationFrame(() => {
+        const width = containerRef.current?.clientWidth ?? 0;
+        setMeasuredWidth(width);
+        
+        if (width < 40) {
+          setPdfError('오류: 화면의 너비를 측정할 수 없습니다.');
+          setDebugError('PDF_VIEWER_WIDTH_INVALID');
+        }
+      });
     });
 
-    observer.observe(element);
-
     return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frameId);
+      cancelAnimationFrame(frameId1);
+      cancelAnimationFrame(frameId2);
     };
-  }, []);
+  }, [documentRevision]);
 
   // 2. Load Document Effect
   useEffect(() => {
@@ -118,8 +110,6 @@ export default function PdfPageCanvas({
         }
 
         localTask = pdfjsLib.getDocument({ data: bytes });
-        loadingTaskRef.current = localTask;
-
         localDoc = await localTask.promise;
 
         if (disposed) return;
@@ -168,13 +158,6 @@ export default function PdfPageCanvas({
 
     return () => {
       disposed = true;
-
-      renderTaskRef.current?.cancel();
-      renderTaskRef.current = null;
-
-      if (loadingTaskRef.current === localTask) loadingTaskRef.current = null;
-      if (pdfDocRef.current === localDoc) pdfDocRef.current = null;
-
       void localTask?.destroy().catch(() => undefined);
       try {
         if (localDoc && typeof (localDoc as any).cleanup === 'function') {
@@ -184,14 +167,14 @@ export default function PdfPageCanvas({
         // ignore cleanup error
       }
     };
-  }, [storagePath, retryToken, onPageCountChange]);
+  }, [storagePath, retryToken]);
 
   // 3. Render Page Effect
   useEffect(() => {
     const pdfDoc = pdfDocRef.current;
-    const canvas = canvasRef.current;
+    const displayCanvas = displayCanvasRef.current;
 
-    if (!pdfDoc || !canvas || containerWidth < 40 || documentRevision === 0) {
+    if (!pdfDoc || !displayCanvas || measuredWidth < 40 || documentRevision === 0) {
       return;
     }
 
@@ -211,11 +194,12 @@ export default function PdfPageCanvas({
         if (disposed) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
-        const pageScale = containerWidth / baseViewport.width;
+        const pageScale = measuredWidth / baseViewport.width;
         const viewport = page.getViewport({ scale: pageScale });
 
-        const context = canvas.getContext('2d');
-        if (!context) {
+        const stagingCanvas = document.createElement('canvas');
+        const stagingContext = stagingCanvas.getContext('2d', { alpha: false });
+        if (!stagingContext) {
           throw new Error('PDF_CANVAS_CONTEXT_MISSING');
         }
 
@@ -225,44 +209,55 @@ export default function PdfPageCanvas({
         const rawDpr = window.devicePixelRatio || 1;
         const preferredDpr = Math.min(rawDpr, 2);
         const MAX_CANVAS_DIMENSION = 4096;
+        const MAX_CANVAS_PIXELS = 12000000;
         
         const safeDpr = Math.min(
           preferredDpr,
           MAX_CANVAS_DIMENSION / cssWidth,
-          MAX_CANVAS_DIMENSION / cssHeight
+          MAX_CANVAS_DIMENSION / cssHeight,
+          Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight))
         );
         
-        const outputScale = Math.max(1, safeDpr);
+        const outputScale = safeDpr;
 
-        canvas.width = Math.floor(cssWidth * outputScale);
-        canvas.height = Math.floor(cssHeight * outputScale);
-        canvas.style.width = `${cssWidth}px`;
-        canvas.style.height = `${cssHeight}px`;
-
+        stagingCanvas.width = Math.floor(cssWidth * outputScale);
+        stagingCanvas.height = Math.floor(cssHeight * outputScale);
+        
         const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
 
         const renderContext = {
-          canvasContext: context,
+          canvasContext: stagingContext,
           viewport,
           transform,
+          background: 'rgb(255,255,255)',
         };
 
-        // Clear canvas with white background before rendering
-        context.fillStyle = 'white';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-
         localRenderTask = page.render(renderContext);
-        renderTaskRef.current = localRenderTask;
-
         await localRenderTask.promise;
 
         if (disposed) return;
 
         console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber });
+        
+        // Swap to display canvas
+        displayCanvas.width = stagingCanvas.width;
+        displayCanvas.height = stagingCanvas.height;
+        displayCanvas.style.width = `${cssWidth}px`;
+        displayCanvas.style.height = `${cssHeight}px`;
+
+        const displayContext = displayCanvas.getContext('2d');
+        if (displayContext) {
+          displayContext.setTransform(1, 0, 0, 1, 0, 0);
+          displayContext.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+          displayContext.drawImage(stagingCanvas, 0, 0);
+          console.info('[Mio PDF Viewer]', { event: 'display-canvas-swap', pageNumber });
+        }
+
         setRenderSize({ width: cssWidth, height: cssHeight });
         setIsPageReady(true);
       } catch (error: any) {
         if (error instanceof Error && error.name === 'RenderingCancelledException') {
+          console.info('[Mio PDF Viewer]', { event: 'page-render-cancelled', pageNumber });
           return;
         }
 
@@ -280,13 +275,11 @@ export default function PdfPageCanvas({
           
           setPdfError(userMessage);
           setDebugError(`Render Error: ${errorCode || errorMessage}`);
+          console.info('[Mio PDF Viewer]', { event: 'page-render-error', pageNumber });
         }
       } finally {
         if (!disposed) {
           setIsRenderingPage(false);
-        }
-        if (renderTaskRef.current === localRenderTask) {
-          renderTaskRef.current = null;
         }
       }
     };
@@ -296,21 +289,18 @@ export default function PdfPageCanvas({
     return () => {
       disposed = true;
       localRenderTask?.cancel();
-      if (renderTaskRef.current === localRenderTask) {
-        renderTaskRef.current = null;
-      }
     };
-  }, [documentRevision, pageNumber, containerWidth]);
+  }, [documentRevision, pageNumber, measuredWidth]);
 
   const handleRetry = () => {
     setRetryToken(v => v + 1);
   };
 
   return (
-    <div ref={containerRef} className="relative flex flex-col items-center w-full max-w-full overflow-hidden min-h-[300px]">
+    <div ref={containerRef} className="relative w-full min-h-[300px] flex flex-col items-center">
       <div className="relative shadow-xl">
-        <canvas ref={canvasRef} className="block bg-white" style={{ zIndex: 0 }} />
-        {isPageReady && renderSize.width > 0 && renderSize.height > 0 && !pdfError && (
+        <canvas ref={displayCanvasRef} className="block bg-white" style={{ zIndex: 0 }} />
+        {isPageReady && !pdfError && renderSize.width > 0 && renderSize.height > 0 && (
           <AnnotationLayer
             width={renderSize.width}
             height={renderSize.height}

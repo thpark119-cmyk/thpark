@@ -252,7 +252,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col">
+    <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col overflow-hidden h-[100dvh]">
       {/* Top Bar */}
       <div className="h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-4 shrink-0 safe-top">
         <div className="flex items-center gap-4">
@@ -298,7 +298,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 overflow-auto relative bg-stone-900 flex justify-center py-4">
+      <div className="flex-1 min-h-0 min-w-0 overflow-auto relative bg-stone-900 flex justify-center py-4">
         <PdfPageCanvas
           storagePath={file.storagePath}
           pageNumber={currentPage}
