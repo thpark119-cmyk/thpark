@@ -1018,7 +1018,7 @@ export default function Metronome() {
                 isPlaying ? 'bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.3)]' : 'bg-brand text-white shadow-[0_0_30px_rgba(var(--brand),0.3)]'
               }`}
             >
-              {isPlaying ? <Square fill="currentColor" size={48} /> : <Play fill="currentColor" size={48} className="translate-x-1" />}
+              {isPlaying ? <Square fill="currentColor" size={48} /> : <Play fill="currentColor" size={48} className="translate-x-[3px]" />}
             </button>
 
             {settings.currentMode === 'gig' && (
@@ -1115,7 +1115,7 @@ export default function Metronome() {
                 isPlaying ? 'bg-amber-500 shadow-amber-500/20' : 'bg-brand shadow-brand/20'
               }`}
             >
-              {isPlaying ? <Square size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-[3px]" />}
+              {isPlaying ? <Square size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="translate-x-[2px]" />}
             </button>
             <button 
               onPointerDown={(e) => { e.preventDefault(); startHoldChange(1); }}
