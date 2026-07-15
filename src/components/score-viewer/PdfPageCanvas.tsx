@@ -5,7 +5,7 @@ import { ScoreAnnotationStroke, ScoreAnnotationTool } from './annotationTypes';
 
 // Set up worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
   import.meta.url
 ).toString();
 
@@ -58,6 +58,21 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const promiseCompatibility = (
+      window as Window & {
+        __MIO_PROMISE_WITH_RESOLVERS__?: string;
+      }
+    ).__MIO_PROMISE_WITH_RESOLVERS__;
+
+    console.info('[Mio Compatibility]', {
+      promiseWithResolvers: typeof (Promise as any).withResolvers,
+      source: promiseCompatibility || 'unknown',
+      pdfjsVersion: pdfjs.version,
+      workerSrc: pdfjs.GlobalWorkerOptions.workerSrc,
+    });
+  }, []);
 
   useEffect(() => {
     let disposed = false;
