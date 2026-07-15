@@ -188,17 +188,19 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
 
   // Update history when strokes change from user input (not from undo/redo)
   const handleStrokesChange = (newStrokes: ScoreAnnotationStroke[]) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newStrokes);
-    
-    // Limit history size to 50
+    const historyBeforeChange =
+      history.length === 0
+        ? [currentPageStrokes]
+        : history.slice(0, historyIndex + 1);
+
+    const newHistory = [...historyBeforeChange, newStrokes];
+
     if (newHistory.length > 50) {
       newHistory.shift();
-    } else {
-      setHistoryIndex(newHistory.length - 1);
     }
-    
+
     setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
     updateDocumentStrokes(newStrokes);
     setIsDirty(true);
   };
@@ -218,19 +220,14 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   };
 
   const handleUndo = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      updateDocumentStrokes(history[newIndex]);
-      setIsDirty(true);
-    } else if (historyIndex === 0) {
-      // Undo to initial state (empty or loaded state)
-      setHistoryIndex(-1);
-      // For simplicity, just empty it if we undo all the way.
-      // Ideally we should record the initial state in history[0].
-      updateDocumentStrokes([]);
-      setIsDirty(true);
+    if (historyIndex <= 0) {
+      return;
     }
+
+    const newIndex = historyIndex - 1;
+    setHistoryIndex(newIndex);
+    updateDocumentStrokes(history[newIndex]);
+    setIsDirty(true);
   };
 
   const handleRedo = () => {
@@ -510,7 +507,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
             {/* Undo/Redo */}
             <div className="flex items-center gap-1 min-w-0">
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <button onClick={handleUndo} disabled={historyIndex < 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
+              <button onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
               <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
             </div>
           </div>

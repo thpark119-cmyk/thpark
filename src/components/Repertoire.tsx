@@ -95,7 +95,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPiece.title || !newPiece.composer) return;
+    if (!newPiece.title.trim()) return;
     
     setIsUploading(true);
     setUploadError('');
@@ -136,8 +136,8 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
       const record: RepertoireItem = {
         id: repertoireId,
         userId: user?.uid || 'local',
-        title: newPiece.title,
-        composer: newPiece.composer,
+        title: newPiece.title.trim(),
+        composer: newPiece.composer.trim() || '',
         notes: newPiece.notes,
         status: newPiece.status,
         date: newPiece.date,
@@ -179,7 +179,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
     setEditingItem(item);
     setEditForm({
       title: item.title,
-      composer: item.composer,
+      composer: item.composer || '',
       status: item.status || 'Learning',
       notes: item.notes || '',
       date: item.date || ''
@@ -192,7 +192,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
-    if (!editForm.title || !editForm.composer) return;
+    if (!editForm.title.trim()) return;
     
     setIsUploading(true);
     setUploadError('');
@@ -232,8 +232,8 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
       }
       
       const record = {
-        title: editForm.title,
-        composer: editForm.composer,
+        title: editForm.title.trim(),
+        composer: editForm.composer.trim() || '',
         status: editForm.status,
         notes: editForm.notes,
         date: editForm.date,
@@ -352,7 +352,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
 
   const filteredItems = items.filter(item => 
     item.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    item.composer.toLowerCase().includes(searchTerm.toLowerCase())
+    (item.composer || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const mapStatus = (statusInput: string) => {
@@ -536,7 +536,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
                 <FileText size={24} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest truncate">{item.composer}</p>
+                {item.composer?.trim() && <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest truncate">{item.composer}</p>}
                 <h3 className="text-lg font-serif italic text-stone-200 truncate leading-tight">{item.title}</h3>
                 {item.date && (
                   <p className="text-[10px] font-mono text-stone-500 font-bold bg-white/5 px-2 py-0.5 rounded-full inline-block mt-1">{formatDate(item.date)}</p>
@@ -647,7 +647,6 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composerLabel')}</label>
                     <input 
-                      required
                       type="text" 
                       className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm"
                       value={newPiece.composer}
@@ -804,7 +803,6 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('repertoire.composerLabel')}</label>
                     <input 
-                      required
                       type="text" 
                       className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 transition-colors text-sm"
                       value={editForm.composer}

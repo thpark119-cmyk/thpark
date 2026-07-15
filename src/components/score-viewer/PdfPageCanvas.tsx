@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { getFileBytesFromStorage } from '../../utils/cloudStorage';
 import { ScoreAnnotationStroke, ScoreAnnotationTool } from './annotationTypes';
+import AnnotationLayer from './AnnotationLayer';
 
 // Set up worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -23,6 +24,11 @@ interface PdfPageCanvasProps {
   onNextPage: () => void;
   canGoPrevious: boolean;
   canGoNext: boolean;
+}
+
+interface PageDisplaySize {
+  width: number;
+  height: number;
 }
 
 function PdfLoadingMessage({ text }: { text: string }) {
@@ -55,11 +61,16 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     storagePath, 
     pageNumber, 
     onPageCountChange,
+    strokes,
+    onStrokesChange,
+    currentTool,
+    strokeColor,
+    strokeWidth,
+    onDirtyChange,
     onPreviousPage,
     onNextPage,
     canGoPrevious,
     canGoNext,
-    currentTool,
   } = props;
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
@@ -72,6 +83,34 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  const pageWrapperRef = useRef<HTMLDivElement>(null);
+  const [pageDisplaySize, setPageDisplaySize] = useState<PageDisplaySize>({ width: 0, height: 0 });
+
+  const measureRenderedPage = useCallback(() => {
+    const wrapper = pageWrapperRef.current;
+    if (!wrapper) {
+      return;
+    }
+    const pdfCanvas = wrapper.querySelector<HTMLCanvasElement>('.react-pdf__Page__canvas');
+    if (!pdfCanvas) {
+      return;
+    }
+    const rect = pdfCanvas.getBoundingClientRect();
+    const nextWidth = Math.round(rect.width);
+    const nextHeight = Math.round(rect.height);
+    if (nextWidth < 40 || nextHeight < 40) {
+      return;
+    }
+    setPageDisplaySize(previous =>
+      previous.width === nextWidth && previous.height === nextHeight
+        ? previous
+        : {
+            width: nextWidth,
+            height: nextHeight,
+          }
+    );
+  }, []);
 
   useEffect(() => {
     const promiseCompatibility = (
@@ -157,9 +196,50 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
   }, [pdfBytes]);
 
   useEffect(() => {
+    setPageDisplaySize({ width: 0, height: 0 });
     setIsPageRendered(false);
     setPageError(null);
   }, [pageNumber, documentFile, containerWidth]);
+
+  useEffect(() => {
+    if (!isPageRendered) {
+      return;
+    }
+
+    const wrapper = pageWrapperRef.current;
+    if (!wrapper) {
+      return;
+    }
+
+    const pdfCanvas = wrapper.querySelector<HTMLCanvasElement>('.react-pdf__Page__canvas');
+    if (!pdfCanvas) {
+      return;
+    }
+
+    let frameId: number | null = null;
+
+    const updateSize = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        measureRenderedPage();
+        frameId = null;
+      });
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(pdfCanvas);
+
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [isPageRendered, pageNumber, containerWidth, measureRenderedPage]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -260,6 +340,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
           >
             {containerWidth >= 40 && (
               <div 
+                ref={pageWrapperRef}
                 className="relative max-w-full"
                 style={{
                   width: containerWidth >= 40 ? `${containerWidth}px` : undefined,
@@ -297,6 +378,9 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                   onRenderSuccess={() => {
                     setIsPageRendered(true);
                     setPageError(null);
+                    window.requestAnimationFrame(() => {
+                      window.requestAnimationFrame(measureRenderedPage);
+                    });
                     console.info('[Mio PDF Viewer]', {
                       engine: 'react-pdf',
                       event: 'page-render-success',
@@ -342,6 +426,21 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                       className="absolute inset-y-0 right-0 z-10 w-[35%] border-0 bg-transparent p-0 touch-manipulation select-none cursor-e-resize disabled:pointer-events-none disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand/60"
                     />
                   </>
+                )}
+
+                {isPageRendered && !downloadError && !documentError && !pageError && pageDisplaySize.width > 0 && pageDisplaySize.height > 0 && (
+                  <AnnotationLayer
+                    width={pageDisplaySize.width}
+                    height={pageDisplaySize.height}
+                    strokes={strokes}
+                    onStrokesChange={(newStrokes) => {
+                      onStrokesChange(newStrokes);
+                      onDirtyChange(true);
+                    }}
+                    currentTool={currentTool}
+                    strokeColor={strokeColor}
+                    strokeWidth={strokeWidth}
+                  />
                 )}
               </div>
             )}

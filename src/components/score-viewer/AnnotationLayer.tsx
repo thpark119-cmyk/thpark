@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, PointerEvent } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { ScoreAnnotationStroke, ScoreAnnotationTool, ScoreAnnotationPoint } from './annotationTypes';
 
 interface AnnotationLayerProps {
@@ -29,6 +29,7 @@ export default function AnnotationLayer({
 }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
+  const isPointerDownRef = useRef(false);
 
   // Redraw all strokes
   useEffect(() => {
@@ -37,11 +38,49 @@ export default function AnnotationLayer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+    
+    const backingWidth = Math.max(1, Math.round(width * outputScale));
+    const backingHeight = Math.max(1, Math.round(height * outputScale));
+
+    if (canvas.width !== backingWidth) {
+      canvas.width = backingWidth;
+    }
+    if (canvas.height !== backingHeight) {
+      canvas.height = backingHeight;
+    }
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    ctx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
     ctx.clearRect(0, 0, width, height);
+
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
     const drawStroke = (stroke: ScoreAnnotationStroke) => {
+      const r = parseInt(stroke.color.slice(1, 3), 16);
+      const g = parseInt(stroke.color.slice(3, 5), 16);
+      const b = parseInt(stroke.color.slice(5, 7), 16);
+      
+      const strokeStyle = `rgba(${r}, ${g}, ${b}, ${stroke.opacity})`;
+
+      if (stroke.points.length === 1) {
+        const point = stroke.points[0];
+        const lineWidth = getActualLineWidth(stroke.width, stroke.tool);
+        ctx.beginPath();
+        ctx.arc(
+          point.x * width,
+          point.y * height,
+          lineWidth / 2,
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = strokeStyle;
+        ctx.fill();
+        return;
+      }
+
       if (stroke.points.length < 2) return;
       ctx.beginPath();
       ctx.moveTo(stroke.points[0].x * width, stroke.points[0].y * height);
@@ -49,11 +88,7 @@ export default function AnnotationLayer({
         ctx.lineTo(stroke.points[i].x * width, stroke.points[i].y * height);
       }
       
-      const r = parseInt(stroke.color.slice(1, 3), 16);
-      const g = parseInt(stroke.color.slice(3, 5), 16);
-      const b = parseInt(stroke.color.slice(5, 7), 16);
-      
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${stroke.opacity})`;
+      ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = getActualLineWidth(stroke.width, stroke.tool);
       ctx.stroke();
     };
@@ -67,20 +102,36 @@ export default function AnnotationLayer({
     }
   }, [width, height, strokes, currentStroke]);
 
-  const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
+  const getNormalizedPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    return {
+      x,
+      y,
+      pressure: event.pressure,
+    };
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (currentTool === 'none') return;
     
-    // Allow touch scrolling in none mode, but prevent in drawing modes
-    // e.preventDefault(); // PointerEvent doesn't need preventDefault on down if touch-action is none
+    event.preventDefault();
+    isPointerDownRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
 
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = (e.clientX - rect.left) / width;
-    const y = (e.clientY - rect.top) / height;
+    const point = getNormalizedPoint(event);
+    if (!point) return;
 
     if (currentTool === 'eraser') {
-      eraseAt(x, y);
+      eraseAt(point.x, point.y);
       return;
     }
 
@@ -89,26 +140,24 @@ export default function AnnotationLayer({
       tool: currentTool,
       color: strokeColor,
       width: strokeWidth,
-      opacity: currentTool === 'highlighter' ? 0.3 : 1.0,
-      points: [{ x, y, pressure: e.pressure }],
+      opacity: currentTool === 'highlighter' ? 0.3 : 1,
+      points: [point],
       createdAt: new Date().toISOString()
     };
 
     setCurrentStroke(newStroke);
-    (e.target as Element).setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (currentTool === 'none') return;
+    if (!isPointerDownRef.current) return;
     
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    event.preventDefault();
+    const point = getNormalizedPoint(event);
+    if (!point) return;
 
-    const x = (e.clientX - rect.left) / width;
-    const y = (e.clientY - rect.top) / height;
-
-    if (currentTool === 'eraser' && e.buttons > 0) {
-      eraseAt(x, y);
+    if (currentTool === 'eraser' && isPointerDownRef.current) {
+      eraseAt(point.x, point.y);
       return;
     }
 
@@ -116,22 +165,14 @@ export default function AnnotationLayer({
 
     // Minimum distance check
     const lastPoint = currentStroke.points[currentStroke.points.length - 1];
-    const dx = (x - lastPoint.x) * width;
-    const dy = (y - lastPoint.y) * height;
+    const dx = (point.x - lastPoint.x) * width;
+    const dy = (point.y - lastPoint.y) * height;
     if (dx * dx + dy * dy < 16) return; // 4px minimum distance
 
     setCurrentStroke({
       ...currentStroke,
-      points: [...currentStroke.points, { x, y, pressure: e.pressure }]
+      points: [...currentStroke.points, point]
     });
-  };
-
-  const handlePointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (currentStroke) {
-      onStrokesChange([...strokes, currentStroke]);
-      setCurrentStroke(null);
-    }
-    (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
   const eraseAt = (x: number, y: number) => {
@@ -156,19 +197,54 @@ export default function AnnotationLayer({
     }
   };
 
+  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    isPointerDownRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    
+    if (currentTool === 'none' || currentTool === 'eraser') return;
+    
+    if (currentStroke) {
+      onStrokesChange([...strokes, currentStroke]);
+      setCurrentStroke(null);
+    }
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    isPointerDownRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    
+    if (currentTool === 'none' || currentTool === 'eraser') return;
+    
+    if (currentStroke) {
+      onStrokesChange([...strokes, currentStroke]);
+      setCurrentStroke(null);
+    }
+  };
+
   if (width === 0 || height === 0) return null;
 
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
-      className={`absolute top-0 left-0 ${currentTool === 'none' ? 'pointer-events-none' : 'touch-none cursor-crosshair'}`}
-      style={{ width: `${width}px`, height: `${height}px`, zIndex: 10 }}
+      data-score-annotation-layer
+      className="absolute inset-0 z-20 block select-none"
+      style={{
+        width: `${width}px`,
+        height: `${height}px`,
+        pointerEvents: currentTool === 'none' ? 'none' : 'auto',
+        touchAction: currentTool === 'none' ? 'pan-y' : 'none',
+        cursor: currentTool === 'none' 
+          ? 'default' 
+          : currentTool === 'eraser' ? 'cell' : 'crosshair'
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
     />
   );
 }

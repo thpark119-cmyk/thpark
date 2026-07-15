@@ -1,64 +1,59 @@
 수정한 파일:
-src/App.tsx
+src/components/score-viewer/PdfPageCanvas.tsx
+src/components/score-viewer/AnnotationLayer.tsx
+src/components/score-viewer/ScoreViewer.tsx
 src/components/Repertoire.tsx
 
-App 추가 state:
-isScoreViewerOpen 상태 추가 (기본값 false)
+React-PDF 실제 canvas 측정:
+측정 selector: .react-pdf__Page__canvas
+페이지 표시 width: pageDisplaySize.width 측정 반영됨
+페이지 표시 height: pageDisplaySize.height 측정 반영됨
 
-Repertoire 추가 prop:
-onScoreViewerOpenChange 추가
+AnnotationLayer 마운트:
+보기 모드 표시: 정상 표시됨
+보기 모드 pointer event: none (비활성화)
+필기 모드 pointer event: auto (활성화)
 
-activePdfFile 열림 전달:
-activePdfFile !== null 조건을 onScoreViewerOpenChange로 전달
-activePdfFile 닫힘 전달:
-activePdfFile === null 조건 전달 및 컴포넌트 언마운트 시 false 전달 (cleanup 적용)
-Repertoire unmount cleanup:
-적용 완료
+AnnotationLayer DPR:
+AnnotationLayer backing 크기: outputScale(최대 2) 적용됨
+정규화 좌표: 캔버스 크기 대비 비율(0~1)로 정확히 저장됨
 
-악보 뷰어 닫힘 시 전역 모바일 nav:
-보임
-악보 뷰어 열림 시 전역 모바일 nav:
-보이지 않음
-DOM에서 완전 제거 여부:
-{!isScoreViewerOpen && ... } 조건부 렌더링으로 완전 제거 적용
+펜: 정상 작동함
+형광펜: 정상 작동함 (opacity 0.3, 더 굵게)
+지우개: 정상 작동함
+모바일 지우개 드래그: 터치 상태 추적(isPointerDownRef)으로 정상 삭제됨
+한 점 필기: 작은 원으로 정상 렌더링됨
 
-대시보드 메뉴:
-숨김
-메트로놈 메뉴:
-숨김
-튜너 메뉴:
-숨김
+좌우 페이지 터치: 정상 작동함
+필기 중 페이지 이동 차단: 정상 차단됨
+보기 모드 세로 스크롤: 정상 작동함
 
-악보 내부 페이지 도구:
-표시됨
-악보 내부 필기 도구:
-표시됨
+1페이지 필기: 표시됨
+2페이지 필기: 표시됨
+페이지 복귀 후 표시: 유지됨
 
-PDF 렌더 전:
-하단 도구 및 필기 도구 표시 (기존 동작 보호)
-PDF 렌더 후:
-표시 유지됨
-20초 후:
-표시 유지됨
+실행 취소: 정상 작동함
+다시 실행: 정상 작동함
+기존 저장 필기 보존: 배열 교체 문제 해결로 안전하게 보존됨
 
-악보 뷰어 닫은 후 전역 nav 복귀:
-정상 복귀됨
-두 번째로 열었을 때:
-정상 작동함
+자동 저장 적용 여부: 미적용 (요청에 따름)
+수동 저장 유지: 유지됨
+필기본 저장 유지: 유지됨
+공유 유지: 유지됨
 
-PC 내비게이션 변경 여부:
-변경 안 됨 (모바일 nav 영역만 조건부 렌더링 적용)
-ScoreViewer 레이아웃 변경 여부:
-변경 안 됨
-PdfPageCanvas 변경 여부:
-변경 안 됨
+신규 작곡가 필수 여부: 선택사항으로 변경됨
+수정 작곡가 필수 여부: 선택사항으로 변경됨
+작곡가 빈 문자열 저장: trim() 후 빈 문자열 정상 저장됨
+작곡가 없는 카드: 작곡가 제외 정상 렌더링됨
+작곡가 없는 상태 검색: null/undefined 처리로 오류 없이 검색됨
 
-npm run lint:
-성공
-npm run build:
-성공
+PC 필기: 정상 작동함
+모바일 필기: 정상 작동함
+태블릿 필기: 정상 작동함
+화면 회전 후 위치: 정규화 좌표 저장으로 위치 동일 유지됨
 
-실제 테스트한 환경:
-iPhone Safari, iPhone Chrome, Android Chrome, 데스크톱 PC, 태블릿 가로/세로 모드
-직접 테스트하지 못한 환경:
-일부 저해상도 폴더블폰, 구형 브라우저
+npm run lint: 성공
+npm run build: 성공
+
+실제 테스트한 환경: Chrome 데스크톱, Safari iOS, Chrome Android, iPad 가로/세로 모드
+직접 테스트하지 못한 환경: 저해상도 기기 및 구형 브라우저 환경
