@@ -164,7 +164,13 @@ export default function PdfPageCanvas({
           throw new Error('INVALID_PDF_HEADER');
         }
 
-        localTask = pdfjsLib.getDocument({ data: bytes });
+        localTask = pdfjsLib.getDocument({
+          data: bytes,
+          isImageDecoderSupported: false,
+          isOffscreenCanvasSupported: false,
+          useWasm: false,
+          enableHWA: false,
+        });
         localDoc = await withTimeout(
           localTask.promise,
           20_000,
@@ -291,12 +297,6 @@ export default function PdfPageCanvas({
         const pageScale = measuredWidth / baseViewport.width;
         const viewport = page.getViewport({ scale: pageScale });
 
-        const stagingCanvas = document.createElement('canvas');
-        const stagingContext = stagingCanvas.getContext('2d', { alpha: false });
-        if (!stagingContext) {
-          throw new Error('PDF_CANVAS_CONTEXT_MISSING');
-        }
-
         const cssWidth = Math.max(1, Math.floor(viewport.width));
         const cssHeight = Math.max(1, Math.floor(viewport.height));
 
@@ -318,17 +318,45 @@ export default function PdfPageCanvas({
           throw new Error('PDF_OUTPUT_SCALE_INVALID');
         }
 
-        stagingCanvas.width = Math.max(1, Math.floor(cssWidth * outputScale));
-        stagingCanvas.height = Math.max(1, Math.floor(cssHeight * outputScale));
+        displayCanvas.width = Math.max(1, Math.floor(cssWidth * outputScale));
+        displayCanvas.height = Math.max(1, Math.floor(cssHeight * outputScale));
+        displayCanvas.style.width = `${cssWidth}px`;
+        displayCanvas.style.height = `${cssHeight}px`;
         
         const transform: [number, number, number, number, number, number] | undefined = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
 
+        const displayContext = displayCanvas.getContext('2d', {
+          alpha: false,
+          willReadFrequently: true,
+        });
+
+        if (!displayContext) {
+          throw new Error('PDF_DISPLAY_CONTEXT_MISSING');
+        }
+
+        displayContext.setTransform(1, 0, 0, 1, 0, 0);
+        displayContext.fillStyle = 'rgb(255,255,255)';
+        displayContext.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+
+        const operatorList = await withTimeout(
+          page.getOperatorList({ intent: 'display' }),
+          10_000,
+          'load-page'
+        );
+        const operatorCount = operatorList.fnArray.length;
+
+        console.info('[Mio PDF Viewer]', {
+          event: 'page-operator-list',
+          pageNumber,
+          operatorCount,
+        });
+
         const renderContext = {
-          canvasContext: stagingContext,
-          canvas: stagingCanvas,
+          canvas: displayCanvas,
           viewport,
           transform,
           background: 'rgb(255,255,255)',
+          intent: 'display' as const,
         };
 
         localRenderTask = page.render(renderContext);
@@ -348,34 +376,62 @@ export default function PdfPageCanvas({
 
         console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber, renderAttempt, durationMs });
         
-        const displayContext = displayCanvas.getContext('2d', { alpha: false });
-        if (!displayContext) {
-          throw new Error('PDF_DISPLAY_CONTEXT_MISSING');
+        const probeCanvas = document.createElement('canvas');
+        probeCanvas.width = 64;
+        probeCanvas.height = 64;
+
+        const probeContext = probeCanvas.getContext('2d', {
+          willReadFrequently: true,
+        });
+
+        if (!probeContext) {
+          throw new Error('PDF_PROBE_CONTEXT_MISSING');
         }
-        
-        if (!isCurrentRenderAttempt()) return;
 
-        // Swap to display canvas
-        displayCanvas.width = stagingCanvas.width;
-        displayCanvas.height = stagingCanvas.height;
-        displayCanvas.style.width = `${cssWidth}px`;
-        displayCanvas.style.height = `${cssHeight}px`;
+        probeContext.drawImage(displayCanvas, 0, 0, probeCanvas.width, probeCanvas.height);
 
-        displayContext.setTransform(1, 0, 0, 1, 0, 0);
-        displayContext.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-        displayContext.drawImage(stagingCanvas, 0, 0);
+        const probeData = probeContext.getImageData(0, 0, probeCanvas.width, probeCanvas.height).data;
+        let nonWhitePixels = 0;
+
+        for (let index = 0; index < probeData.length; index += 4) {
+          const red = probeData[index];
+          const green = probeData[index + 1];
+          const blue = probeData[index + 2];
+          const alpha = probeData[index + 3];
+
+          if (alpha > 0 && (red < 248 || green < 248 || blue < 248)) {
+            nonWhitePixels += 1;
+          }
+        }
+
+        const probePixelCount = probeCanvas.width * probeCanvas.height;
+        const nonWhiteRatio = nonWhitePixels / probePixelCount;
+
+        console.info('[Mio PDF Viewer]', {
+          event: 'page-pixel-probe',
+          pageNumber,
+          operatorCount,
+          nonWhitePixels,
+          nonWhiteRatio,
+        });
+
+        if (operatorCount > 0 && nonWhitePixels === 0) {
+          throw new Error('PDF_RENDERED_BLANK');
+        }
 
         setRenderSize({ width: cssWidth, height: cssHeight });
         setIsPageReady(true);
         
         console.info('[Mio PDF Viewer]', { 
-          event: 'display-canvas-swap', 
+          event: 'page-visible-content-confirmed', 
           pageNumber, 
-          renderAttempt,
+          operatorCount,
+          nonWhitePixels,
+          nonWhiteRatio,
           cssWidth,
           cssHeight,
-          backingWidth: stagingCanvas.width,
-          backingHeight: stagingCanvas.height,
+          backingWidth: displayCanvas.width,
+          backingHeight: displayCanvas.height,
           outputScale,
           durationMs
         });
@@ -403,6 +459,10 @@ export default function PdfPageCanvas({
             userMessage = '캔버스 컨텍스트를 가져오지 못했습니다.';
           } else if (errorMessage === 'PDF_DISPLAY_CONTEXT_MISSING') {
             userMessage = '화면 캔버스 컨텍스트를 가져오지 못했습니다.';
+          } else if (errorMessage === 'PDF_PROBE_CONTEXT_MISSING') {
+            userMessage = 'PDF 렌더링 결과를 확인하지 못했습니다.';
+          } else if (errorMessage === 'PDF_RENDERED_BLANK') {
+            userMessage = 'PDF 페이지 내용이 렌더링되지 않았습니다.';
           }
           
           setPdfError(userMessage);
