@@ -104,6 +104,7 @@ export default function PdfPageCanvas({
 
   const documentAttemptRef = useRef(0);
   const renderAttemptRef = useRef(0);
+  const activeRenderKeyRef = useRef<string | null>(null);
 
   const isLoadingPdf = isLoadingDocument || isRenderingPage;
 
@@ -263,6 +264,13 @@ export default function PdfPageCanvas({
       return;
     }
 
+    const renderKey = [documentRevision, pageNumber, measuredWidth].join(':');
+    if (activeRenderKeyRef.current === renderKey) {
+      return;
+    }
+
+    activeRenderKeyRef.current = renderKey;
+
     let disposed = false;
     let localRenderTask: pdfjsLib.RenderTask | null = null;
     
@@ -314,41 +322,21 @@ export default function PdfPageCanvas({
           throw new Error('PDF_OUTPUT_SCALE_INVALID');
         }
 
-        displayCanvas.width = Math.max(1, Math.floor(cssWidth * outputScale));
-        displayCanvas.height = Math.max(1, Math.floor(cssHeight * outputScale));
-        displayCanvas.style.width = `${cssWidth}px`;
-        displayCanvas.style.height = `${cssHeight}px`;
+        const stagingCanvas = document.createElement('canvas');
+        stagingCanvas.width = Math.max(1, Math.floor(cssWidth * outputScale));
+        stagingCanvas.height = Math.max(1, Math.floor(cssHeight * outputScale));
         
         const transform: [number, number, number, number, number, number] | undefined = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
 
-        const displayContext = displayCanvas.getContext('2d', {
-          alpha: false,
-          willReadFrequently: true,
-        });
-
-        if (!displayContext) {
-          throw new Error('PDF_DISPLAY_CONTEXT_MISSING');
-        }
-
-        displayContext.setTransform(1, 0, 0, 1, 0, 0);
-        displayContext.fillStyle = 'rgb(255,255,255)';
-        displayContext.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
-
-        const operatorList = await withTimeout(
-          page.getOperatorList({ intent: 'display' }),
-          10_000,
-          'load-page'
-        );
-        const operatorCount = operatorList.fnArray.length;
-
         console.info('[Mio PDF Viewer]', {
-          event: 'page-operator-list',
+          event: 'staging-render-start',
           pageNumber,
-          operatorCount,
+          renderAttempt,
+          renderKey,
         });
 
         const renderContext = {
-          canvas: displayCanvas,
+          canvas: stagingCanvas,
           viewport,
           transform,
           background: 'rgb(255,255,255)',
@@ -369,7 +357,36 @@ export default function PdfPageCanvas({
         if (!isCurrentRenderAttempt()) return;
         
         const durationMs = Math.round(performance.now() - startTime);
-        console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber, renderAttempt, durationMs });
+        console.info('[Mio PDF Viewer]', { 
+          event: 'staging-render-complete', 
+          pageNumber, 
+          renderAttempt, 
+          renderKey 
+        });
+
+        const displayContext = displayCanvas.getContext('2d', {
+          alpha: false,
+        });
+
+        if (!displayContext) {
+          throw new Error('PDF_DISPLAY_CONTEXT_MISSING');
+        }
+
+        displayCanvas.width = stagingCanvas.width;
+        displayCanvas.height = stagingCanvas.height;
+        displayCanvas.style.width = `${cssWidth}px`;
+        displayCanvas.style.height = `${cssHeight}px`;
+
+        displayContext.setTransform(1, 0, 0, 1, 0, 0);
+        displayContext.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+        displayContext.drawImage(stagingCanvas, 0, 0);
+
+        console.info('[Mio PDF Viewer]', {
+          event: 'display-canvas-swap',
+          pageNumber,
+          renderAttempt,
+          renderKey,
+        });
         
         setRenderSize({ width: cssWidth, height: cssHeight });
         setIsPageReady(true);
@@ -379,7 +396,6 @@ export default function PdfPageCanvas({
           event: 'page-render-visible', 
           pageNumber, 
           renderAttempt,
-          operatorCount,
           cssWidth,
           cssHeight,
           backingWidth: displayCanvas.width,
@@ -407,6 +423,8 @@ export default function PdfPageCanvas({
             }
           } else if (errorCode === 'PDF_CANVAS_SIZE_UNSUPPORTED') {
             userMessage = '이 기기에서 PDF 페이지를 표시할 수 있는 크기를 초과했습니다.';
+          } else if (errorMessage.includes('Cannot use the same canvas')) {
+            userMessage = 'PDF 페이지 렌더링이 중복 실행되었습니다.';
           } else if (errorMessage === 'PDF_CANVAS_CONTEXT_MISSING') {
             userMessage = '캔버스 컨텍스트를 가져오지 못했습니다.';
           } else if (errorMessage === 'PDF_DISPLAY_CONTEXT_MISSING') {
@@ -417,6 +435,9 @@ export default function PdfPageCanvas({
           if (error instanceof PdfRuntimeTimeoutError) {
              setDebugError(`Render Timeout: ${error.stage}`);
              console.info('[Mio PDF Viewer]', { event: 'page-render-timeout', pageNumber, renderAttempt, stage: error.stage });
+          } else if (errorMessage.includes('Cannot use the same canvas')) {
+             setDebugError(`Render Error: PDF_CANVAS_RENDER_CONFLICT`);
+             console.info('[Mio PDF Viewer]', { event: 'page-render-error', pageNumber, renderAttempt });
           } else {
              setDebugError(`Render Error: ${errorCode || errorMessage}`);
              console.info('[Mio PDF Viewer]', { event: 'page-render-error', pageNumber, renderAttempt });
@@ -425,6 +446,9 @@ export default function PdfPageCanvas({
       } finally {
         if (isCurrentRenderAttempt()) {
           setIsRenderingPage(false);
+          if (activeRenderKeyRef.current === renderKey) {
+            activeRenderKeyRef.current = null;
+          }
         }
       }
     };
@@ -433,6 +457,9 @@ export default function PdfPageCanvas({
 
     return () => {
       disposed = true;
+      if (renderAttemptRef.current === renderAttempt) {
+        renderAttemptRef.current += 1;
+      }
       localRenderTask?.cancel();
     };
   }, [documentRevision, pageNumber, measuredWidth]);
