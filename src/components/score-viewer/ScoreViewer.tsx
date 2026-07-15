@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Save, Share, ChevronLeft, ChevronRight, Pen, Highlighter, Eraser, Undo, Redo, ZoomIn, ZoomOut, MousePointer2 } from 'lucide-react';
 import { CloudScoreFile } from '../../types/cloudFiles';
 import { ScoreAnnotationTool, ScoreAnnotationDocument, ScoreAnnotationStroke } from './annotationTypes';
@@ -45,6 +45,87 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   const [isSaving, setIsSaving] = useState(false);
   const [isCreatingPdf, setIsCreatingPdf] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+
+  const [viewerViewportHeight, setViewerViewportHeight] = useState<number | null>(null);
+  const bottomToolbarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let frameId: number | null = null;
+
+    const updateViewportHeight = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        const nextHeight = Math.round(
+          window.visualViewport?.height ?? window.innerHeight
+        );
+
+        if (nextHeight < 200) {
+          return;
+        }
+
+        setViewerViewportHeight(previous =>
+          previous === nextHeight ? previous : nextHeight
+        );
+
+        frameId = null;
+      });
+    };
+
+    updateViewportHeight();
+
+    const visualViewport = window.visualViewport;
+
+    visualViewport?.addEventListener('resize', updateViewportHeight);
+    window.addEventListener('resize', updateViewportHeight);
+    window.addEventListener('orientationchange', updateViewportHeight);
+
+    return () => {
+      visualViewport?.removeEventListener('resize', updateViewportHeight);
+      window.removeEventListener('resize', updateViewportHeight);
+      window.removeEventListener('orientationchange', updateViewportHeight);
+
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (viewerViewportHeight === null) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const toolbar = bottomToolbarRef.current;
+
+      if (!toolbar) {
+        return;
+      }
+
+      const rect = toolbar.getBoundingClientRect();
+
+      const isVisible =
+        rect.top < viewerViewportHeight &&
+        rect.bottom > 0 &&
+        rect.bottom <= viewerViewportHeight + 2;
+
+      console.info('[Mio Score Viewer Layout]', {
+        event: 'bottom-toolbar-visibility',
+        viewerViewportHeight,
+        toolbarTop: Math.round(rect.top),
+        toolbarBottom: Math.round(rect.bottom),
+        toolbarHeight: Math.round(rect.height),
+        isVisible,
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [viewerViewportHeight, currentTool]);
 
   // Load annotations
   useEffect(() => {
@@ -237,14 +318,20 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
 
   if (!file || !file.storagePath) {
     return (
-      <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col">
-        <div className="h-14 bg-stone-800 border-b border-white/10 flex items-center px-4 shrink-0 safe-top">
+      <div 
+        className="fixed top-0 left-0 right-0 z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
+        style={{
+          height: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+          maxHeight: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+        }}
+      >
+        <div className="relative z-40 h-14 bg-stone-800 border-b border-white/10 flex items-center px-4 shrink-0 safe-top">
           <button onClick={handleClose} className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
             <X size={24} />
           </button>
           <span className="text-white font-medium ml-2">오류</span>
         </div>
-        <div className="flex-1 flex items-center justify-center p-8 text-stone-400">
+        <div className="relative z-0 flex items-center justify-center p-8 text-stone-400">
           <p>PDF 파일 경로를 찾을 수 없습니다.</p>
         </div>
       </div>
@@ -252,9 +339,15 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col overflow-hidden h-[100dvh] max-h-[100dvh]">
+    <div 
+      className="fixed top-0 left-0 right-0 z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
+      style={{
+        height: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+        maxHeight: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+      }}
+    >
       {/* Top Bar */}
-      <div className="h-12 md:h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-2 md:px-4 shrink-0 min-w-0 safe-top">
+      <div className="relative z-40 h-12 md:h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-2 md:px-4 shrink-0 min-w-0 safe-top">
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <button onClick={handleClose} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0">
             <X size={24} />
@@ -306,7 +399,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 min-w-0 overflow-auto overscroll-contain relative bg-stone-900 flex justify-center px-0 py-2 md:px-4 md:py-4">
+      <div className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 flex justify-center px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch]">
         <PdfPageCanvas
           storagePath={file.storagePath}
           pageNumber={currentPage}
@@ -329,7 +422,11 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Bottom Toolbar */}
-      <div className="shrink-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain bg-stone-800 border-t border-white/10 pt-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:p-4 max-h-[42dvh] md:max-h-none md:overflow-visible">
+      <div 
+        ref={bottomToolbarRef}
+        data-score-viewer-bottom-toolbar
+        className="relative z-40 shrink-0 min-w-0 w-full max-w-full overflow-x-hidden overflow-y-auto overscroll-contain bg-stone-800 border-t border-white/10 pt-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[42%] pointer-events-auto md:p-4 md:max-h-none md:overflow-visible min-h-[3.5rem]"
+      >
         <div className="w-full max-w-4xl mx-auto min-w-0 flex flex-col gap-2 md:gap-4">
           
           {/* First Line: Basic Controls */}
