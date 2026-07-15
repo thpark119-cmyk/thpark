@@ -1013,20 +1013,6 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
           file={activePdfFile.file}
           repertoireId={activePdfFile.repertoireId}
           onClose={() => setActivePdfFile(null)}
-          onAnnotatedPdfSaved={(newFile) => {
-            // Add the new file to the active piece
-            setItems(prev => prev.map(i => {
-              if (i.id === activePdfFile.repertoireId) {
-                return {
-                  ...i,
-                  files: [...(i.files || []), newFile]
-                };
-              }
-              return i;
-            }));
-            // Close the viewer or let it stay? Close it for now.
-            // setActivePdfFile(null); // Or don't close, keep it open on original
-          }}
         />
       )}
     </motion.div>

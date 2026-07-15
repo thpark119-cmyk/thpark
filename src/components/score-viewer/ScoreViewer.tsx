@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Save, Share, ChevronLeft, ChevronRight, Pen, Highlighter, Eraser, Undo, Redo, ZoomIn, ZoomOut, MousePointer2 } from 'lucide-react';
+import { X, Share, ChevronLeft, ChevronRight, Pen, Highlighter, Eraser, Undo, Redo, ZoomIn, ZoomOut, MousePointer2 } from 'lucide-react';
 import { CloudScoreFile } from '../../types/cloudFiles';
 import { ScoreAnnotationTool, ScoreAnnotationDocument, ScoreAnnotationStroke } from './annotationTypes';
 import { loadScoreAnnotations, saveScoreAnnotations } from '../../utils/scoreAnnotationStorage';
 import { createAnnotatedPdf } from '../../utils/annotatedPdfExport';
-import { uploadFileToStorage } from '../../utils/cloudStorage';
-import { buildScoreFileStoragePath } from '../../utils/storagePaths';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -15,8 +13,19 @@ interface ScoreViewerProps {
   file: CloudScoreFile;
   repertoireId: string;
   onClose: () => void;
-  onAnnotatedPdfSaved?: (newFile: CloudScoreFile) => void;
 }
+
+type AnnotationLoadState =
+  | 'loading'
+  | 'ready'
+  | 'error';
+
+type AutoSaveState =
+  | 'idle'
+  | 'pending'
+  | 'saving'
+  | 'saved'
+  | 'error';
 
 interface ViewerViewportRect {
   top: number;
@@ -31,7 +40,7 @@ const ERASER_RADIUS_OPTIONS = [
   { label: '크게', value: 30, previewSize: 20 },
 ] as const;
 
-export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPdfSaved }: ScoreViewerProps) {
+export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewerProps) {
   useBodyScrollLock(true);
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -58,9 +67,25 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isDirty, setIsDirty] = useState(false);
   
-  const [isSaving, setIsSaving] = useState(false);
   const [isCreatingPdf, setIsCreatingPdf] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
+
+  const [annotationLoadState, setAnnotationLoadState] = useState<AnnotationLoadState>('loading');
+  const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>('idle');
+  const [isClosing, setIsClosing] = useState(false);
+
+  const documentRef = useRef<ScoreAnnotationDocument>(document);
+  const isDirtyRef = useRef(false);
+  const editRevisionRef = useRef(0);
+  const savedRevisionRef = useRef(0);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastQueuedRevisionRef = useRef<number | null>(null);
+  const lastQueuedPromiseRef = useRef<Promise<boolean> | null>(null);
+
+  const updateDirtyState = useCallback((dirty: boolean) => {
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+  }, []);
 
   const [viewerViewportRect, setViewerViewportRect] = useState<ViewerViewportRect>(() => ({
     top: 0,
@@ -181,17 +206,65 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   // Load annotations
   useEffect(() => {
     if (!user || !file?.id) return;
-    loadScoreAnnotations(user.uid, repertoireId, file.id).then(doc => {
-      if (doc) {
-        setDocument(doc);
+    
+    setAnnotationLoadState('loading');
+    setAutoSaveState('idle');
+
+    loadScoreAnnotations(user.uid, repertoireId, file.id).then(loadedDocument => {
+      if (loadedDocument) {
+        documentRef.current = loadedDocument;
+        setDocument(loadedDocument);
+        editRevisionRef.current = 0;
+        savedRevisionRef.current = 0;
+        updateDirtyState(false);
+        setAnnotationLoadState('ready');
+      } else {
+        const now = new Date().toISOString();
+        const emptyDocument: ScoreAnnotationDocument = {
+          schemaVersion: 1,
+          repertoireId,
+          fileId: file.id,
+          sourceStoragePath: file.storagePath,
+          pages: {},
+          createdAt: now,
+          updatedAt: now,
+        };
+        documentRef.current = emptyDocument;
+        setDocument(emptyDocument);
+        editRevisionRef.current = 0;
+        savedRevisionRef.current = 0;
+        updateDirtyState(false);
+        setAnnotationLoadState('ready');
       }
     }).catch(err => {
       console.error('Failed to load annotations', err);
-      // We still allow viewing the PDF even if annotations fail to load
+      setAnnotationLoadState('error');
+      setAutoSaveState('error');
     });
-  }, [user, repertoireId, file?.id]);
+  }, [user, repertoireId, file?.id, file?.storagePath, updateDirtyState]);
 
   const currentPageStrokes = document.pages[currentPage]?.strokes || [];
+
+  const updateDocumentStrokes = useCallback((strokes: ScoreAnnotationStroke[]) => {
+    const now = new Date().toISOString();
+    const nextDocument: ScoreAnnotationDocument = {
+      ...documentRef.current,
+      updatedAt: now,
+      pages: {
+        ...documentRef.current.pages,
+        [currentPage]: {
+          pageNumber: currentPage,
+          strokes,
+        },
+      },
+    };
+
+    documentRef.current = nextDocument;
+    setDocument(nextDocument);
+    editRevisionRef.current += 1;
+    updateDirtyState(true);
+    setAutoSaveState('pending');
+  }, [currentPage, updateDirtyState]);
 
   // Update history when strokes change from user input (not from undo/redo)
   const handleStrokesChange = (newStrokes: ScoreAnnotationStroke[]) => {
@@ -209,21 +282,6 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
     updateDocumentStrokes(newStrokes);
-    setIsDirty(true);
-  };
-
-  const updateDocumentStrokes = (strokes: ScoreAnnotationStroke[]) => {
-    setDocument(prev => ({
-      ...prev,
-      updatedAt: new Date().toISOString(),
-      pages: {
-        ...prev.pages,
-        [currentPage]: {
-          pageNumber: currentPage,
-          strokes
-        }
-      }
-    }));
   };
 
   const handleUndo = () => {
@@ -234,7 +292,6 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     const newIndex = historyIndex - 1;
     setHistoryIndex(newIndex);
     updateDocumentStrokes(history[newIndex]);
-    setIsDirty(true);
   };
 
   const handleRedo = () => {
@@ -242,7 +299,6 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       const newIndex = historyIndex + 1;
       setHistoryIndex(newIndex);
       updateDocumentStrokes(history[newIndex]);
-      setIsDirty(true);
     }
   };
 
@@ -257,74 +313,187 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     }
   };
 
-  const handleSave = async () => {
-    if (!user) return;
-    setIsSaving(true);
-    try {
-      await saveScoreAnnotations(user.uid, repertoireId, file.id, document);
-      setIsDirty(false);
-      setSaveMessage('필기가 저장되었습니다.');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (err) {
-      console.error(err);
-      alert('필기를 저장하지 못했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateAnnotatedPdf = async () => {
-    if (!user) return;
-    setIsCreatingPdf(true);
-    try {
-      const pdfBlob = await createAnnotatedPdf(file.storagePath, document);
-      
-      const newFileId = crypto.randomUUID();
-      const storagePath = buildScoreFileStoragePath({
-        uid: user.uid,
-        repertoireId,
-        fileId: newFileId,
-        ext: 'pdf'
-      });
-
-      const newFileName = file.fileName.replace(/\.pdf$/i, '') + ' - 필기본.pdf';
-
-      const uploadResult = await uploadFileToStorage({
-        file: pdfBlob,
-        storagePath,
-        contentType: 'application/pdf'
-      });
-
-      const newFile: CloudScoreFile = {
-        id: newFileId,
-        fileName: newFileName,
-        storagePath: uploadResult.storagePath,
-        contentType: uploadResult.contentType,
-        size: uploadResult.size,
-        createdAt: new Date().toISOString(),
-        uploadedAt: new Date().toISOString(),
-        source: 'firebase-storage'
-      };
-
-      if (onAnnotatedPdfSaved) {
-        onAnnotatedPdfSaved(newFile);
+  const queueAnnotationSave = useCallback(
+    (
+      snapshot: ScoreAnnotationDocument,
+      revision: number,
+      reason: string,
+    ): Promise<boolean> => {
+      if (!user || annotationLoadState !== 'ready') {
+        return Promise.resolve(false);
       }
-      
-      setSaveMessage('필기본 PDF가 저장되었습니다.');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (err) {
-      console.error(err);
-      alert('필기본 PDF를 만들지 못했습니다.');
-    } finally {
-      setIsCreatingPdf(false);
+
+      if (savedRevisionRef.current >= revision) {
+        return Promise.resolve(true);
+      }
+
+      if (lastQueuedRevisionRef.current === revision && lastQueuedPromiseRef.current) {
+        return lastQueuedPromiseRef.current;
+      }
+
+      setAutoSaveState('saving');
+
+      const saveTask = saveQueueRef.current
+        .catch(() => {
+          return;
+        })
+        .then(async () => {
+          await saveScoreAnnotations(
+            user.uid,
+            repertoireId,
+            file.id,
+            snapshot,
+          );
+
+          savedRevisionRef.current = Math.max(
+            savedRevisionRef.current,
+            revision,
+          );
+
+          if (editRevisionRef.current === revision) {
+            updateDirtyState(false);
+            setAutoSaveState('saved');
+          } else {
+            setAutoSaveState('pending');
+          }
+
+          console.info('[Mio Annotation Save]', {
+            event: 'save-success',
+            reason,
+            revision,
+          });
+
+          return true;
+        })
+        .catch(error => {
+          console.error('[Mio Annotation Save]', {
+            event: 'save-failed',
+            reason,
+            revision,
+            error,
+          });
+
+          if (editRevisionRef.current === revision) {
+            updateDirtyState(true);
+            setAutoSaveState('error');
+          }
+
+          return false;
+        });
+
+      saveQueueRef.current = saveTask.then(() => {
+        return;
+      });
+
+      lastQueuedRevisionRef.current = revision;
+      lastQueuedPromiseRef.current = saveTask;
+
+      void saveTask.then(() => {
+        if (lastQueuedPromiseRef.current === saveTask) {
+          lastQueuedPromiseRef.current = null;
+          lastQueuedRevisionRef.current = null;
+        }
+      });
+
+      return saveTask;
+    },
+    [user, annotationLoadState, repertoireId, file.id, updateDirtyState],
+  );
+
+  useEffect(() => {
+    if (annotationLoadState !== 'ready' || !user || !isDirty) {
+      return;
     }
-  };
+
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void queueAnnotationSave(
+        documentRef.current,
+        editRevisionRef.current,
+        'debounce',
+      );
+    }, 800);
+
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [document, isDirty, user, annotationLoadState, queueAnnotationSave]);
+
+  const flushLatestAnnotations = useCallback(
+    async (reason: string): Promise<boolean> => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
+      if (!isDirtyRef.current) {
+        return true;
+      }
+
+      return queueAnnotationSave(
+        documentRef.current,
+        editRevisionRef.current,
+        reason,
+      );
+    },
+    [queueAnnotationSave],
+  );
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        void flushLatestAnnotations('visibility-hidden');
+      }
+    };
+
+    const handlePageHide = () => {
+      void flushLatestAnnotations('pagehide');
+    };
+
+    const handleOnline = () => {
+      if (isDirtyRef.current) {
+        void flushLatestAnnotations('network-online');
+      }
+    };
+
+    window.document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [flushLatestAnnotations]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirtyRef.current) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   const handleShare = async () => {
     if (!user) return;
     setIsCreatingPdf(true);
     try {
-      const pdfBlob = await createAnnotatedPdf(file.storagePath, document);
+      const pdfBlob = await createAnnotatedPdf(file.storagePath, documentRef.current);
       const newFileName = file.fileName.replace(/\.pdf$/i, '') + ' - 필기본.pdf';
       const fileObj = new File([pdfBlob], newFileName, { type: 'application/pdf' });
       
@@ -356,13 +525,28 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     }
   };
 
-  const handleClose = () => {
-    if (isDirty) {
-      const confirm = window.confirm('저장되지 않은 필기가 있습니다.\n저장하지 않고 닫으면 작성한 필기가 사라집니다.');
-      if (!confirm) return;
+  const handleClose = useCallback(async () => {
+    if (isClosing) {
+      return;
     }
+
+    setIsClosing(true);
+
+    const saved = await flushLatestAnnotations('viewer-close');
+
+    if (!saved && isDirtyRef.current) {
+      const closeAnyway = window.confirm(
+        '필기를 자동 저장하지 못했습니다.\n저장하지 않고 악보 뷰어를 닫으시겠습니까?',
+      );
+
+      if (!closeAnyway) {
+        setIsClosing(false);
+        return;
+      }
+    }
+
     onClose();
-  };
+  }, [isClosing, flushLatestAnnotations, onClose]);
 
   if (!file || !file.storagePath) {
     return (
@@ -405,40 +589,34 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       {/* Top Bar */}
       <div className="relative z-40 h-12 md:h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-2 md:px-4 shrink-0 min-w-0 safe-top">
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
-          <button onClick={handleClose} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0">
+          <button onClick={handleClose} disabled={isClosing} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0 disabled:opacity-30">
             <X size={24} />
           </button>
           <span className="text-white font-medium truncate min-w-0">{file.fileName}</span>
         </div>
         
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
-          {saveMessage && <span className="text-emerald-400 text-sm hidden md:inline">{saveMessage}</span>}
+          <div
+            aria-live="polite"
+            className="
+              min-w-0
+              shrink
+              text-[11px]
+              md:text-xs
+              text-stone-400
+              truncate
+            "
+          >
+            {isClosing && '저장 후 닫는 중…'}
+            {!isClosing && annotationLoadState === 'loading' && '필기 불러오는 중…'}
+            {!isClosing && annotationLoadState === 'error' && '필기를 불러오지 못했습니다.'}
+            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'pending' && '자동 저장 대기 중…'}
+            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'saving' && '자동 저장 중…'}
+            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'saved' && '자동 저장됨'}
+            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'error' && '자동 저장 실패'}
+          </div>
           {user && (
             <>
-              <button 
-                onClick={handleSave} 
-                disabled={isSaving}
-                title="필기 저장"
-                aria-label="필기 저장"
-                className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
-              >
-                <Save size={18} className="md:w-4 md:h-4" />
-                <span className="hidden md:inline">{isSaving ? '저장 중' : '필기 저장'}</span>
-              </button>
-              
-              <button 
-                onClick={handleCreateAnnotatedPdf} 
-                disabled={isCreatingPdf}
-                title="필기본 저장"
-                aria-label="필기본 저장"
-                className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
-              >
-                <div className="w-[18px] h-[18px] md:w-4 md:h-4 flex items-center justify-center">
-                  <FilePdfIcon />
-                </div>
-                <span className="hidden md:inline">필기본 저장</span>
-              </button>
-
               <button 
                 onClick={handleShare} 
                 disabled={isCreatingPdf}
@@ -507,16 +685,16 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
             <div className="flex items-center justify-center gap-1 min-w-0">
               <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" />
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <ToolButton active={currentTool === 'pen'} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
-              <ToolButton active={currentTool === 'highlighter'} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
-              <ToolButton active={currentTool === 'eraser'} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
+              <ToolButton active={currentTool === 'pen'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
+              <ToolButton active={currentTool === 'highlighter'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
+              <ToolButton active={currentTool === 'eraser'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
             </div>
             
             {/* Undo/Redo */}
             <div className="flex items-center gap-1 min-w-0">
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <button onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
-              <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
+              <button onClick={handleUndo} disabled={annotationLoadState !== 'ready' || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
+              <button onClick={handleRedo} disabled={annotationLoadState !== 'ready' || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
             </div>
           </div>
 
@@ -656,29 +834,19 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   );
 }
 
-function ToolButton({ active, onClick, icon, title }: { active: boolean, onClick: () => void, icon: React.ReactNode, title: string }) {
+function ToolButton({ active, onClick, icon, title, disabled }: { active: boolean, onClick: () => void, icon: React.ReactNode, title: string, disabled?: boolean }) {
   return (
     <button 
       onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
       title={title}
       aria-label={title}
-      className={`p-1.5 md:p-2 flex items-center justify-center rounded-lg transition-colors ${active ? 'bg-brand/20 text-brand' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
+      className={`p-1.5 md:p-2 flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:pointer-events-none ${active ? 'bg-brand/20 text-brand' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
     >
       <div className="w-5 h-5 flex items-center justify-center">
         {icon}
       </div>
     </button>
-  );
-}
-
-function FilePdfIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-      <polyline points="10 9 9 9 8 9"/>
-    </svg>
   );
 }
