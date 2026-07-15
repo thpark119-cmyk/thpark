@@ -8,6 +8,7 @@ import { uploadFileToStorage } from '../../utils/cloudStorage';
 import { buildScoreFileStoragePath } from '../../utils/storagePaths';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import PdfPageCanvas from './PdfPageCanvas';
 
 interface ScoreViewerProps {
@@ -17,7 +18,15 @@ interface ScoreViewerProps {
   onAnnotatedPdfSaved?: (newFile: CloudScoreFile) => void;
 }
 
+interface ViewerViewportRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
 export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPdfSaved }: ScoreViewerProps) {
+  useBodyScrollLock(true);
   const { user } = useAuth();
   const { t } = useLanguage();
   
@@ -46,46 +55,76 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   const [isCreatingPdf, setIsCreatingPdf] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
-  const [viewerViewportHeight, setViewerViewportHeight] = useState<number | null>(null);
+  const [viewerViewportRect, setViewerViewportRect] = useState<ViewerViewportRect>(() => ({
+    top: 0,
+    left: 0,
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  }));
   const bottomToolbarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let frameId: number | null = null;
 
-    const updateViewportHeight = () => {
+    const updateViewportRect = () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
 
       frameId = window.requestAnimationFrame(() => {
-        const nextHeight = Math.round(
-          window.visualViewport?.height ?? window.innerHeight
-        );
+        const viewport = window.visualViewport;
 
-        if (nextHeight < 200) {
+        const nextRect: ViewerViewportRect = viewport
+          ? {
+              top: viewport.offsetTop,
+              left: viewport.offsetLeft,
+              width: viewport.width,
+              height: viewport.height,
+            }
+          : {
+              top: 0,
+              left: 0,
+              width: window.innerWidth,
+              height: window.innerHeight,
+            };
+
+        if (nextRect.width < 200 || nextRect.height < 200) {
+          frameId = null;
           return;
         }
 
-        setViewerViewportHeight(previous =>
-          previous === nextHeight ? previous : nextHeight
-        );
+        setViewerViewportRect(previous => {
+          const changed =
+            Math.abs(previous.top - nextRect.top) >= 1 ||
+            Math.abs(previous.left - nextRect.left) >= 1 ||
+            Math.abs(previous.width - nextRect.width) >= 1 ||
+            Math.abs(previous.height - nextRect.height) >= 1;
+
+          return changed ? nextRect : previous;
+        });
 
         frameId = null;
       });
     };
 
-    updateViewportHeight();
+    updateViewportRect();
 
     const visualViewport = window.visualViewport;
 
-    visualViewport?.addEventListener('resize', updateViewportHeight);
-    window.addEventListener('resize', updateViewportHeight);
-    window.addEventListener('orientationchange', updateViewportHeight);
+    visualViewport?.addEventListener('resize', updateViewportRect);
+    visualViewport?.addEventListener('scroll', updateViewportRect);
+    window.addEventListener('resize', updateViewportRect);
+    window.addEventListener('scroll', updateViewportRect, { passive: true });
+    window.addEventListener('orientationchange', updateViewportRect);
+    window.addEventListener('pageshow', updateViewportRect);
 
     return () => {
-      visualViewport?.removeEventListener('resize', updateViewportHeight);
-      window.removeEventListener('resize', updateViewportHeight);
-      window.removeEventListener('orientationchange', updateViewportHeight);
+      visualViewport?.removeEventListener('resize', updateViewportRect);
+      visualViewport?.removeEventListener('scroll', updateViewportRect);
+      window.removeEventListener('resize', updateViewportRect);
+      window.removeEventListener('scroll', updateViewportRect);
+      window.removeEventListener('orientationchange', updateViewportRect);
+      window.removeEventListener('pageshow', updateViewportRect);
 
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
@@ -94,7 +133,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   }, []);
 
   useEffect(() => {
-    if (viewerViewportHeight === null) {
+    if (viewerViewportRect.width === 0 || viewerViewportRect.height === 0) {
       return;
     }
 
@@ -107,14 +146,19 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
 
       const rect = toolbar.getBoundingClientRect();
 
+      const visibleTop = viewerViewportRect.top;
+      const visibleBottom = viewerViewportRect.top + viewerViewportRect.height;
+
       const isVisible =
-        rect.top < viewerViewportHeight &&
-        rect.bottom > 0 &&
-        rect.bottom <= viewerViewportHeight + 2;
+        rect.top >= visibleTop - 2 &&
+        rect.bottom <= visibleBottom + 2 &&
+        rect.height > 0;
 
       console.info('[Mio Score Viewer Layout]', {
         event: 'bottom-toolbar-visibility',
-        viewerViewportHeight,
+        viewportTop: Math.round(viewerViewportRect.top),
+        viewportBottom: Math.round(visibleBottom),
+        viewportHeight: Math.round(viewerViewportRect.height),
         toolbarTop: Math.round(rect.top),
         toolbarBottom: Math.round(rect.bottom),
         toolbarHeight: Math.round(rect.height),
@@ -125,7 +169,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [viewerViewportHeight, currentTool]);
+  }, [viewerViewportRect, currentTool]);
 
   // Load annotations
   useEffect(() => {
@@ -319,10 +363,14 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   if (!file || !file.storagePath) {
     return (
       <div 
-        className="fixed top-0 left-0 right-0 z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
+        className="fixed z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
         style={{
-          height: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
-          maxHeight: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+          top: `${viewerViewportRect.top}px`,
+          left: `${viewerViewportRect.left}px`,
+          width: `${viewerViewportRect.width}px`,
+          height: `${viewerViewportRect.height}px`,
+          maxWidth: `${viewerViewportRect.width}px`,
+          maxHeight: `${viewerViewportRect.height}px`,
         }}
       >
         <div className="relative z-40 h-14 bg-stone-800 border-b border-white/10 flex items-center px-4 shrink-0 safe-top">
@@ -340,10 +388,14 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
 
   return (
     <div 
-      className="fixed top-0 left-0 right-0 z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
+      className="fixed z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
       style={{
-        height: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
-        maxHeight: viewerViewportHeight ? `${viewerViewportHeight}px` : '100dvh',
+        top: `${viewerViewportRect.top}px`,
+        left: `${viewerViewportRect.left}px`,
+        width: `${viewerViewportRect.width}px`,
+        height: `${viewerViewportRect.height}px`,
+        maxWidth: `${viewerViewportRect.width}px`,
+        maxHeight: `${viewerViewportRect.height}px`,
       }}
     >
       {/* Top Bar */}
@@ -425,12 +477,15 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       <div 
         ref={bottomToolbarRef}
         data-score-viewer-bottom-toolbar
-        className="relative z-40 shrink-0 min-w-0 w-full max-w-full overflow-x-hidden overflow-y-auto overscroll-contain bg-stone-800 border-t border-white/10 pt-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[42%] pointer-events-auto md:p-4 md:max-h-none md:overflow-visible min-h-[3.5rem]"
+        className="relative z-40 shrink-0 min-w-0 w-full max-w-full min-h-[3.5rem] max-h-[45svh] overflow-x-hidden overflow-y-auto overscroll-contain bg-stone-800 border-t border-white/10 pt-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pointer-events-auto md:p-4 md:max-h-none md:overflow-visible"
       >
         <div className="w-full max-w-4xl mx-auto min-w-0 flex flex-col gap-2 md:gap-4">
           
           {/* First Line: Basic Controls */}
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1 w-full">
+          <div 
+            data-score-viewer-primary-toolbar
+            className="relative z-10 shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-1 w-full bg-stone-800"
+          >
             
             {/* Page Navigation */}
             <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-1">
