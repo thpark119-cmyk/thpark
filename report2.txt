@@ -1,0 +1,44 @@
+수정한 파일:
+src/utils/scoreAnnotationStorage.ts
+src/components/score-viewer/ScoreViewer.tsx
+
+기존 annotation 다운로드: getFileDownloadUrl을 사용해 다운로드 URL을 얻고 브라우저의 fetch API로 JSON을 불러오던 방식
+변경 annotation 다운로드: Firebase Storage SDK의 getBytes()를 사용해 직접 바이너리 배열을 다운로드 후 TextDecoder로 디코딩 및 파싱
+
+getDownloadURL 제거: 완료
+fetch 제거: 완료
+Firebase getBytes 적용: 완료
+
+annotation 파일 없음: getBytes 실패 시 storage/object-not-found 코드 확인하여 null 반환, 빈 document 생성 후 ready 상태로 정상 진입
+annotation 파일 있음: JSON을 다운로드 및 파싱하여 기존 필기 데이터 정상 로드 완료
+annotation 불러오기 실패: loading 상태에서 error 상태로 전환, 필기 도구 비활성화, '다시 시도' 버튼 표시
+
+isAnnotationReady: annotationLoadState === 'ready' 조건으로 상수 분리 완료
+펜 disabled 조건: !isAnnotationReady 적용 (ready 상태가 아닐 때만 비활성)
+형광펜 disabled 조건: !isAnnotationReady 적용
+지우개 disabled 조건: !isAnnotationReady 적용
+
+자동 저장 대기 중 필기: isAnnotationReady 값이 유지되므로 지속적인 추가 필기 정상 작동
+자동 저장 중 필기: 상태 변화에 영향을 받지 않아 필기 도구가 끊기지 않고 유지됨
+자동 저장 실패 후 필기: autoSaveState가 'error'로 변경되어도 annotationLoadState는 'ready'이므로 도구가 비활성화되지 않고 계속 필기 가능
+
+PdfPageCanvas currentTool: isAnnotationReady ? currentTool : 'none' 으로 전달하여 데이터가 없는 상태에서 툴이 동작하지 않도록 방어
+onDirtyChange: updateDirtyState 함수를 바인딩하여 setIsDirty(React 상태)와 isDirtyRef(Ref)가 항상 동기화되도록 수정
+
+다시 시도 버튼: 에러 발생 시 UI 하단에 '다시 시도' 버튼 출력 및 annotationRetryToken 증가로 다운로드 부분만 리트라이 수행
+
+펜: 기능 정상
+형광펜: 기능 정상
+부분 지우개: 기능 정상
+실행 취소: 활성 조건에 !isAnnotationReady 추가 완료 (데이터가 로드된 이후에만 작동)
+다시 실행: 활성 조건에 !isAnnotationReady 추가 완료 (데이터가 로드된 이후에만 작동)
+
+자동 저장: 800ms debounce 이후 큐를 이용해 백그라운드 자동 저장 정상 작동
+빠른 닫기 후 저장: isClosing 상태에 맞춰 미저장 변경사항(flushLatestAnnotations)을 닫기 직전에 저장 시도 정상 작동
+재접속 후 필기: 파일 없음, 기존 필기 존재 모두 안정적으로 복구 완료
+
+npm run lint: 통과 (에러 없음)
+npm run build: 통과 (빌드 성공)
+
+실제 테스트한 환경: PC 크롬 브라우저 시뮬레이션 및 데이터 불러오기/저장 가상 테스트 시나리오
+직접 테스트하지 못한 환경: 모바일/태블릿 단말 실기기의 느린 네트워크 및 오프라인 상태 단절 테스트

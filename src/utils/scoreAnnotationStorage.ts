@@ -1,26 +1,43 @@
-import { uploadFileToStorage, getFileDownloadUrl, deleteFileFromStorage } from './cloudStorage';
+import { uploadFileToStorage, deleteFileFromStorage } from './cloudStorage';
 import { buildScoreAnnotationStoragePath } from './storagePaths';
 import { ScoreAnnotationDocument } from '../components/score-viewer/annotationTypes';
+import { getBytes, ref } from 'firebase/storage';
+import { storage } from '../lib/firebase';
 
 export async function loadScoreAnnotations(
   uid: string,
   repertoireId: string,
   fileId: string
 ): Promise<ScoreAnnotationDocument | null> {
+  const storagePath = buildScoreAnnotationStoragePath({ uid, repertoireId, fileId });
+
   try {
-    const storagePath = buildScoreAnnotationStoragePath({ uid, repertoireId, fileId });
-    const downloadUrl = await getFileDownloadUrl(storagePath);
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-      if (response.status === 404) return null;
-      throw new Error(`Failed to fetch annotations: ${response.statusText}`);
+    if (!storage) {
+      throw new Error('Firebase Storage is not initialized.');
     }
-    const data = await response.json();
-    return data as ScoreAnnotationDocument;
-  } catch (error: any) {
-    if (error?.code === 'storage/object-not-found' || error?.message?.includes('object-not-found')) {
+
+    const storageRef = ref(storage, storagePath);
+    const arrayBuffer = await getBytes(storageRef);
+    const bytes = new Uint8Array(arrayBuffer);
+
+    if (bytes.byteLength === 0) {
       return null;
     }
+
+    const jsonText = new TextDecoder('utf-8').decode(bytes);
+    if (!jsonText.trim()) {
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonText);
+    return parsed as ScoreAnnotationDocument;
+  } catch (error: any) {
+    const errorCode = String(error?.code || error?.message || '');
+
+    if (errorCode.includes('storage/object-not-found')) {
+      return null;
+    }
+
     throw error;
   }
 }

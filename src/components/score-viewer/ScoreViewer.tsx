@@ -72,6 +72,9 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const [annotationLoadState, setAnnotationLoadState] = useState<AnnotationLoadState>('loading');
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>('idle');
   const [isClosing, setIsClosing] = useState(false);
+  const [annotationRetryToken, setAnnotationRetryToken] = useState(0);
+
+  const isAnnotationReady = annotationLoadState === 'ready';
 
   const documentRef = useRef<ScoreAnnotationDocument>(document);
   const isDirtyRef = useRef(false);
@@ -205,22 +208,29 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   // Load annotations
   useEffect(() => {
-    if (!user || !file?.id) return;
-    
-    setAnnotationLoadState('loading');
-    setAutoSaveState('idle');
+    if (!user || !file?.id) {
+      return;
+    }
 
-    loadScoreAnnotations(user.uid, repertoireId, file.id).then(loadedDocument => {
-      if (loadedDocument) {
-        documentRef.current = loadedDocument;
-        setDocument(loadedDocument);
-        editRevisionRef.current = 0;
-        savedRevisionRef.current = 0;
-        updateDirtyState(false);
-        setAnnotationLoadState('ready');
-      } else {
+    let cancelled = false;
+
+    const loadAnnotations = async () => {
+      setAnnotationLoadState('loading');
+      setAutoSaveState('idle');
+
+      try {
+        const loadedDocument = await loadScoreAnnotations(
+          user.uid,
+          repertoireId,
+          file.id,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
         const now = new Date().toISOString();
-        const emptyDocument: ScoreAnnotationDocument = {
+        const nextDocument: ScoreAnnotationDocument = loadedDocument ?? {
           schemaVersion: 1,
           repertoireId,
           fileId: file.id,
@@ -229,19 +239,43 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           createdAt: now,
           updatedAt: now,
         };
-        documentRef.current = emptyDocument;
-        setDocument(emptyDocument);
+
+        documentRef.current = nextDocument;
+        setDocument(nextDocument);
         editRevisionRef.current = 0;
         savedRevisionRef.current = 0;
         updateDirtyState(false);
         setAnnotationLoadState('ready');
+        setAutoSaveState('idle');
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error('[Mio Annotation Load]', {
+          event: 'load-failed',
+          error,
+        });
+
+        setCurrentTool('none');
+        setAnnotationLoadState('error');
+        setAutoSaveState('error');
       }
-    }).catch(err => {
-      console.error('Failed to load annotations', err);
-      setAnnotationLoadState('error');
-      setAutoSaveState('error');
-    });
-  }, [user, repertoireId, file?.id, file?.storagePath, updateDirtyState]);
+    };
+
+    void loadAnnotations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    user,
+    repertoireId,
+    file?.id,
+    file?.storagePath,
+    annotationRetryToken,
+    updateDirtyState,
+  ]);
 
   const currentPageStrokes = document.pages[currentPage]?.strokes || [];
 
@@ -609,11 +643,24 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           >
             {isClosing && '저장 후 닫는 중…'}
             {!isClosing && annotationLoadState === 'loading' && '필기 불러오는 중…'}
-            {!isClosing && annotationLoadState === 'error' && '필기를 불러오지 못했습니다.'}
-            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'pending' && '자동 저장 대기 중…'}
-            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'saving' && '자동 저장 중…'}
-            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'saved' && '자동 저장됨'}
-            {!isClosing && annotationLoadState === 'ready' && autoSaveState === 'error' && '자동 저장 실패'}
+            {!isClosing && annotationLoadState === 'error' && (
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="truncate">필기를 불러오지 못했습니다.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAnnotationRetryToken(previous => previous + 1);
+                  }}
+                  className="shrink-0 text-brand hover:text-brand-light underline"
+                >
+                  다시 시도
+                </button>
+              </div>
+            )}
+            {!isClosing && isAnnotationReady && autoSaveState === 'pending' && '자동 저장 대기 중…'}
+            {!isClosing && isAnnotationReady && autoSaveState === 'saving' && '자동 저장 중…'}
+            {!isClosing && isAnnotationReady && autoSaveState === 'saved' && '자동 저장됨'}
+            {!isClosing && isAnnotationReady && autoSaveState === 'error' && '자동 저장 실패'}
           </div>
           {user && (
             <>
@@ -640,11 +687,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           onPageCountChange={setPageCount}
           strokes={currentPageStrokes}
           onStrokesChange={handleStrokesChange}
-          currentTool={currentTool}
+          currentTool={isAnnotationReady ? currentTool : 'none'}
           strokeColor={strokeColor}
           strokeWidth={strokeWidth}
           eraserRadius={eraserRadius}
-          onDirtyChange={setIsDirty}
+          onDirtyChange={updateDirtyState}
           onPreviousPage={() => {
             changePage(-1);
           }}
@@ -683,18 +730,18 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
             {/* Drawing Tools */}
             <div className="flex items-center justify-center gap-1 min-w-0">
-              <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" />
+              <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" disabled={false} />
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <ToolButton active={currentTool === 'pen'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
-              <ToolButton active={currentTool === 'highlighter'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
-              <ToolButton active={currentTool === 'eraser'} disabled={annotationLoadState !== 'ready'} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
+              <ToolButton active={currentTool === 'pen'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
+              <ToolButton active={currentTool === 'highlighter'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
+              <ToolButton active={currentTool === 'eraser'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
             </div>
             
             {/* Undo/Redo */}
             <div className="flex items-center gap-1 min-w-0">
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <button onClick={handleUndo} disabled={annotationLoadState !== 'ready' || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
-              <button onClick={handleRedo} disabled={annotationLoadState !== 'ready' || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
+              <button onClick={handleUndo} disabled={!isAnnotationReady || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
+              <button onClick={handleRedo} disabled={!isAnnotationReady || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
             </div>
           </div>
 
