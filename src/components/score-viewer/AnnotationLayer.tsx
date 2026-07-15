@@ -9,6 +9,7 @@ interface AnnotationLayerProps {
   currentTool: ScoreAnnotationTool | 'none';
   strokeColor: string;
   strokeWidth: number; // 1, 2, 3 representing thin, normal, thick
+  eraserRadius: number;
 }
 
 interface PixelPoint {
@@ -16,7 +17,6 @@ interface PixelPoint {
   y: number;
 }
 
-const ERASER_RADIUS_PX = 18;
 const ERASER_SAMPLE_STEP_PX = 4;
 const GEOMETRY_EPSILON = 0.0001;
 
@@ -203,6 +203,7 @@ function applyEraserSweep(
   eraserEndPt: ScoreAnnotationPoint,
   width: number,
   height: number,
+  radius: number,
 ): {
   strokes: ScoreAnnotationStroke[];
   changed: boolean;
@@ -220,7 +221,7 @@ function applyEraserSweep(
       eraserEnd,
       width,
       height,
-      ERASER_RADIUS_PX
+      radius
     );
     if (changed) {
       anyChanged = true;
@@ -248,7 +249,8 @@ export default function AnnotationLayer({
   onStrokesChange,
   currentTool,
   strokeColor,
-  strokeWidth
+  strokeWidth,
+  eraserRadius,
 }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
@@ -258,6 +260,46 @@ export default function AnnotationLayer({
   const eraserSessionStrokesRef = useRef<ScoreAnnotationStroke[] | null>(null);
   const lastEraserPointRef = useRef<ScoreAnnotationPoint | null>(null);
   const eraserHasChangesRef = useRef(false);
+
+  const effectiveEraserRadius = Math.max(6, Math.min(40, eraserRadius));
+
+  interface EraserCursorState {
+    x: number;
+    y: number;
+    visible: boolean;
+    pointerType: string;
+  }
+
+  const [eraserCursor, setEraserCursor] = useState<EraserCursorState | null>(null);
+
+  const updateEraserCursor = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (currentTool !== 'eraser') {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    setEraserCursor({
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+      visible: true,
+      pointerType: event.pointerType,
+    });
+  };
+
+  useEffect(() => {
+    if (currentTool !== 'eraser') {
+      setEraserCursor(null);
+    }
+  }, [currentTool]);
 
   // Redraw all strokes
   useEffect(() => {
@@ -362,6 +404,8 @@ export default function AnnotationLayer({
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    updateEraserCursor(event);
+
     if (currentTool === 'none') return;
     
     event.preventDefault();
@@ -376,7 +420,7 @@ export default function AnnotationLayer({
       lastEraserPointRef.current = point;
       eraserHasChangesRef.current = false;
 
-      const result = applyEraserSweep(strokes, point, point, width, height);
+      const result = applyEraserSweep(strokes, point, point, width, height, effectiveEraserRadius);
       if (result.changed) {
         eraserSessionStrokesRef.current = result.strokes;
         eraserHasChangesRef.current = true;
@@ -399,6 +443,8 @@ export default function AnnotationLayer({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    updateEraserCursor(event);
+
     if (currentTool === 'none') return;
     if (!isPointerDownRef.current) return;
     
@@ -410,7 +456,7 @@ export default function AnnotationLayer({
       const previousPoint = lastEraserPointRef.current;
       const sourceStrokes = eraserSessionStrokesRef.current;
       if (previousPoint && sourceStrokes) {
-        const result = applyEraserSweep(sourceStrokes, previousPoint, point, width, height);
+        const result = applyEraserSweep(sourceStrokes, previousPoint, point, width, height, effectiveEraserRadius);
         eraserSessionStrokesRef.current = result.strokes;
         lastEraserPointRef.current = point;
         if (result.changed) {
@@ -454,6 +500,10 @@ export default function AnnotationLayer({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      setEraserCursor(null);
+    }
     
     if (currentTool === 'eraser') {
       finishEraserSession();
@@ -473,6 +523,10 @@ export default function AnnotationLayer({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      setEraserCursor(null);
+    }
     
     if (currentTool === 'eraser') {
       finishEraserSession();
@@ -490,23 +544,54 @@ export default function AnnotationLayer({
   if (width === 0 || height === 0) return null;
 
   return (
-    <canvas
-      ref={canvasRef}
-      data-score-annotation-layer
-      className="absolute inset-0 z-20 block select-none"
-      style={{
-        width: `${width}px`,
-        height: `${height}px`,
-        pointerEvents: currentTool === 'none' ? 'none' : 'auto',
-        touchAction: currentTool === 'none' ? 'pan-y' : 'none',
-        cursor: currentTool === 'none' 
-          ? 'default' 
-          : currentTool === 'eraser' ? 'cell' : 'crosshair'
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        data-score-annotation-layer
+        className="absolute inset-0 z-20 block select-none"
+        style={{
+          width: `${width}px`,
+          height: `${height}px`,
+          pointerEvents: currentTool === 'none' ? 'none' : 'auto',
+          touchAction: currentTool === 'none' ? 'pan-y' : 'none',
+          cursor: currentTool === 'none' 
+            ? 'default' 
+            : currentTool === 'eraser' ? 'none' : 'crosshair'
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerEnter={event => updateEraserCursor(event)}
+        onPointerLeave={() => {
+          if (!isPointerDownRef.current) {
+            setEraserCursor(null);
+          }
+        }}
+      />
+      {currentTool === 'eraser' && eraserCursor?.visible && (
+        <div
+          data-score-eraser-cursor
+          aria-hidden="true"
+          className="
+            absolute
+            z-30
+            rounded-full
+            border-2
+            border-rose-400
+            bg-rose-400/10
+            shadow-sm
+            pointer-events-none
+          "
+          style={{
+            left: `${eraserCursor.x}px`,
+            top: `${eraserCursor.y}px`,
+            width: `${effectiveEraserRadius * 2}px`,
+            height: `${effectiveEraserRadius * 2}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+        />
+      )}
+    </>
   );
 }

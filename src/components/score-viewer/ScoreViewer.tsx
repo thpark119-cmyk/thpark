@@ -25,6 +25,12 @@ interface ViewerViewportRect {
   height: number;
 }
 
+const ERASER_RADIUS_OPTIONS = [
+  { label: '작게', value: 10, previewSize: 8 },
+  { label: '보통', value: 18, previewSize: 14 },
+  { label: '크게', value: 30, previewSize: 20 },
+] as const;
+
 export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPdfSaved }: ScoreViewerProps) {
   useBodyScrollLock(true);
   const { user } = useAuth();
@@ -46,6 +52,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   const [currentTool, setCurrentTool] = useState<ScoreAnnotationTool | 'none'>('none');
   const [strokeColor, setStrokeColor] = useState('#ef4444');
   const [strokeWidth, setStrokeWidth] = useState(2); // 1, 2, 3
+  const [eraserRadius, setEraserRadius] = useState(18);
   
   const [history, setHistory] = useState<ScoreAnnotationStroke[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -458,6 +465,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
           currentTool={currentTool}
           strokeColor={strokeColor}
           strokeWidth={strokeWidth}
+          eraserRadius={eraserRadius}
           onDirtyChange={setIsDirty}
           onPreviousPage={() => {
             changePage(-1);
@@ -542,6 +550,103 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {currentTool === 'eraser' && (
+            <div
+              className="
+                w-full
+                min-w-0
+                overflow-x-auto
+                overscroll-x-contain
+              "
+            >
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-2
+                  w-max
+                  min-w-full
+                "
+                role="group"
+                aria-label="지우개 크기"
+              >
+                <span
+                  className="
+                    shrink-0
+                    text-xs
+                    text-stone-400
+                    px-1
+                  "
+                >
+                  지우개 크기
+                </span>
+
+                {ERASER_RADIUS_OPTIONS.map(
+                  option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      title={`지우개 ${option.label}`}
+                      aria-label={`지우개 크기 ${option.label}`}
+                      aria-pressed={
+                        eraserRadius ===
+                        option.value
+                      }
+                      onClick={() => {
+                        setEraserRadius(
+                          option.value,
+                        );
+                      }}
+                      className={`
+                        w-10
+                        h-10
+                        shrink-0
+                        rounded-lg
+                        flex
+                        items-center
+                        justify-center
+                        transition-colors
+
+                        ${
+                          eraserRadius ===
+                          option.value
+                            ? `
+                                bg-brand/20
+                                text-brand
+                                ring-1
+                                ring-brand/50
+                              `
+                            : `
+                                bg-stone-900
+                                text-stone-400
+                                hover:text-white
+                                hover:bg-stone-700
+                              `
+                        }
+                      `}
+                    >
+                      <span
+                        className="
+                          block
+                          rounded-full
+                          border-2
+                          border-current
+                          bg-current/10
+                        "
+                        style={{
+                          width:
+                            `${option.previewSize}px`,
+                          height:
+                            `${option.previewSize}px`,
+                        }}
+                      />
+                    </button>
+                  ),
+                )}
               </div>
             </div>
           )}

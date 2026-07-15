@@ -19,6 +19,7 @@ interface PdfPageCanvasProps {
   currentTool: ScoreAnnotationTool | 'none';
   strokeColor: string;
   strokeWidth: number;
+  eraserRadius: number;
   onDirtyChange: (dirty: boolean) => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
@@ -66,6 +67,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     currentTool,
     strokeColor,
     strokeWidth,
+    eraserRadius,
     onDirtyChange,
     onPreviousPage,
     onNextPage,
@@ -440,6 +442,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                     currentTool={currentTool}
                     strokeColor={strokeColor}
                     strokeWidth={strokeWidth}
+                    eraserRadius={eraserRadius}
                   />
                 )}
               </div>
