@@ -15,9 +15,13 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import CloudScoreFileView from './CloudScoreFileView';
 import ScoreViewer from './score-viewer/ScoreViewer';
 
+interface RepertoireProps {
+  onScoreViewerOpenChange?: (isOpen: boolean) => void;
+}
+
 const MAX_SCORE_FILES_PER_ITEM = 5;
 
-export default function Repertoire() {
+export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps) {
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [items, setItems] = useState<RepertoireItem[]>([]);
@@ -53,6 +57,16 @@ export default function Repertoire() {
 
   // Lock scroll when any modal/overlay is open
   useBodyScrollLock(isAdding || !!editingItem);
+
+  useEffect(() => {
+    onScoreViewerOpenChange?.(activePdfFile !== null);
+  }, [activePdfFile, onScoreViewerOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onScoreViewerOpenChange?.(false);
+    };
+  }, [onScoreViewerOpenChange]);
 
   useEffect(() => {
     const unsubscribe = subscribeToCollection<RepertoireItem>('repertoire', (data) => {

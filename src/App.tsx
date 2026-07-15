@@ -37,8 +37,17 @@ export default function App() {
   const [targetLessonId, setTargetLessonId] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isScoreViewerOpen, setIsScoreViewerOpen] = useState(false);
   const { user, loading, error } = useAuth();
   const { t } = useLanguage();
+
+  React.useEffect(() => {
+    console.info('[Mio App Layout]', {
+      event: 'score-viewer-open-change',
+      isScoreViewerOpen,
+      mobileGlobalNavigationRendered: !isScoreViewerOpen,
+    });
+  }, [isScoreViewerOpen]);
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true);
@@ -106,7 +115,10 @@ export default function App() {
 
   return (
     <PracticeTimerProvider>
-      <div className="min-h-screen bg-[#0F0D0C] text-stone-200 font-sans selection:bg-brand/30 pb-24 md:pb-16">
+      <div 
+        className="min-h-screen bg-[#0F0D0C] text-stone-200 font-sans selection:bg-brand/30 pb-24 md:pb-16"
+        data-score-viewer-open={isScoreViewerOpen ? 'true' : 'false'}
+      >
         {/* Background ambient glows optimized for wide desktop layout */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-30">
           <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-brand/10 blur-[150px] rounded-full"></div>
@@ -260,7 +272,7 @@ export default function App() {
                   {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />}
                   {activeTab === 'mylessons' && <MyLessons targetLessonId={targetLessonId} setTargetLessonId={setTargetLessonId} />}
                   {activeTab === 'practice' && <Practice />}
-                  {activeTab === 'repertoire' && <Repertoire />}
+                  {activeTab === 'repertoire' && <Repertoire onScoreViewerOpenChange={setIsScoreViewerOpen} />}
                   {activeTab === 'studio' && <TeachingStudio />}
                   {activeTab === 'metronome' && <Metronome />}
                   {activeTab === 'tuner' && <Tuner />}
@@ -276,33 +288,36 @@ export default function App() {
         <MiniTimer onNavigateToPractice={() => setActiveTab('practice')} isPracticeTab={activeTab === 'practice'} />
 
         {/* Mobile Bottom Navigation */}
-        <nav 
-          className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-950/90 backdrop-blur-xl border-t border-white/5 z-50 overflow-x-auto no-scrollbar"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        >
-          <div className="flex items-center justify-start sm:justify-around px-2 py-2 min-w-max">
-            {navItems.filter(item => item.id !== 'admin').map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-16 ${
-                    isActive ? 'text-brand' : 'text-stone-500 hover:text-stone-300'
-                  }`}
-                >
-                  <div className={`relative flex items-center justify-center w-8 h-8 rounded-full ${isActive ? 'bg-brand/10' : ''}`}>
-                    <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                  </div>
-                  <span className="text-[9px] font-bold tracking-tight line-clamp-1 truncate w-full text-center">
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
+        {!isScoreViewerOpen && (
+          <nav 
+            data-mobile-global-navigation
+            className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-950/90 backdrop-blur-xl border-t border-white/5 z-50 overflow-x-auto no-scrollbar"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <div className="flex items-center justify-start sm:justify-around px-2 py-2 min-w-max">
+              {navItems.filter(item => item.id !== 'admin').map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-16 ${
+                      isActive ? 'text-brand' : 'text-stone-500 hover:text-stone-300'
+                    }`}
+                  >
+                    <div className={`relative flex items-center justify-center w-8 h-8 rounded-full ${isActive ? 'bg-brand/10' : ''}`}>
+                      <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                    </div>
+                    <span className="text-[9px] font-bold tracking-tight line-clamp-1 truncate w-full text-center">
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        )}
       </div>
     </PracticeTimerProvider>
   );

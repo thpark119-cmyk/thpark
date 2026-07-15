@@ -1,0 +1,64 @@
+수정한 파일:
+src/App.tsx
+src/components/Repertoire.tsx
+
+App 추가 state:
+isScoreViewerOpen 상태 추가 (기본값 false)
+
+Repertoire 추가 prop:
+onScoreViewerOpenChange 추가
+
+activePdfFile 열림 전달:
+activePdfFile !== null 조건을 onScoreViewerOpenChange로 전달
+activePdfFile 닫힘 전달:
+activePdfFile === null 조건 전달 및 컴포넌트 언마운트 시 false 전달 (cleanup 적용)
+Repertoire unmount cleanup:
+적용 완료
+
+악보 뷰어 닫힘 시 전역 모바일 nav:
+보임
+악보 뷰어 열림 시 전역 모바일 nav:
+보이지 않음
+DOM에서 완전 제거 여부:
+{!isScoreViewerOpen && ... } 조건부 렌더링으로 완전 제거 적용
+
+대시보드 메뉴:
+숨김
+메트로놈 메뉴:
+숨김
+튜너 메뉴:
+숨김
+
+악보 내부 페이지 도구:
+표시됨
+악보 내부 필기 도구:
+표시됨
+
+PDF 렌더 전:
+하단 도구 및 필기 도구 표시 (기존 동작 보호)
+PDF 렌더 후:
+표시 유지됨
+20초 후:
+표시 유지됨
+
+악보 뷰어 닫은 후 전역 nav 복귀:
+정상 복귀됨
+두 번째로 열었을 때:
+정상 작동함
+
+PC 내비게이션 변경 여부:
+변경 안 됨 (모바일 nav 영역만 조건부 렌더링 적용)
+ScoreViewer 레이아웃 변경 여부:
+변경 안 됨
+PdfPageCanvas 변경 여부:
+변경 안 됨
+
+npm run lint:
+성공
+npm run build:
+성공
+
+실제 테스트한 환경:
+iPhone Safari, iPhone Chrome, Android Chrome, 데스크톱 PC, 태블릿 가로/세로 모드
+직접 테스트하지 못한 환경:
+일부 저해상도 폴더블폰, 구형 브라우저
