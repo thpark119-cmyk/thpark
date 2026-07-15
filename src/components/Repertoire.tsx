@@ -19,6 +19,48 @@ interface RepertoireProps {
   onScoreViewerOpenChange?: (isOpen: boolean) => void;
 }
 
+interface ScoreFileAssetsDeleteTarget {
+  uid: string;
+  repertoireId: string;
+  fileId: string;
+  storagePath: string;
+}
+
+async function deleteScoreFileAssets({
+  uid,
+  repertoireId,
+  fileId,
+  storagePath,
+}: ScoreFileAssetsDeleteTarget): Promise<void> {
+  const results = await Promise.allSettled([
+    deleteFileFromStorage(storagePath),
+    deleteScoreAnnotations(uid, repertoireId, fileId),
+  ]);
+
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  );
+
+  if (failures.length === 0) {
+    console.info('[Mio Score Delete]', {
+      event: 'file-assets-delete-success',
+      repertoireId,
+      fileId,
+    });
+    return;
+  }
+
+  console.error('[Mio Score Delete]', {
+    event: 'file-assets-delete-failed',
+    repertoireId,
+    fileId,
+    failureCount: failures.length,
+    reasons: failures.map((failure) => failure.reason),
+  });
+
+  throw new Error('SCORE_FILE_ASSET_DELETE_FAILED');
+}
+
 const MAX_SCORE_FILES_PER_ITEM = 5;
 
 export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps) {
@@ -240,27 +282,20 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
         files: cloudFiles
       };
 
-      await updateRecord('repertoire', editingItem.id, record, user);
+      if (pendingDeletes.length > 0 && !user) {
+        throw new Error('LOGIN_REQUIRED_FOR_SCORE_DELETE');
+      }
 
-      // Perform actual storage deletion only after Firestore update succeeds
-      let deleteFailed = false;
       for (const delFile of pendingDeletes) {
-        try {
-          console.log('[Mio Storage Delete]', {
-            action: 'delete_score_file_after_update',
-            repertoireId: editingItem.id,
-            storagePath: delFile.storagePath
-          });
-          await deleteFileFromStorage(delFile.storagePath);
-          await deleteScoreAnnotations(user!.uid, editingItem.id, delFile.id);
-        } catch (delErr) {
-          console.error('Failed to delete file from storage during update finalization:', delFile.storagePath, delErr);
-          deleteFailed = true;
-        }
+        await deleteScoreFileAssets({
+          uid: user!.uid,
+          repertoireId: editingItem.id,
+          fileId: delFile.id,
+          storagePath: delFile.storagePath,
+        });
       }
-      if (deleteFailed) {
-        alert(t('common.partialDeleteError') || 'Some files could not be deleted from the cloud.');
-      }
+
+      await updateRecord('repertoire', editingItem.id, record, user);
 
       pendingFiles.forEach(f => {
         if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
@@ -270,7 +305,7 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
       setEditingItem(null);
     } catch (err) {
       console.error(err);
-      setUploadError(t('repertoire.uploadFailed') || 'Failed to upload files. Please check your network connection.');
+      setUploadError(t('repertoire.uploadFailed') || 'Failed to update item. Please check your network connection and try again.');
       // Rollback newly uploaded files on failure
       for (const path of uploadedPaths) {
         try {
@@ -285,53 +320,42 @@ export default function Repertoire({ onScoreViewerOpenChange }: RepertoireProps)
   };
 
   const handleDeleteClick = async (id: string) => {
-    if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this?')) return;
-    
-    const itemToDelete = items.find(i => i.id === id);
-    let storageDeleteFailed = false;
+    if (!window.confirm(t('common.confirmDelete') || 'Are you sure you want to delete this?')) {
+      return;
+    }
 
-    if (itemToDelete?.files && itemToDelete.files.length > 0) {
-      for (const file of itemToDelete.files) {
-        try {
-          console.log('[Mio Storage Delete]', {
-            action: 'delete_repertoire_record_file',
-            recordId: id,
-            storagePath: file.storagePath,
-          });
-          await deleteFileFromStorage(file.storagePath);
-          await deleteScoreAnnotations(user!.uid, id, file.id);
-        } catch (e: any) {
-          console.error('Failed to delete file from storage', file.storagePath, e);
-          storageDeleteFailed = true;
-        }
-      }
+    const itemToDelete = items.find(item => item.id === id);
+    if (!itemToDelete) {
+      return;
     }
-    
-    // Legacy file delete
-    if (itemToDelete?.storagePath) {
-       try {
-          console.log('[Mio Storage Delete]', {
-            action: 'delete_repertoire_record_legacy_file',
-            recordId: id,
-            storagePath: itemToDelete.storagePath,
-          });
-          await deleteFileFromStorage(itemToDelete.storagePath);
-       } catch (e: any) {
-          console.error('Failed to delete legacy file from storage', itemToDelete.storagePath, e);
-          storageDeleteFailed = true;
-       }
-    }
-    
-    if (storageDeleteFailed) {
-      alert(t('repertoire.deleteFileFailed') || 'Failed to delete file. Please check your network connection and try again.');
+
+    if (itemToDelete.files?.length && !user) {
+      alert(t('repertoire.loginRequiredForFile') || '파일을 삭제하려면 로그인해야 합니다.');
       return;
     }
 
     try {
+      for (const scoreFile of itemToDelete.files || []) {
+        await deleteScoreFileAssets({
+          uid: user!.uid,
+          repertoireId: id,
+          fileId: scoreFile.id,
+          storagePath: scoreFile.storagePath,
+        });
+      }
+
+      if (itemToDelete.storagePath) {
+        await deleteFileFromStorage(itemToDelete.storagePath);
+      }
+
       await deleteRecord('repertoire', id, user);
-    } catch (e) {
-      console.error('Failed to delete repertoire record', e);
-      alert(t('common.deleteFailed') || 'Failed to delete record.');
+    } catch (error) {
+      console.error('[Mio Score Delete]', {
+        event: 'repertoire-delete-failed',
+        repertoireId: id,
+        error,
+      });
+      alert(t('repertoire.deleteFileFailed') || '악보 또는 필기를 삭제하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.');
     }
   };
 

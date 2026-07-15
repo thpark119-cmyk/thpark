@@ -64,9 +64,5 @@ export async function deleteScoreAnnotations(
   fileId: string
 ): Promise<void> {
   const storagePath = buildScoreAnnotationStoragePath({ uid, repertoireId, fileId });
-  try {
-    await deleteFileFromStorage(storagePath);
-  } catch (error) {
-    console.error('Failed to delete score annotations', error);
-  }
+  await deleteFileFromStorage(storagePath);
 }
