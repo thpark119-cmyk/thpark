@@ -11,6 +11,229 @@ interface AnnotationLayerProps {
   strokeWidth: number; // 1, 2, 3 representing thin, normal, thick
 }
 
+interface PixelPoint {
+  x: number;
+  y: number;
+}
+
+const ERASER_RADIUS_PX = 18;
+const ERASER_SAMPLE_STEP_PX = 4;
+const GEOMETRY_EPSILON = 0.0001;
+
+function distancePointToSegment(
+  point: PixelPoint,
+  segmentStart: PixelPoint,
+  segmentEnd: PixelPoint,
+): number {
+  const segmentX = segmentEnd.x - segmentStart.x;
+  const segmentY = segmentEnd.y - segmentStart.y;
+  const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+
+  if (segmentLengthSquared === 0) {
+    return Math.hypot(point.x - segmentStart.x, point.y - segmentStart.y);
+  }
+
+  const projection = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - segmentStart.x) * segmentX + (point.y - segmentStart.y) * segmentY) / segmentLengthSquared
+    )
+  );
+
+  const closestX = segmentStart.x + projection * segmentX;
+  const closestY = segmentStart.y + projection * segmentY;
+
+  return Math.hypot(point.x - closestX, point.y - closestY);
+}
+
+function orientation(a: PixelPoint, b: PixelPoint, c: PixelPoint): number {
+  return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+}
+
+function doSegmentsIntersect(
+  p1: PixelPoint, q1: PixelPoint,
+  p2: PixelPoint, q2: PixelPoint
+): boolean {
+  const o1 = orientation(p1, q1, p2);
+  const o2 = orientation(p1, q1, q2);
+  const o3 = orientation(p2, q2, p1);
+  const o4 = orientation(p2, q2, q1);
+
+  if ((o1 > GEOMETRY_EPSILON && o2 < -GEOMETRY_EPSILON || o1 < -GEOMETRY_EPSILON && o2 > GEOMETRY_EPSILON) &&
+      (o3 > GEOMETRY_EPSILON && o4 < -GEOMETRY_EPSILON || o3 < -GEOMETRY_EPSILON && o4 > GEOMETRY_EPSILON)) {
+    return true;
+  }
+  return false;
+}
+
+function isStrokeSegmentHitByEraser(
+  strokeStart: PixelPoint,
+  strokeEnd: PixelPoint,
+  eraserStart: PixelPoint,
+  eraserEnd: PixelPoint,
+  radius: number,
+): boolean {
+  if (doSegmentsIntersect(strokeStart, strokeEnd, eraserStart, eraserEnd)) {
+    return true;
+  }
+  if (distancePointToSegment(strokeStart, eraserStart, eraserEnd) <= radius) return true;
+  if (distancePointToSegment(strokeEnd, eraserStart, eraserEnd) <= radius) return true;
+  if (distancePointToSegment(eraserStart, strokeStart, strokeEnd) <= radius) return true;
+  if (distancePointToSegment(eraserEnd, strokeStart, strokeEnd) <= radius) return true;
+
+  return false;
+}
+
+function sampleStrokePoints(
+  stroke: ScoreAnnotationStroke,
+  width: number,
+  height: number,
+): ScoreAnnotationPoint[] {
+  if (stroke.points.length <= 1) return stroke.points;
+
+  const sampled: ScoreAnnotationPoint[] = [stroke.points[0]];
+
+  for (let i = 0; i < stroke.points.length - 1; i++) {
+    const start = stroke.points[i];
+    const end = stroke.points[i + 1];
+
+    const startX = start.x * width;
+    const startY = start.y * height;
+    const endX = end.x * width;
+    const endY = end.y * height;
+
+    const distance = Math.hypot(endX - startX, endY - startY);
+    const steps = Math.max(1, Math.ceil(distance / ERASER_SAMPLE_STEP_PX));
+
+    for (let j = 1; j <= steps; j++) {
+      const t = j / steps;
+      const x = start.x + (end.x - start.x) * t;
+      const y = start.y + (end.y - start.y) * t;
+      let pressure = undefined;
+      if (start.pressure !== undefined && end.pressure !== undefined) {
+        pressure = start.pressure + (end.pressure - start.pressure) * t;
+      } else if (start.pressure !== undefined) {
+        pressure = start.pressure;
+      }
+      sampled.push({
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        pressure
+      });
+    }
+  }
+
+  return sampled;
+}
+
+function eraseStrokeBySweep(
+  stroke: ScoreAnnotationStroke,
+  eraserStart: PixelPoint,
+  eraserEnd: PixelPoint,
+  width: number,
+  height: number,
+  radius: number,
+): {
+  fragments: ScoreAnnotationStroke[];
+  changed: boolean;
+} {
+  if (stroke.points.length === 0) {
+    return { fragments: [], changed: true };
+  }
+
+  if (stroke.points.length === 1) {
+    const pt: PixelPoint = { x: stroke.points[0].x * width, y: stroke.points[0].y * height };
+    if (distancePointToSegment(pt, eraserStart, eraserEnd) <= radius) {
+      return { fragments: [], changed: true };
+    }
+    return { fragments: [stroke], changed: false };
+  }
+
+  const sampledPoints = sampleStrokePoints(stroke, width, height);
+  const fragments: ScoreAnnotationStroke[] = [];
+  let currentFragmentPoints: ScoreAnnotationPoint[] = [];
+  let changed = false;
+
+  for (let i = 0; i < sampledPoints.length - 1; i++) {
+    const start = sampledPoints[i];
+    const end = sampledPoints[i + 1];
+    
+    const startPx: PixelPoint = { x: start.x * width, y: start.y * height };
+    const endPx: PixelPoint = { x: end.x * width, y: end.y * height };
+
+    if (isStrokeSegmentHitByEraser(startPx, endPx, eraserStart, eraserEnd, radius)) {
+      changed = true;
+      if (currentFragmentPoints.length > 0) {
+        if (currentFragmentPoints.length >= 2) {
+          fragments.push({
+            ...stroke,
+            id: crypto.randomUUID(),
+            points: currentFragmentPoints,
+          });
+        }
+        currentFragmentPoints = [];
+      }
+    } else {
+      if (currentFragmentPoints.length === 0) {
+        currentFragmentPoints.push(start);
+      }
+      currentFragmentPoints.push(end);
+    }
+  }
+
+  if (currentFragmentPoints.length >= 2) {
+    fragments.push({
+      ...stroke,
+      id: changed ? crypto.randomUUID() : stroke.id,
+      points: currentFragmentPoints,
+    });
+  }
+
+  if (!changed) {
+    return { fragments: [stroke], changed: false };
+  }
+
+  return { fragments, changed: true };
+}
+
+function applyEraserSweep(
+  sourceStrokes: ScoreAnnotationStroke[],
+  eraserStartPt: ScoreAnnotationPoint,
+  eraserEndPt: ScoreAnnotationPoint,
+  width: number,
+  height: number,
+): {
+  strokes: ScoreAnnotationStroke[];
+  changed: boolean;
+} {
+  const eraserStart: PixelPoint = { x: eraserStartPt.x * width, y: eraserStartPt.y * height };
+  const eraserEnd: PixelPoint = { x: eraserEndPt.x * width, y: eraserEndPt.y * height };
+
+  const resultStrokes: ScoreAnnotationStroke[] = [];
+  let anyChanged = false;
+
+  for (const stroke of sourceStrokes) {
+    const { fragments, changed } = eraseStrokeBySweep(
+      stroke,
+      eraserStart,
+      eraserEnd,
+      width,
+      height,
+      ERASER_RADIUS_PX
+    );
+    if (changed) {
+      anyChanged = true;
+    }
+    resultStrokes.push(...fragments);
+  }
+
+  return {
+    strokes: anyChanged ? resultStrokes : sourceStrokes,
+    changed: anyChanged
+  };
+}
+
 function getActualLineWidth(widthLevel: number, tool: ScoreAnnotationTool) {
   if (tool === 'highlighter') {
     return widthLevel * 8 + 12; // 20, 28, 36
@@ -30,6 +253,11 @@ export default function AnnotationLayer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
   const isPointerDownRef = useRef(false);
+
+  const [eraserPreviewStrokes, setEraserPreviewStrokes] = useState<ScoreAnnotationStroke[] | null>(null);
+  const eraserSessionStrokesRef = useRef<ScoreAnnotationStroke[] | null>(null);
+  const lastEraserPointRef = useRef<ScoreAnnotationPoint | null>(null);
+  const eraserHasChangesRef = useRef(false);
 
   // Redraw all strokes
   useEffect(() => {
@@ -93,14 +321,27 @@ export default function AnnotationLayer({
       ctx.stroke();
     };
 
+    const visibleStrokes = eraserPreviewStrokes ?? strokes;
+
     // Draw saved strokes
-    strokes.forEach(drawStroke);
+    visibleStrokes.forEach(drawStroke);
 
     // Draw current stroke
     if (currentStroke) {
       drawStroke(currentStroke);
     }
-  }, [width, height, strokes, currentStroke]);
+  }, [width, height, strokes, currentStroke, eraserPreviewStrokes]);
+
+  const toPixelPoint = (point: ScoreAnnotationPoint): PixelPoint => ({
+    x: point.x * width,
+    y: point.y * height,
+  });
+
+  const toNormalizedPoint = (point: PixelPoint, pressure?: number): ScoreAnnotationPoint => ({
+    x: Math.max(0, Math.min(1, point.x / width)),
+    y: Math.max(0, Math.min(1, point.y / height)),
+    pressure,
+  });
 
   const getNormalizedPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -131,7 +372,16 @@ export default function AnnotationLayer({
     if (!point) return;
 
     if (currentTool === 'eraser') {
-      eraseAt(point.x, point.y);
+      eraserSessionStrokesRef.current = strokes;
+      lastEraserPointRef.current = point;
+      eraserHasChangesRef.current = false;
+
+      const result = applyEraserSweep(strokes, point, point, width, height);
+      if (result.changed) {
+        eraserSessionStrokesRef.current = result.strokes;
+        eraserHasChangesRef.current = true;
+        setEraserPreviewStrokes(result.strokes);
+      }
       return;
     }
 
@@ -157,7 +407,17 @@ export default function AnnotationLayer({
     if (!point) return;
 
     if (currentTool === 'eraser' && isPointerDownRef.current) {
-      eraseAt(point.x, point.y);
+      const previousPoint = lastEraserPointRef.current;
+      const sourceStrokes = eraserSessionStrokesRef.current;
+      if (previousPoint && sourceStrokes) {
+        const result = applyEraserSweep(sourceStrokes, previousPoint, point, width, height);
+        eraserSessionStrokesRef.current = result.strokes;
+        lastEraserPointRef.current = point;
+        if (result.changed) {
+          eraserHasChangesRef.current = true;
+          setEraserPreviewStrokes(result.strokes);
+        }
+      }
       return;
     }
 
@@ -175,26 +435,18 @@ export default function AnnotationLayer({
     });
   };
 
-  const eraseAt = (x: number, y: number) => {
-    // Simple eraser: check distance from pointer to any point in the stroke
-    const hitRadius = 15 / width; // roughly 15px radius
-    let hit = false;
-    
-    const newStrokes = strokes.filter(stroke => {
-      for (const p of stroke.points) {
-        const dx = p.x - x;
-        const dy = (p.y - y) * (height / width); // Normalize dy relative to width
-        if (dx * dx + dy * dy < hitRadius * hitRadius) {
-          hit = true;
-          return false; // Remove this stroke
-        }
-      }
-      return true; // Keep this stroke
-    });
+  const finishEraserSession = () => {
+    const finalStrokes = eraserSessionStrokesRef.current;
+    const hasChanges = eraserHasChangesRef.current;
 
-    if (hit) {
-      onStrokesChange(newStrokes);
+    eraserSessionStrokesRef.current = null;
+    lastEraserPointRef.current = null;
+    eraserHasChangesRef.current = false;
+
+    if (hasChanges && finalStrokes) {
+      onStrokesChange(finalStrokes);
     }
+    setEraserPreviewStrokes(null);
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -203,7 +455,12 @@ export default function AnnotationLayer({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     
-    if (currentTool === 'none' || currentTool === 'eraser') return;
+    if (currentTool === 'eraser') {
+      finishEraserSession();
+      return;
+    }
+    
+    if (currentTool === 'none') return;
     
     if (currentStroke) {
       onStrokesChange([...strokes, currentStroke]);
@@ -217,7 +474,12 @@ export default function AnnotationLayer({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     
-    if (currentTool === 'none' || currentTool === 'eraser') return;
+    if (currentTool === 'eraser') {
+      finishEraserSession();
+      return;
+    }
+    
+    if (currentTool === 'none') return;
     
     if (currentStroke) {
       onStrokesChange([...strokes, currentStroke]);
