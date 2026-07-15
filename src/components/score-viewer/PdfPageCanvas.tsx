@@ -19,6 +19,10 @@ interface PdfPageCanvasProps {
   strokeColor: string;
   strokeWidth: number;
   onDirtyChange: (dirty: boolean) => void;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  canGoPrevious: boolean;
+  canGoNext: boolean;
 }
 
 function PdfLoadingMessage({ text }: { text: string }) {
@@ -47,7 +51,16 @@ function PdfErrorMessage({ text, onRetry }: { text: string; onRetry?: () => void
 }
 
 export default function PdfPageCanvas(props: PdfPageCanvasProps) {
-  const { storagePath, pageNumber, onPageCountChange } = props;
+  const { 
+    storagePath, 
+    pageNumber, 
+    onPageCountChange,
+    onPreviousPage,
+    onNextPage,
+    canGoPrevious,
+    canGoNext,
+    currentTool,
+  } = props;
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [isDownloading, setIsDownloading] = useState(true);
@@ -55,6 +68,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [isPageRendered, setIsPageRendered] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -141,6 +155,11 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     }
     return { data: pdfBytes };
   }, [pdfBytes]);
+
+  useEffect(() => {
+    setIsPageRendered(false);
+    setPageError(null);
+  }, [pageNumber, documentFile, containerWidth]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -240,46 +259,91 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
             error={null}
           >
             {containerWidth >= 40 && (
-              <Page
-                pageNumber={pageNumber}
-                width={containerWidth}
-                devicePixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
-                renderMode="canvas"
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-                onLoadError={(error) => {
-                  console.error('[Mio PDF Viewer]', {
-                    engine: 'react-pdf',
-                    event: 'page-load-error',
-                    pageNumber,
-                    errorName: error.name,
-                    errorMessage: error.message,
-                  });
-                  setPageError('PDF 페이지를 불러오지 못했습니다.');
+              <div 
+                className="relative max-w-full"
+                style={{
+                  width: containerWidth >= 40 ? `${containerWidth}px` : undefined,
                 }}
-                onRenderError={(error) => {
-                  console.error('[Mio PDF Viewer]', {
-                    engine: 'react-pdf',
-                    event: 'page-render-error',
-                    pageNumber,
-                    errorName: error.name,
-                    errorMessage: error.message,
-                  });
-                  setPageError('PDF 페이지를 화면에 표시하지 못했습니다.');
-                }}
-                onRenderSuccess={() => {
-                  setPageError(null);
-                  console.info('[Mio PDF Viewer]', {
-                    engine: 'react-pdf',
-                    event: 'page-render-success',
-                    pageNumber,
-                    containerWidth,
-                    devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
-                  });
-                }}
-                loading={<PdfLoadingMessage text="PDF 페이지를 표시하는 중입니다..." />}
-                error={null}
-              />
+              >
+                <Page
+                  pageNumber={pageNumber}
+                  width={containerWidth}
+                  devicePixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
+                  renderMode="canvas"
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                  onLoadError={(error) => {
+                    setIsPageRendered(false);
+                    console.error('[Mio PDF Viewer]', {
+                      engine: 'react-pdf',
+                      event: 'page-load-error',
+                      pageNumber,
+                      errorName: error.name,
+                      errorMessage: error.message,
+                    });
+                    setPageError('PDF 페이지를 불러오지 못했습니다.');
+                  }}
+                  onRenderError={(error) => {
+                    setIsPageRendered(false);
+                    console.error('[Mio PDF Viewer]', {
+                      engine: 'react-pdf',
+                      event: 'page-render-error',
+                      pageNumber,
+                      errorName: error.name,
+                      errorMessage: error.message,
+                    });
+                    setPageError('PDF 페이지를 화면에 표시하지 못했습니다.');
+                  }}
+                  onRenderSuccess={() => {
+                    setIsPageRendered(true);
+                    setPageError(null);
+                    console.info('[Mio PDF Viewer]', {
+                      engine: 'react-pdf',
+                      event: 'page-render-success',
+                      pageNumber,
+                      containerWidth,
+                      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+                    });
+                  }}
+                  loading={<PdfLoadingMessage text="PDF 페이지를 표시하는 중입니다..." />}
+                  error={null}
+                />
+                
+                {isPageRendered && !downloadError && !documentError && !pageError && currentTool === 'none' && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="이전 페이지"
+                      title="이전 페이지"
+                      data-page-turn-zone="previous"
+                      disabled={!canGoPrevious}
+                      onClick={event => {
+                        event.stopPropagation();
+                        if (!canGoPrevious) {
+                          return;
+                        }
+                        onPreviousPage();
+                      }}
+                      className="absolute inset-y-0 left-0 z-10 w-[35%] border-0 bg-transparent p-0 touch-manipulation select-none cursor-w-resize disabled:pointer-events-none disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand/60"
+                    />
+                    <button
+                      type="button"
+                      aria-label="다음 페이지"
+                      title="다음 페이지"
+                      data-page-turn-zone="next"
+                      disabled={!canGoNext}
+                      onClick={event => {
+                        event.stopPropagation();
+                        if (!canGoNext) {
+                          return;
+                        }
+                        onNextPage();
+                      }}
+                      className="absolute inset-y-0 right-0 z-10 w-[35%] border-0 bg-transparent p-0 touch-manipulation select-none cursor-e-resize disabled:pointer-events-none disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand/60"
+                    />
+                  </>
+                )}
+              </div>
             )}
           </Document>
         </div>

@@ -309,6 +309,14 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
           strokeColor={strokeColor}
           strokeWidth={strokeWidth}
           onDirtyChange={setIsDirty}
+          onPreviousPage={() => {
+            changePage(-1);
+          }}
+          onNextPage={() => {
+            changePage(1);
+          }}
+          canGoPrevious={currentPage > 1}
+          canGoNext={currentPage < pageCount}
         />
       </div>
 
