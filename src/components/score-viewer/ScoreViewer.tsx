@@ -252,44 +252,52 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col overflow-hidden h-[100dvh]">
+    <div className="fixed inset-0 z-50 bg-stone-900 flex flex-col overflow-hidden h-[100dvh] max-h-[100dvh]">
       {/* Top Bar */}
-      <div className="h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-4 shrink-0 safe-top">
-        <div className="flex items-center gap-4">
-          <button onClick={handleClose} className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
+      <div className="h-12 md:h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-2 md:px-4 shrink-0 min-w-0 safe-top">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
+          <button onClick={handleClose} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0">
             <X size={24} />
           </button>
-          <span className="text-white font-medium truncate max-w-[200px] md:max-w-md">{file.fileName}</span>
+          <span className="text-white font-medium truncate min-w-0">{file.fileName}</span>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           {saveMessage && <span className="text-emerald-400 text-sm hidden md:inline">{saveMessage}</span>}
           {user && (
             <>
               <button 
                 onClick={handleSave} 
                 disabled={isSaving}
-                className="flex items-center gap-1 px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
+                title="필기 저장"
+                aria-label="필기 저장"
+                className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
               >
-                <Save size={16} />
+                <Save size={18} className="md:w-4 md:h-4" />
                 <span className="hidden md:inline">{isSaving ? '저장 중' : '필기 저장'}</span>
               </button>
               
               <button 
                 onClick={handleCreateAnnotatedPdf} 
                 disabled={isCreatingPdf}
-                className="flex items-center gap-1 px-3 py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
+                title="필기본 저장"
+                aria-label="필기본 저장"
+                className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
               >
-                <FilePdfIcon />
+                <div className="w-[18px] h-[18px] md:w-4 md:h-4 flex items-center justify-center">
+                  <FilePdfIcon />
+                </div>
                 <span className="hidden md:inline">필기본 저장</span>
               </button>
 
               <button 
                 onClick={handleShare} 
                 disabled={isCreatingPdf}
-                className="flex items-center gap-1 px-3 py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
+                title="공유"
+                aria-label="공유"
+                className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
               >
-                <Share size={16} />
+                <Share size={18} className="md:w-4 md:h-4" />
                 <span className="hidden md:inline">공유</span>
               </button>
             </>
@@ -298,7 +306,7 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 min-w-0 overflow-auto relative bg-stone-900 flex justify-center py-4">
+      <div className="flex-1 min-h-0 min-w-0 overflow-auto overscroll-contain relative bg-stone-900 flex justify-center px-0 py-2 md:px-4 md:py-4">
         <PdfPageCanvas
           storagePath={file.storagePath}
           pageNumber={currentPage}
@@ -321,57 +329,70 @@ export default function ScoreViewer({ file, repertoireId, onClose, onAnnotatedPd
       </div>
 
       {/* Bottom Toolbar */}
-      <div className="bg-stone-800 border-t border-white/10 p-2 md:p-4 shrink-0 safe-bottom">
-        <div className="flex flex-wrap items-center justify-between gap-4 max-w-4xl mx-auto">
+      <div className="shrink-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain bg-stone-800 border-t border-white/10 pt-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:p-4 max-h-[42dvh] md:max-h-none md:overflow-visible">
+        <div className="w-full max-w-4xl mx-auto min-w-0 flex flex-col gap-2 md:gap-4">
           
-          {/* Page Navigation */}
-          <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1">
-            <button onClick={() => changePage(-1)} disabled={currentPage <= 1} className="p-2 text-stone-400 hover:text-white disabled:opacity-30">
-              <ChevronLeft size={20} />
-            </button>
-            <span className="text-stone-300 text-sm min-w-[3rem] text-center">{currentPage} / {pageCount}</span>
-            <button onClick={() => changePage(1)} disabled={currentPage >= pageCount} className="p-2 text-stone-400 hover:text-white disabled:opacity-30">
-              <ChevronRight size={20} />
-            </button>
-          </div>
-
-          {/* Drawing Tools */}
-          <div className="flex items-center gap-2">
-            <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" />
-            <div className="w-px h-6 bg-white/10 mx-1"></div>
-            <ToolButton active={currentTool === 'pen'} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
-            <ToolButton active={currentTool === 'highlighter'} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
-            <ToolButton active={currentTool === 'eraser'} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
+          {/* First Line: Basic Controls */}
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1 w-full">
             
-            <div className="w-px h-6 bg-white/10 mx-1"></div>
-            <button onClick={handleUndo} disabled={historyIndex < 0} className="p-2 text-stone-400 hover:text-white disabled:opacity-30" title="실행 취소"><Undo size={20} /></button>
-            <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다시 실행"><Redo size={20} /></button>
+            {/* Page Navigation */}
+            <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-1">
+              <button onClick={() => changePage(-1)} disabled={currentPage <= 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="이전 페이지" aria-label="이전 페이지">
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-stone-300 text-sm min-w-[3rem] whitespace-nowrap text-center">{currentPage} / {pageCount}</span>
+              <button onClick={() => changePage(1)} disabled={currentPage >= pageCount} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다음 페이지" aria-label="다음 페이지">
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
+            {/* Drawing Tools */}
+            <div className="flex items-center justify-center gap-1 min-w-0">
+              <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" />
+              <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
+              <ToolButton active={currentTool === 'pen'} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
+              <ToolButton active={currentTool === 'highlighter'} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
+              <ToolButton active={currentTool === 'eraser'} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
+            </div>
+            
+            {/* Undo/Redo */}
+            <div className="flex items-center gap-1 min-w-0">
+              <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
+              <button onClick={handleUndo} disabled={historyIndex < 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
+              <button onClick={handleRedo} disabled={historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
+            </div>
           </div>
 
-          {/* Properties */}
+          {/* Second Line: Properties */}
           {currentTool !== 'none' && currentTool !== 'eraser' && (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1">
-                {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(c => (
-                  <button 
-                    key={c}
-                    onClick={() => setStrokeColor(c)}
-                    className={`w-6 h-6 rounded-full border-2 ${strokeColor === c ? 'border-brand' : 'border-transparent'}`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-              
-              <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1">
-                {[1, 2, 3].map(w => (
-                  <button
-                    key={w}
-                    onClick={() => setStrokeWidth(w)}
-                    className={`w-8 h-8 flex items-center justify-center rounded ${strokeWidth === w ? 'bg-stone-700 text-brand' : 'text-stone-400 hover:text-white'}`}
-                  >
-                    <div className="bg-current rounded-full" style={{ width: w * 2 + 2, height: w * 2 + 2 }} />
-                  </button>
-                ))}
+            <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain pb-1">
+              <div className="flex items-center gap-3 w-max min-w-full justify-center md:justify-start mx-auto md:mx-0">
+                <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
+                  {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(c => (
+                    <button 
+                      key={c}
+                      onClick={() => setStrokeColor(c)}
+                      className={`w-7 h-7 md:w-6 md:h-6 rounded-full border-2 ${strokeColor === c ? 'border-brand' : 'border-transparent'}`}
+                      style={{ backgroundColor: c }}
+                      title="색상 변경"
+                      aria-label={`색상 ${c}`}
+                    />
+                  ))}
+                </div>
+                
+                <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
+                  {[1, 2, 3].map(w => (
+                    <button
+                      key={w}
+                      onClick={() => setStrokeWidth(w)}
+                      className={`w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded ${strokeWidth === w ? 'bg-stone-700 text-brand' : 'text-stone-400 hover:text-white'}`}
+                      title={`굵기 ${w}`}
+                      aria-label={`굵기 ${w}`}
+                    >
+                      <div className="bg-current rounded-full" style={{ width: w * 2 + 2, height: w * 2 + 2 }} />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -386,9 +407,12 @@ function ToolButton({ active, onClick, icon, title }: { active: boolean, onClick
     <button 
       onClick={onClick}
       title={title}
-      className={`p-2 rounded-lg transition-colors ${active ? 'bg-brand/20 text-brand' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
+      aria-label={title}
+      className={`p-1.5 md:p-2 flex items-center justify-center rounded-lg transition-colors ${active ? 'bg-brand/20 text-brand' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
     >
-      {icon}
+      <div className="w-5 h-5 flex items-center justify-center">
+        {icon}
+      </div>
     </button>
   );
 }
