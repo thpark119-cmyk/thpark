@@ -166,10 +166,6 @@ export default function PdfPageCanvas({
 
         localTask = pdfjsLib.getDocument({
           data: bytes,
-          isImageDecoderSupported: false,
-          isOffscreenCanvasSupported: false,
-          useWasm: false,
-          enableHWA: false,
         });
         localDoc = await withTimeout(
           localTask.promise,
@@ -373,61 +369,17 @@ export default function PdfPageCanvas({
         if (!isCurrentRenderAttempt()) return;
         
         const durationMs = Math.round(performance.now() - startTime);
-
         console.info('[Mio PDF Viewer]', { event: 'page-render-complete', pageNumber, renderAttempt, durationMs });
         
-        const probeCanvas = document.createElement('canvas');
-        probeCanvas.width = 64;
-        probeCanvas.height = 64;
-
-        const probeContext = probeCanvas.getContext('2d', {
-          willReadFrequently: true,
-        });
-
-        if (!probeContext) {
-          throw new Error('PDF_PROBE_CONTEXT_MISSING');
-        }
-
-        probeContext.drawImage(displayCanvas, 0, 0, probeCanvas.width, probeCanvas.height);
-
-        const probeData = probeContext.getImageData(0, 0, probeCanvas.width, probeCanvas.height).data;
-        let nonWhitePixels = 0;
-
-        for (let index = 0; index < probeData.length; index += 4) {
-          const red = probeData[index];
-          const green = probeData[index + 1];
-          const blue = probeData[index + 2];
-          const alpha = probeData[index + 3];
-
-          if (alpha > 0 && (red < 248 || green < 248 || blue < 248)) {
-            nonWhitePixels += 1;
-          }
-        }
-
-        const probePixelCount = probeCanvas.width * probeCanvas.height;
-        const nonWhiteRatio = nonWhitePixels / probePixelCount;
-
-        console.info('[Mio PDF Viewer]', {
-          event: 'page-pixel-probe',
-          pageNumber,
-          operatorCount,
-          nonWhitePixels,
-          nonWhiteRatio,
-        });
-
-        if (operatorCount > 0 && nonWhitePixels === 0) {
-          throw new Error('PDF_RENDERED_BLANK');
-        }
-
         setRenderSize({ width: cssWidth, height: cssHeight });
         setIsPageReady(true);
+        setIsRenderingPage(false);
         
         console.info('[Mio PDF Viewer]', { 
-          event: 'page-visible-content-confirmed', 
+          event: 'page-render-visible', 
           pageNumber, 
+          renderAttempt,
           operatorCount,
-          nonWhitePixels,
-          nonWhiteRatio,
           cssWidth,
           cssHeight,
           backingWidth: displayCanvas.width,
@@ -459,10 +411,6 @@ export default function PdfPageCanvas({
             userMessage = '캔버스 컨텍스트를 가져오지 못했습니다.';
           } else if (errorMessage === 'PDF_DISPLAY_CONTEXT_MISSING') {
             userMessage = '화면 캔버스 컨텍스트를 가져오지 못했습니다.';
-          } else if (errorMessage === 'PDF_PROBE_CONTEXT_MISSING') {
-            userMessage = 'PDF 렌더링 결과를 확인하지 못했습니다.';
-          } else if (errorMessage === 'PDF_RENDERED_BLANK') {
-            userMessage = 'PDF 페이지 내용이 렌더링되지 않았습니다.';
           }
           
           setPdfError(userMessage);
