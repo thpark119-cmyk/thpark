@@ -11,6 +11,23 @@ interface AnnotationLayerProps {
   strokeColor: string;
   strokeWidth: number; // 1, 2, 3 representing thin, normal, thick
   eraserRadius: number;
+  touchInputMode: 'pan' | 'draw';
+}
+
+function canPointerDraw({
+  pointerType,
+  touchInputMode,
+}: {
+  pointerType: string;
+  touchInputMode: 'pan' | 'draw';
+}): boolean {
+  if (pointerType === 'pen' || pointerType === 'mouse') {
+    return true;
+  }
+  if (pointerType === 'touch') {
+    return touchInputMode === 'draw';
+  }
+  return false;
 }
 
 interface PixelPoint {
@@ -248,7 +265,7 @@ export default function AnnotationLayer({
 }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
-  const isPointerDownRef = useRef(false);
+  const activeAnnotationPointerIdRef = useRef<number | null>(null);
 
   const [eraserPreviewStrokes, setEraserPreviewStrokes] = useState<ScoreAnnotationStroke[] | null>(null);
   const eraserSessionStrokesRef = useRef<ScoreAnnotationStroke[] | null>(null);
@@ -268,6 +285,16 @@ export default function AnnotationLayer({
 
   const updateEraserCursor = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (currentTool !== 'eraser') {
+      return;
+    }
+
+    if (
+      !canPointerDraw({
+        pointerType: event.pointerType,
+        touchInputMode,
+      })
+    ) {
+      setEraserCursor(null);
       return;
     }
 
@@ -406,9 +433,17 @@ export default function AnnotationLayer({
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
+    if (
+      !canPointerDraw({
+        pointerType: event.pointerType,
+        touchInputMode,
+      })
+    ) {
+      return;
+    }
     
     event.preventDefault();
-    isPointerDownRef.current = true;
+    activeAnnotationPointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
 
     const point = getNormalizedPoint(event);
@@ -445,13 +480,13 @@ export default function AnnotationLayer({
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
-    if (!isPointerDownRef.current) return;
+    if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
     
     event.preventDefault();
     const point = getNormalizedPoint(event);
     if (!point) return;
 
-    if (currentTool === 'eraser' && isPointerDownRef.current) {
+    if (currentTool === 'eraser' && activeAnnotationPointerIdRef.current === event.pointerId) {
       const previousPoint = lastEraserPointRef.current;
       const sourceStrokes = eraserSessionStrokesRef.current;
       if (previousPoint && sourceStrokes) {
@@ -495,7 +530,8 @@ export default function AnnotationLayer({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    isPointerDownRef.current = false;
+    if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
+    activeAnnotationPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -518,7 +554,8 @@ export default function AnnotationLayer({
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    isPointerDownRef.current = false;
+    if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
+    activeAnnotationPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -552,7 +589,7 @@ export default function AnnotationLayer({
           width: `${width}px`,
           height: `${height}px`,
           pointerEvents: currentTool === 'none' ? 'none' : 'auto',
-          touchAction: currentTool === 'none' ? 'pan-y' : 'none',
+          touchAction: currentTool === 'none' || touchInputMode === 'pan' ? 'pan-x pan-y' : 'none',
           cursor: currentTool === 'none' 
             ? 'default' 
             : currentTool === 'eraser' ? 'none' : 'crosshair'
@@ -563,7 +600,7 @@ export default function AnnotationLayer({
         onPointerCancel={handlePointerCancel}
         onPointerEnter={event => updateEraserCursor(event)}
         onPointerLeave={() => {
-          if (!isPointerDownRef.current) {
+          if (activeAnnotationPointerIdRef.current === null) {
             setEraserCursor(null);
           }
         }}

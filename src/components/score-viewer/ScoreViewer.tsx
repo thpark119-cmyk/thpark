@@ -32,6 +32,10 @@ type ScoreShareVariant =
   | 'original'
   | 'annotated';
 
+type TouchInputMode =
+  | 'pan'
+  | 'draw';
+
 interface ViewerViewportRect {
   top: number;
   left: number;
@@ -117,6 +121,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const { t } = useLanguage();
   
   const [zoomScale, setZoomScale] = useState(MIN_ZOOM_SCALE);
+  const [touchInputMode, setTouchInputMode] = useState<TouchInputMode>('pan');
   const scoreViewportRef = useRef<HTMLDivElement>(null);
   
   interface PendingZoomAnchor {
@@ -762,6 +767,29 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     );
   }
 
+  const touchModeButton = (
+    <button
+      type="button"
+      onClick={() => {
+        setTouchInputMode(previous => (previous === 'pan' ? 'draw' : 'pan'));
+      }}
+      aria-pressed={touchInputMode === 'draw'}
+      aria-label={
+        touchInputMode === 'pan'
+          ? '손가락 화면 이동 모드. 누르면 손가락 필기 모드로 변경'
+          : '손가락 필기 모드. 누르면 손가락 화면 이동 모드로 변경'
+      }
+      title={touchInputMode === 'pan' ? '손가락으로 악보 이동' : '손가락으로 필기'}
+      className={`min-w-[6.5rem] shrink-0 rounded-lg border px-2 py-1.5 text-xs font-medium ${
+        touchInputMode === 'draw'
+          ? 'border-brand bg-brand/15 text-brand'
+          : 'border-stone-600 bg-stone-900 text-stone-300 hover:border-stone-400 hover:text-white'
+      }`}
+    >
+      {touchInputMode === 'pan' ? '손가락: 이동' : '손가락: 필기'}
+    </button>
+  );
+
   return (
     <div 
       className="fixed z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
@@ -843,7 +871,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         ref={scoreViewportRef}
         className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch]"
         style={{
-          touchAction: currentTool === 'none' ? 'pan-x pan-y' : undefined,
+          touchAction: currentTool === 'none' || touchInputMode === 'pan' ? 'pan-x pan-y' : undefined,
         }}
       >
         <PdfPageCanvas
@@ -866,6 +894,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           canGoPrevious={currentPage > 1}
           canGoNext={currentPage < pageCount}
           zoomScale={zoomScale}
+          touchInputMode={touchInputMode}
         />
       </div>
 
@@ -993,6 +1022,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
                     </button>
                   ))}
                 </div>
+                
+                {touchModeButton}
               </div>
             </div>
           )}
@@ -1090,6 +1121,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
                     </button>
                   ),
                 )}
+
+                {touchModeButton}
               </div>
             </div>
           )}
