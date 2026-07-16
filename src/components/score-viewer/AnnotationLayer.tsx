@@ -262,6 +262,7 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
+  touchInputMode,
 }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
