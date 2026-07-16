@@ -25,6 +25,7 @@ interface PdfPageCanvasProps {
   onNextPage: () => void;
   canGoPrevious: boolean;
   canGoNext: boolean;
+  zoomScale: number;
 }
 
 interface PageDisplaySize {
@@ -73,6 +74,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     onNextPage,
     canGoPrevious,
     canGoNext,
+    zoomScale
   } = props;
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
@@ -85,6 +87,11 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  const renderedPageWidth = useMemo(
+    () => Math.max(40, Math.round(containerWidth * zoomScale)),
+    [containerWidth, zoomScale]
+  );
 
   const pageWrapperRef = useRef<HTMLDivElement>(null);
   const [pageDisplaySize, setPageDisplaySize] = useState<PageDisplaySize>({ width: 0, height: 0 });
@@ -201,7 +208,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     setPageDisplaySize({ width: 0, height: 0 });
     setIsPageRendered(false);
     setPageError(null);
-  }, [pageNumber, documentFile, containerWidth]);
+  }, [pageNumber, documentFile, renderedPageWidth]);
 
   useEffect(() => {
     if (!isPageRendered) {
@@ -290,13 +297,13 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full min-w-0 min-h-[300px] flex justify-center items-start"
+      className="relative w-full min-w-0 min-h-[300px] flex items-start"
       data-pdf-viewer-engine="react-pdf-10.4.1"
     >
       <style>{`
         .react-pdf__Page__canvas {
           display: block;
-          max-width: 100%;
+          max-width: none !important;
           height: auto !important;
         }
       `}</style>
@@ -343,14 +350,14 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
             {containerWidth >= 40 && (
               <div 
                 ref={pageWrapperRef}
-                className="relative max-w-full"
+                className="relative max-w-none mx-auto shadow-xl bg-white"
                 style={{
-                  width: containerWidth >= 40 ? `${containerWidth}px` : undefined,
+                  width: renderedPageWidth >= 40 ? `${renderedPageWidth}px` : undefined,
                 }}
               >
                 <Page
                   pageNumber={pageNumber}
-                  width={containerWidth}
+                  width={renderedPageWidth}
                   devicePixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
                   renderMode="canvas"
                   renderTextLayer={false}
@@ -395,7 +402,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                   error={null}
                 />
                 
-                {isPageRendered && !downloadError && !documentError && !pageError && currentTool === 'none' && (
+                {isPageRendered && !downloadError && !documentError && !pageError && currentTool === 'none' && zoomScale === 1 && (
                   <>
                     <button
                       type="button"

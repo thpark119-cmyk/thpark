@@ -103,10 +103,76 @@ async function loadOriginalScoreBlob(storagePath: string): Promise<Blob> {
   return response.blob();
 }
 
+const MIN_ZOOM_SCALE = 1;
+const MAX_ZOOM_SCALE = 2;
+const ZOOM_SCALE_STEP = 0.25;
+
+function clampZoomScale(value: number): number {
+  return Math.min(MAX_ZOOM_SCALE, Math.max(MIN_ZOOM_SCALE, value));
+}
+
 export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewerProps) {
   useBodyScrollLock(true);
   const { user } = useAuth();
   const { t } = useLanguage();
+  
+  const [zoomScale, setZoomScale] = useState(MIN_ZOOM_SCALE);
+  const scoreViewportRef = useRef<HTMLDivElement>(null);
+  
+  interface PendingZoomAnchor {
+    xRatio: number;
+    yRatio: number;
+  }
+  const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
+
+  const handleZoomChange = useCallback(
+    (requestedScale: number) => {
+      const nextScale = clampZoomScale(requestedScale);
+      if (nextScale === zoomScale) {
+        return;
+      }
+
+      const viewport = scoreViewportRef.current;
+      if (viewport) {
+        const centerX = viewport.scrollLeft + viewport.clientWidth / 2;
+        const centerY = viewport.scrollTop + viewport.clientHeight / 2;
+
+        pendingZoomAnchorRef.current = {
+          xRatio: centerX / Math.max(1, viewport.scrollWidth),
+          yRatio: centerY / Math.max(1, viewport.scrollHeight),
+        };
+      }
+
+      setZoomScale(nextScale);
+    },
+    [zoomScale]
+  );
+
+  useEffect(() => {
+    const anchor = pendingZoomAnchorRef.current;
+    if (!anchor) {
+      return;
+    }
+
+    let secondFrameId: number | null = null;
+    const firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(() => {
+        const viewport = scoreViewportRef.current;
+        if (viewport) {
+          viewport.scrollLeft = anchor.xRatio * viewport.scrollWidth - viewport.clientWidth / 2;
+          viewport.scrollTop = anchor.yRatio * viewport.scrollHeight - viewport.clientHeight / 2;
+          pendingZoomAnchorRef.current = null;
+        }
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+    };
+  }, [zoomScale]);
   
   const [document, setDocument] = useState<ScoreAnnotationDocument>({
     schemaVersion: 1,
@@ -120,6 +186,20 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
+  
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const viewport = scoreViewportRef.current;
+      if (!viewport) {
+        return;
+      }
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = Math.max(0, (viewport.scrollWidth - viewport.clientWidth) / 2);
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [currentPage]);
   
   const [currentTool, setCurrentTool] = useState<ScoreAnnotationTool | 'none'>('none');
   const [strokeColor, setStrokeColor] = useState('#ef4444');
@@ -759,7 +839,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       </div>
 
       {/* Main Content Area */}
-      <div className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 flex justify-center px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch]">
+      <div 
+        ref={scoreViewportRef}
+        className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch]"
+        style={{
+          touchAction: currentTool === 'none' ? 'pan-x pan-y' : undefined,
+        }}
+      >
         <PdfPageCanvas
           storagePath={file.storagePath}
           pageNumber={currentPage}
@@ -779,6 +865,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           }}
           canGoPrevious={currentPage > 1}
           canGoNext={currentPage < pageCount}
+          zoomScale={zoomScale}
         />
       </div>
 
@@ -793,22 +880,65 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           {/* First Line: Basic Controls */}
           <div 
             data-score-viewer-primary-toolbar
-            className="relative z-10 shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-1 w-full bg-stone-800"
+            className="relative z-10 shrink-0 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar w-full bg-stone-800 pb-1 md:pb-0"
           >
             
-            {/* Page Navigation */}
-            <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-1">
-              <button onClick={() => changePage(-1)} disabled={currentPage <= 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="이전 페이지" aria-label="이전 페이지">
-                <ChevronLeft size={20} />
-              </button>
-              <span className="text-stone-300 text-sm min-w-[3rem] whitespace-nowrap text-center">{currentPage} / {pageCount}</span>
-              <button onClick={() => changePage(1)} disabled={currentPage >= pageCount} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다음 페이지" aria-label="다음 페이지">
-                <ChevronRight size={20} />
-              </button>
+            {/* Page Navigation & Zoom */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-1">
+                <button onClick={() => changePage(-1)} disabled={currentPage <= 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="이전 페이지" aria-label="이전 페이지">
+                  <ChevronLeft size={20} />
+                </button>
+                <span className="text-stone-300 text-sm min-w-[3rem] whitespace-nowrap text-center">{currentPage} / {pageCount}</span>
+                <button onClick={() => changePage(1)} disabled={currentPage >= pageCount} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30" title="다음 페이지" aria-label="다음 페이지">
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+
+              {/* Zoom Controls */}
+              <div className="flex shrink-0 items-center gap-1 rounded-lg bg-stone-900 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleZoomChange(zoomScale - ZOOM_SCALE_STEP);
+                  }}
+                  disabled={zoomScale <= MIN_ZOOM_SCALE}
+                  title="축소"
+                  aria-label="악보 축소"
+                  className="flex h-8 w-8 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <ZoomOut size={17} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleZoomChange(MIN_ZOOM_SCALE);
+                  }}
+                  title="100%로 초기화"
+                  aria-label={`현재 확대율 ${Math.round(zoomScale * 100)}%. 100%로 초기화`}
+                  className="min-w-[52px] rounded px-1.5 py-1 text-center text-xs font-medium text-stone-200 hover:bg-stone-700"
+                >
+                  {Math.round(zoomScale * 100)}%
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleZoomChange(zoomScale + ZOOM_SCALE_STEP);
+                  }}
+                  disabled={zoomScale >= MAX_ZOOM_SCALE}
+                  title="확대"
+                  aria-label="악보 확대"
+                  className="flex h-8 w-8 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <ZoomIn size={17} />
+                </button>
+              </div>
             </div>
 
             {/* Drawing Tools */}
-            <div className="flex items-center justify-center gap-1 min-w-0">
+            <div className="flex items-center justify-center gap-1 shrink-0">
               <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" disabled={false} />
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
               <ToolButton active={currentTool === 'pen'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
@@ -817,7 +947,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
             </div>
             
             {/* Undo/Redo */}
-            <div className="flex items-center gap-1 min-w-0">
+            <div className="flex items-center gap-1 shrink-0">
               <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
               <button onClick={handleUndo} disabled={!isAnnotationReady || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
               <button onClick={handleRedo} disabled={!isAnnotationReady || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
