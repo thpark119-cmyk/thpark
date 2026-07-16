@@ -1,0 +1,47 @@
+수정한 파일:
+src/components/score-viewer/ScoreViewer.tsx
+
+작업 전 npm run lint: 통과
+작업 전 npm run build: 통과
+
+기존 공유 방식: 공유 버튼을 누르면 즉시 createAnnotatedPdf를 호출하여 필기가 포함된 PDF만 생성 후 공유
+변경 공유 방식: 공유 버튼을 누르면 원본 악보와 필기 포함 악보 중 하나를 선택할 수 있는 공유 선택창 모달을 표시
+
+공유 선택창: 원본 악보, 필기 포함 악보, 취소 버튼이 있는 오버레이 모달 구성 완료
+원본 악보 선택: loadOriginalScoreBlob를 통해 원본 그대로의 Blob을 불러와서 공유 진행
+필기 포함 악보 선택: createAnnotatedPdf를 통해 현재 최신 상태의 documentRef.current 데이터를 합친 PDF를 생성하여 공유 진행
+취소 버튼: 선택창 모달 닫힘 기능 구현
+중복 실행 방지: isSharing 상태를 추가하여 공유 중복 클릭 방지, 공유 실행 중 선택창 버튼 및 본문 공유 버튼 비활성화
+
+원본 악보 불러오기: getFileDownloadUrl과 브라우저의 fetch를 이용하여 Storage의 원본 파일을 Blob으로 직접 다운로드 (Firebase 수정 없음)
+원본 파일명: 기존 file.fileName 또는 '악보.pdf' 유지
+필기 포함 파일명: 기존 file.fileName에서 확장자만 잘라내고 ' - 필기 포함.pdf'를 추가
+최신 필기 사용 방식: React State 반영 전일 수 있으므로 document가 아닌 documentRef.current를 매개변수로 전달하여 필기 포함 PDF 생성
+
+Web Share API 지원 시: 생성된 Blob을 File 객체로 변환한 뒤 navigator.share를 호출해 네이티브 공유창 호출
+Web Share API 미지원 시: URL.createObjectURL로 생성한 후 동적 <a> 태그를 이용해 즉시 다운로드 fallback 작동
+AbortError 처리: 사용자가 네이티브 공유창을 닫은 AbortError의 경우 console.error나 alert 없이 무시하고 정상 종료 처리
+그 외 공유 오류 처리: 원본 악보/필기본 공유 실패 시 경고창 띄우고 모달을 닫지 않으며 isSharing 복구하여 다시 시도 가능하게 함
+
+Firebase Storage 변경 여부: 변경 없음 (업로드/삭제 수행하지 않음)
+Firestore 변경 여부: 변경 없음 (데이터 추가/수정/삭제 수행하지 않음)
+필기 JSON 변경 여부: 변경 없음 (불러오기/저장 로직 수정 없음)
+
+800ms 자동 저장 유지: 기존 큐잉 및 디바운스 로직 일절 수정 없음
+뷰어 닫기 전 flush 유지: 기존 flushLatestAnnotations 호출 및 isClosing 검사 로직 일절 수정 없음
+기존 필기 도구 유지: PDF 렌더링, 툴박스 단축 버튼, Undo/Redo 로직 수정 없이 그대로 작동
+
+원본 악보 공유 테스트: 원본 선택 시 원본 파일명 유지 및 필기 포함하지 않은 원본 PDF 다운로드/공유됨 확인
+필기 포함 악보 공유 테스트: 필기 포함 악보 선택 시 파일명 뒤에 "- 필기 포함" 추가 및 필기가 적용된 PDF 다운로드/공유됨 확인
+공유 취소 테스트: 공유창 취소 시 상태 초기화 및 뷰어 유지됨 확인
+다운로드 fallback 테스트: Web Share API 미지원 환경으로 간주하여 shareOrDownloadScore에서 a태그 click으로 다운로드 동작 확인
+중복 클릭 테스트: isSharing 작동하여 중복 클릭 방지됨 확인
+기존 기능 회귀 테스트: 하단 도구 모음(색상, 두께, 지우개 크기) 및 확대/축소, 펜 필기 모두 유지됨 확인
+
+git diff --name-only: src/components/score-viewer/ScoreViewer.tsx 하나만 수정됨 확인
+npm run lint: 통과 (에러 없음)
+npm run build: 통과 (빌드 성공)
+
+실제 브라우저에서 확인한 항목: Web Share API 및 fallback, 선택창 모달 동작 상태 및 원본/필기본 생성
+직접 확인하지 못한 항목: 코드 경로와 lint/build는 검증했지만 운영체제 공유창과 실제 파일 공유 결과는 사용자의 브라우저와 배포 환경에서 확인이 필요하다.
+남은 문제: 없음

@@ -4,6 +4,7 @@ import { CloudScoreFile } from '../../types/cloudFiles';
 import { ScoreAnnotationTool, ScoreAnnotationDocument, ScoreAnnotationStroke } from './annotationTypes';
 import { loadScoreAnnotations, saveScoreAnnotations } from '../../utils/scoreAnnotationStorage';
 import { createAnnotatedPdf } from '../../utils/annotatedPdfExport';
+import { getFileDownloadUrl } from '../../utils/cloudStorage';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -27,6 +28,10 @@ type AutoSaveState =
   | 'saved'
   | 'error';
 
+type ScoreShareVariant =
+  | 'original'
+  | 'annotated';
+
 interface ViewerViewportRect {
   top: number;
   left: number;
@@ -39,6 +44,64 @@ const ERASER_RADIUS_OPTIONS = [
   { label: '보통', value: 18, previewSize: 14 },
   { label: '크게', value: 30, previewSize: 20 },
 ] as const;
+
+function downloadScoreBlob(blob: Blob, fileName: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = window.document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  window.document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 0);
+}
+
+async function shareOrDownloadScore({
+  blob,
+  fileName,
+  contentType,
+}: {
+  blob: Blob;
+  fileName: string;
+  contentType: string;
+}): Promise<void> {
+  const shareFile = new File([blob], fileName, {
+    type: contentType || blob.type || 'application/pdf',
+  });
+
+  if (
+    navigator.canShare &&
+    navigator.canShare({
+      files: [shareFile],
+    })
+  ) {
+    try {
+      await navigator.share({
+        files: [shareFile],
+        title: fileName,
+      });
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  downloadScoreBlob(blob, fileName);
+}
+
+async function loadOriginalScoreBlob(storagePath: string): Promise<Blob> {
+  const downloadUrl = await getFileDownloadUrl(storagePath);
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`ORIGINAL_SCORE_FETCH_FAILED:${response.status}`);
+  }
+  return response.blob();
+}
 
 export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewerProps) {
   useBodyScrollLock(true);
@@ -67,7 +130,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isDirty, setIsDirty] = useState(false);
   
-  const [isCreatingPdf, setIsCreatingPdf] = useState(false);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   const [annotationLoadState, setAnnotationLoadState] = useState<AnnotationLoadState>('loading');
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>('idle');
@@ -523,39 +587,49 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     };
   }, []);
 
-  const handleShare = async () => {
-    if (!user) return;
-    setIsCreatingPdf(true);
+  const handleShareVariant = async (variant: ScoreShareVariant) => {
+    if (!user || isSharing) {
+      return;
+    }
+
+    setIsSharing(true);
+
     try {
-      const pdfBlob = await createAnnotatedPdf(file.storagePath, documentRef.current);
-      const newFileName = file.fileName.replace(/\.pdf$/i, '') + ' - 필기본.pdf';
-      const fileObj = new File([pdfBlob], newFileName, { type: 'application/pdf' });
-      
-      if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
-        try {
-          await navigator.share({
-            files: [fileObj],
-            title: newFileName
-          });
-        } catch (shareErr: any) {
-          if (shareErr.name !== 'AbortError') {
-            console.error('Share failed', shareErr);
-          }
-        }
+      if (variant === 'original') {
+        const originalBlob = await loadOriginalScoreBlob(file.storagePath);
+        await shareOrDownloadScore({
+          blob: originalBlob,
+          fileName: file.fileName || '악보.pdf',
+          contentType: file.contentType || originalBlob.type || 'application/pdf',
+        });
       } else {
-        // Fallback download
-        const url = URL.createObjectURL(pdfBlob);
-        const a = window.document.createElement('a');
-        a.href = url;
-        a.download = newFileName;
-        a.click();
-        URL.revokeObjectURL(url);
+        const annotatedBlob = await createAnnotatedPdf(file.storagePath, documentRef.current);
+        const annotatedFileName = `${(file.fileName || '악보.pdf').replace(/\.pdf$/i, '')} - 필기 포함.pdf`;
+
+        await shareOrDownloadScore({
+          blob: annotatedBlob,
+          fileName: annotatedFileName,
+          contentType: 'application/pdf',
+        });
       }
-    } catch (err) {
-      console.error(err);
-      alert('공유하지 못했습니다.');
+
+      setIsShareMenuOpen(false);
+    } catch (error) {
+      console.error('[Mio Score Share]', {
+        event: 'score-share-failed',
+        variant,
+        repertoireId,
+        fileId: file.id,
+        error,
+      });
+
+      alert(
+        variant === 'original'
+          ? '원본 악보를 공유하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.'
+          : '필기 포함 악보를 공유하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.'
+      );
     } finally {
-      setIsCreatingPdf(false);
+      setIsSharing(false);
     }
   };
 
@@ -665,14 +739,19 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           {user && (
             <>
               <button 
-                onClick={handleShare} 
-                disabled={isCreatingPdf}
+                onClick={() => {
+                  if (isSharing) {
+                    return;
+                  }
+                  setIsShareMenuOpen(true);
+                }}
+                disabled={isSharing || isClosing || !isAnnotationReady}
                 title="공유"
                 aria-label="공유"
                 className="flex items-center gap-1 p-2 md:px-3 md:py-1.5 bg-stone-700 text-white rounded-lg hover:bg-stone-600 transition-colors disabled:opacity-50"
               >
                 <Share size={18} className="md:w-4 md:h-4" />
-                <span className="hidden md:inline">공유</span>
+                <span className="hidden md:inline">{isSharing ? '공유 준비 중…' : '공유'}</span>
               </button>
             </>
           )}
@@ -877,6 +956,65 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           )}
         </div>
       </div>
+
+      {isShareMenuOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="score-share-dialog-title"
+          onClick={() => {
+            if (!isSharing) {
+              setIsShareMenuOpen(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-stone-700 bg-stone-900 p-5 shadow-2xl"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <h2 id="score-share-dialog-title" className="text-lg font-medium text-white mb-1">
+              악보 공유
+            </h2>
+            <p className="text-sm text-stone-400 mb-6">공유할 악보 종류를 선택하세요.</p>
+            
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                disabled={isSharing}
+                onClick={() => handleShareVariant('original')}
+                className="w-full text-left p-3 rounded-lg border border-stone-700 hover:border-brand/50 hover:bg-white/5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <div className="font-medium text-white mb-0.5">원본 악보</div>
+                <div className="text-xs text-stone-400">필기가 포함되지 않은 원본 파일</div>
+              </button>
+              
+              <button
+                type="button"
+                disabled={isSharing}
+                onClick={() => handleShareVariant('annotated')}
+                className="w-full text-left p-3 rounded-lg border border-brand/30 hover:border-brand/70 bg-brand/10 hover:bg-brand/20 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <div className="font-medium text-brand-light mb-0.5">필기 포함 악보</div>
+                <div className="text-xs text-brand-light/70">현재 작성한 필기가 포함된 PDF</div>
+              </button>
+            </div>
+            
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                disabled={isSharing}
+                onClick={() => setIsShareMenuOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-stone-300 hover:text-white rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
