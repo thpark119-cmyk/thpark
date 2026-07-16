@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ScoreAnnotationStroke, ScoreAnnotationTool, ScoreAnnotationPoint } from './annotationTypes';
+import { getScaledAnnotationLineWidth } from './annotationStrokeSizing';
 
 interface AnnotationLayerProps {
   width: number;
@@ -235,13 +236,6 @@ function applyEraserSweep(
   };
 }
 
-function getActualLineWidth(widthLevel: number, tool: ScoreAnnotationTool) {
-  if (tool === 'highlighter') {
-    return widthLevel * 8 + 12; // 20, 28, 36
-  }
-  return widthLevel * 2 + 1; // 3, 5, 7
-}
-
 export default function AnnotationLayer({
   width,
   height,
@@ -335,9 +329,14 @@ export default function AnnotationLayer({
       
       const strokeStyle = `rgba(${r}, ${g}, ${b}, ${stroke.opacity})`;
 
+      const lineWidth = getScaledAnnotationLineWidth({
+        widthLevel: stroke.width,
+        tool: stroke.tool,
+        pageWidth: width,
+      });
+
       if (stroke.points.length === 1) {
         const point = stroke.points[0];
-        const lineWidth = getActualLineWidth(stroke.width, stroke.tool);
         ctx.beginPath();
         ctx.arc(
           point.x * width,
@@ -359,7 +358,7 @@ export default function AnnotationLayer({
       }
       
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = getActualLineWidth(stroke.width, stroke.tool);
+      ctx.lineWidth = lineWidth;
       ctx.stroke();
     };
 

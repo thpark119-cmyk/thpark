@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, LineCapStyle } from 'pdf-lib';
 import { ScoreAnnotationDocument, ScoreAnnotationStroke } from '../components/score-viewer/annotationTypes';
 import { getFileDownloadUrl } from './cloudStorage';
+import { getScaledAnnotationLineWidth } from '../components/score-viewer/annotationStrokeSizing';
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
@@ -18,20 +19,6 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
-function getExportLineWidth(
-  widthLevel: number,
-  tool: ScoreAnnotationStroke['tool']
-): number {
-  const safeWidthLevel = Number.isFinite(widthLevel)
-    ? Math.min(3, Math.max(1, widthLevel))
-    : 1;
-
-  if (tool === 'highlighter') {
-    return safeWidthLevel * 8 + 12;
-  }
-
-  return safeWidthLevel * 2 + 1;
-}
 
 export async function createAnnotatedPdf(
   sourceStoragePath: string,
@@ -70,7 +57,11 @@ export async function createAnnotatedPdf(
       
       const color = rgb(r, g, b);
       
-      const lineWidth = getExportLineWidth(stroke.width, stroke.tool);
+      const lineWidth = getScaledAnnotationLineWidth({
+        widthLevel: stroke.width,
+        tool: stroke.tool,
+        pageWidth: width,
+      });
 
       for (let i = 1; i < stroke.points.length; i++) {
         const p1 = stroke.points[i - 1];
