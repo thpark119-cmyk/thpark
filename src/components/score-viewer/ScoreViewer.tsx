@@ -829,16 +829,34 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
             <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain pb-1">
               <div className="flex items-center gap-3 w-max min-w-full justify-center md:justify-start mx-auto md:mx-0">
                 <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
-                  {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(c => (
-                    <button 
-                      key={c}
-                      onClick={() => setStrokeColor(c)}
-                      className={`w-7 h-7 md:w-6 md:h-6 rounded-full border-2 ${strokeColor === c ? 'border-brand' : 'border-transparent'}`}
-                      style={{ backgroundColor: c }}
-                      title="색상 변경"
-                      aria-label={`색상 ${c}`}
-                    />
-                  ))}
+                  {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(color => {
+                    const isSelected = strokeColor === color;
+                    return (
+                      <button 
+                        key={color}
+                        type="button"
+                        onClick={() => setStrokeColor(color)}
+                        aria-pressed={isSelected}
+                        title={isSelected ? '현재 선택된 색상' : '색상 변경'}
+                        aria-label={isSelected ? `현재 선택된 색상 ${color}` : `색상 ${color}`}
+                        className={`relative w-7 h-7 md:w-6 md:h-6 shrink-0 rounded-full border-2 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-stone-900 ${
+                          isSelected
+                            ? 'border-white ring-2 ring-white ring-offset-2 ring-offset-stone-900 scale-110 z-10'
+                            : 'border-stone-600 hover:border-stone-300 hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: color }}
+                      >
+                        {isSelected && (
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute -right-1 -bottom-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white bg-stone-950 text-[9px] font-bold leading-none text-white shadow-md"
+                          >
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
                 
                 <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
