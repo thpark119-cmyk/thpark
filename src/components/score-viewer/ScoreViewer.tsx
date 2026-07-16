@@ -839,22 +839,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
                         aria-pressed={isSelected}
                         title={isSelected ? '현재 선택된 색상' : '색상 변경'}
                         aria-label={isSelected ? `현재 선택된 색상 ${color}` : `색상 ${color}`}
-                        className={`relative w-7 h-7 md:w-6 md:h-6 shrink-0 rounded-full border-2 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-stone-900 ${
+                        className={`relative w-7 h-7 md:w-6 md:h-6 shrink-0 rounded-full border-2 box-border focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 focus-visible:ring-offset-stone-900 ${
                           isSelected
-                            ? 'border-white ring-2 ring-white ring-offset-2 ring-offset-stone-900 scale-110 z-10'
-                            : 'border-stone-600 hover:border-stone-300 hover:scale-105'
+                            ? 'border-white ring-2 ring-white/90 ring-offset-1 ring-offset-stone-900'
+                            : 'border-stone-600 hover:border-stone-300'
                         }`}
                         style={{ backgroundColor: color }}
-                      >
-                        {isSelected && (
-                          <span
-                            aria-hidden="true"
-                            className="pointer-events-none absolute -right-1 -bottom-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white bg-stone-950 text-[9px] font-bold leading-none text-white shadow-md"
-                          >
-                            ✓
-                          </span>
-                        )}
-                      </button>
+                      />
                     );
                   })}
                 </div>
