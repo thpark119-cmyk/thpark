@@ -26,7 +26,6 @@ interface PdfPageCanvasProps {
   canGoPrevious: boolean;
   canGoNext: boolean;
   zoomScale: number;
-  touchInputMode: 'pan' | 'draw';
 }
 
 interface PageDisplaySize {
@@ -76,8 +75,8 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     canGoPrevious,
     canGoNext,
     zoomScale,
-    touchInputMode
   } = props;
+
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [isDownloading, setIsDownloading] = useState(true);
@@ -452,11 +451,12 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                     strokeColor={strokeColor}
                     strokeWidth={strokeWidth}
                     eraserRadius={eraserRadius}
-                    touchInputMode={touchInputMode}
                   />
                 )}
+
               </div>
             )}
+
           </Document>
         </div>
       )}

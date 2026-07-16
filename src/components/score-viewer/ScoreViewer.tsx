@@ -32,9 +32,6 @@ type ScoreShareVariant =
   | 'original'
   | 'annotated';
 
-type TouchInputMode =
-  | 'pan'
-  | 'draw';
 
 interface ViewerViewportRect {
   top: number;
@@ -121,10 +118,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const { t } = useLanguage();
   
   const [zoomScale, setZoomScale] = useState(MIN_ZOOM_SCALE);
-  const [touchInputMode, setTouchInputMode] = useState<TouchInputMode>('pan');
   const scoreViewportRef = useRef<HTMLDivElement>(null);
-  
+  const viewerViewportRef = useRef<HTMLDivElement>(null);
+
   interface PendingZoomAnchor {
+
     xRatio: number;
     yRatio: number;
   }
@@ -467,6 +465,10 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     updateDocumentStrokes(newStrokes);
   };
 
+  const handleToolToggle = (tool: ScoreAnnotationTool) => {
+    setCurrentTool(previous => (previous === tool ? 'none' : tool));
+  };
+
   const handleUndo = () => {
     if (historyIndex <= 0) {
       return;
@@ -767,32 +769,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     );
   }
 
-  const touchModeButton = (
-    <button
-      type="button"
-      onClick={() => {
-        setTouchInputMode(previous => (previous === 'pan' ? 'draw' : 'pan'));
-      }}
-      aria-pressed={touchInputMode === 'draw'}
-      aria-label={
-        touchInputMode === 'pan'
-          ? '손가락 화면 이동 모드. 누르면 손가락 필기 모드로 변경'
-          : '손가락 필기 모드. 누르면 손가락 화면 이동 모드로 변경'
-      }
-      title={touchInputMode === 'pan' ? '손가락으로 악보 이동' : '손가락으로 필기'}
-      className={`min-w-[6.5rem] shrink-0 rounded-lg border px-2 py-1.5 text-xs font-medium ${
-        touchInputMode === 'draw'
-          ? 'border-brand bg-brand/15 text-brand'
-          : 'border-stone-600 bg-stone-900 text-stone-300 hover:border-stone-400 hover:text-white'
-      }`}
-    >
-      {touchInputMode === 'pan' ? '손가락: 이동' : '손가락: 필기'}
-    </button>
-  );
 
   return (
-    <div 
-      className="fixed z-50 isolate overflow-hidden bg-stone-900 grid grid-rows-[auto_minmax(0,1fr)_auto]"
+    <div
+      ref={viewerViewportRef}
+      data-score-viewer-container
+      className="fixed inset-0 z-50 flex flex-col bg-stone-900 pointer-events-none"
+
       style={{
         top: `${viewerViewportRect.top}px`,
         left: `${viewerViewportRect.left}px`,
@@ -871,7 +854,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         ref={scoreViewportRef}
         className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch]"
         style={{
-          touchAction: currentTool === 'none' || touchInputMode === 'pan' ? 'pan-x pan-y' : undefined,
+          touchAction: currentTool === 'none' ? 'pan-x pan-y' : 'none',
         }}
       >
         <PdfPageCanvas
@@ -894,7 +877,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           canGoPrevious={currentPage > 1}
           canGoNext={currentPage < pageCount}
           zoomScale={zoomScale}
-          touchInputMode={touchInputMode}
         />
       </div>
 
@@ -968,88 +950,96 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
             {/* Drawing Tools */}
             <div className="flex items-center justify-center gap-1 shrink-0">
-              <ToolButton active={currentTool === 'none'} onClick={() => setCurrentTool('none')} icon={<MousePointer2 size={20} />} title="보기" disabled={false} />
-              <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <ToolButton active={currentTool === 'pen'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('pen')} icon={<Pen size={20} />} title="펜" />
-              <ToolButton active={currentTool === 'highlighter'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('highlighter')} icon={<Highlighter size={20} />} title="형광펜" />
-              <ToolButton active={currentTool === 'eraser'} disabled={!isAnnotationReady} onClick={() => setCurrentTool('eraser')} icon={<Eraser size={20} />} title="지우개" />
-            </div>
-            
-            {/* Undo/Redo */}
-            <div className="flex items-center gap-1 shrink-0">
-              <div className="w-px h-6 bg-white/10 mx-0.5 md:mx-1 hidden sm:block"></div>
-              <button onClick={handleUndo} disabled={!isAnnotationReady || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
-              <button onClick={handleRedo} disabled={!isAnnotationReady || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
+              <ToolButton active={currentTool === 'pen'} disabled={!isAnnotationReady} onClick={() => handleToolToggle('pen')} icon={<Pen size={20} />} title={currentTool === 'pen' ? '펜 취소' : '펜'} />
+              <ToolButton active={currentTool === 'highlighter'} disabled={!isAnnotationReady} onClick={() => handleToolToggle('highlighter')} icon={<Highlighter size={20} />} title={currentTool === 'highlighter' ? '형광펜 취소' : '형광펜'} />
+              <ToolButton active={currentTool === 'eraser'} disabled={!isAnnotationReady} onClick={() => handleToolToggle('eraser')} icon={<Eraser size={20} />} title={currentTool === 'eraser' ? '지우개 취소' : '지우개'} />
+
             </div>
           </div>
 
           {/* Second Line: Properties */}
           {currentTool !== 'none' && (
-            <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain pb-1">
-              <div className="flex items-center gap-3 w-max min-w-full justify-center md:justify-start mx-auto md:mx-0">
-                {touchModeButton}
-
-                {currentTool !== 'eraser' && (
-                  <>
-                    <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
-                      {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(color => {
-                        const isSelected = strokeColor === color;
-                        return (
-                          <button 
-                            key={color}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 w-full min-w-0 pb-1">
+              <div className="min-w-0 overflow-x-auto overscroll-x-contain no-scrollbar">
+                <div className="flex items-center gap-3 w-max justify-start">
+                  {currentTool !== 'eraser' && (
+                    <>
+                      <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
+                        {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#000000', '#ffffff'].map(color => {
+                          const isSelected = strokeColor === color;
+                          return (
+                            <button 
+                              key={color}
+                              type="button"
+                              onClick={() => setStrokeColor(color)}
+                              aria-pressed={isSelected}
+                              title={isSelected ? '현재 선택된 색상' : '색상 변경'}
+                              aria-label={isSelected ? `현재 선택된 색상 ${color}` : `색상 ${color}`}
+                              className={`relative w-7 h-7 md:w-6 md:h-6 shrink-0 rounded-full border-2 box-border focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 focus-visible:ring-offset-stone-900 ${
+                                isSelected
+                                  ? 'border-white ring-2 ring-white/90 ring-offset-1 ring-offset-stone-900'
+                                  : 'border-stone-600 hover:border-stone-300'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          );
+                        })}
+                      </div>
+                      
+                      <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
+                        {[1, 2, 3].map(w => (
+                          <button
+                            key={w}
                             type="button"
-                            onClick={() => setStrokeColor(color)}
-                            aria-pressed={isSelected}
-                            title={isSelected ? '현재 선택된 색상' : '색상 변경'}
-                            aria-label={isSelected ? `현재 선택된 색상 ${color}` : `색상 ${color}`}
-                            className={`relative w-7 h-7 md:w-6 md:h-6 shrink-0 rounded-full border-2 box-border focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 focus-visible:ring-offset-stone-900 ${
-                              isSelected
-                                ? 'border-white ring-2 ring-white/90 ring-offset-1 ring-offset-stone-900'
-                                : 'border-stone-600 hover:border-stone-300'
-                            }`}
-                            style={{ backgroundColor: color }}
-                          />
-                        );
-                      })}
-                    </div>
-                    
-                    <div className="flex items-center gap-2 bg-stone-900 rounded-lg p-1 shrink-0">
-                      {[1, 2, 3].map(w => (
+                            onClick={() => setStrokeWidth(w)}
+                            className={`w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded ${strokeWidth === w ? 'bg-stone-700 text-brand' : 'text-stone-400 hover:text-white'}`}
+                            title={`굵기 ${w}`}
+                            aria-label={`굵기 ${w}`}
+                          >
+                            <div className="bg-current rounded-full" style={{ width: w * 2 + 2, height: w * 2 + 2 }} />
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {currentTool === 'eraser' && (
+                    <div className="flex items-center gap-2 shrink-0" role="group" aria-label="지우개 크기">
+                      <span className="shrink-0 text-xs text-stone-400 px-1">지우개 크기</span>
+                      {ERASER_RADIUS_OPTIONS.map(option => (
                         <button
-                          key={w}
-                          onClick={() => setStrokeWidth(w)}
-                          className={`w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded ${strokeWidth === w ? 'bg-stone-700 text-brand' : 'text-stone-400 hover:text-white'}`}
-                          title={`굵기 ${w}`}
-                          aria-label={`굵기 ${w}`}
+                          key={option.value}
+                          type="button"
+                          title={`지우개 ${option.label}`}
+                          aria-label={`지우개 크기 ${option.label}`}
+                          aria-pressed={eraserRadius === option.value}
+                          onClick={() => setEraserRadius(option.value)}
+                          className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center transition-colors ${eraserRadius === option.value ? 'bg-brand/20 text-brand ring-1 ring-brand/50' : 'bg-stone-900 text-stone-400 hover:text-white hover:bg-stone-700'}`}
                         >
-                          <div className="bg-current rounded-full" style={{ width: w * 2 + 2, height: w * 2 + 2 }} />
+                          <span className="block rounded-full border-2 border-current bg-current/10" style={{ width: `${option.previewSize}px`, height: `${option.previewSize}px` }} />
                         </button>
                       ))}
                     </div>
-                  </>
-                )}
-
-                {currentTool === 'eraser' && (
-                  <div className="flex items-center gap-2 shrink-0" role="group" aria-label="지우개 크기">
-                    <span className="shrink-0 text-xs text-stone-400 px-1">지우개 크기</span>
-                    {ERASER_RADIUS_OPTIONS.map(option => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        title={`지우개 ${option.label}`}
-                        aria-label={`지우개 크기 ${option.label}`}
-                        aria-pressed={eraserRadius === option.value}
-                        onClick={() => setEraserRadius(option.value)}
-                        className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center transition-colors ${eraserRadius === option.value ? 'bg-brand/20 text-brand ring-1 ring-brand/50' : 'bg-stone-900 text-stone-400 hover:text-white hover:bg-stone-700'}`}
-                      >
-                        <span className="block rounded-full border-2 border-current bg-current/10" style={{ width: `${option.previewSize}px`, height: `${option.previewSize}px` }} />
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 rounded-lg bg-stone-900 p-1">
+                <button type="button" onClick={handleUndo} disabled={!isAnnotationReady || historyIndex <= 0} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="실행 취소" aria-label="실행 취소"><Undo size={20} /></button>
+                <button type="button" onClick={handleRedo} disabled={!isAnnotationReady || historyIndex >= history.length - 1} className="p-1.5 md:p-2 text-stone-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none" title="다시 실행" aria-label="다시 실행"><Redo size={20} /></button>
+                <div className="w-px h-5 bg-white/10 mx-1 hidden sm:block"></div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentTool('none')}
+                  title="필기 도구 닫기"
+                  aria-label="현재 필기 도구를 취소하고 보기 상태로 전환"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                >
+                  <X size={18} />
+                </button>
               </div>
             </div>
           )}
+
         </div>
       </div>
 
@@ -1119,6 +1109,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 function ToolButton({ active, onClick, icon, title, disabled }: { active: boolean, onClick: () => void, icon: React.ReactNode, title: string, disabled?: boolean }) {
   return (
     <button 
+      type="button"
       onClick={onClick}
       disabled={disabled}
       aria-disabled={disabled}

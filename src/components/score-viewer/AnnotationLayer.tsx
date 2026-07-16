@@ -11,24 +11,12 @@ interface AnnotationLayerProps {
   strokeColor: string;
   strokeWidth: number; // 1, 2, 3 representing thin, normal, thick
   eraserRadius: number;
-  touchInputMode: 'pan' | 'draw';
 }
 
-function canPointerDraw({
-  pointerType,
-  touchInputMode,
-}: {
-  pointerType: string;
-  touchInputMode: 'pan' | 'draw';
-}): boolean {
-  if (pointerType === 'pen' || pointerType === 'mouse') {
-    return true;
-  }
-  if (pointerType === 'touch') {
-    return touchInputMode === 'draw';
-  }
-  return false;
+function canPointerDraw(pointerType: string): boolean {
+  return pointerType === 'mouse' || pointerType === 'pen' || pointerType === 'touch';
 }
+
 
 interface PixelPoint {
   x: number;
@@ -139,6 +127,7 @@ function sampleStrokePoints(
         y: Math.max(0, Math.min(1, y)),
         pressure
       });
+
     }
   }
 
@@ -189,6 +178,7 @@ function eraseStrokeBySweep(
             id: crypto.randomUUID(),
             points: currentFragmentPoints,
           });
+
         }
         currentFragmentPoints = [];
       }
@@ -262,7 +252,6 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
-  touchInputMode,
 }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
@@ -290,10 +279,7 @@ export default function AnnotationLayer({
     }
 
     if (
-      !canPointerDraw({
-        pointerType: event.pointerType,
-        touchInputMode,
-      })
+      !canPointerDraw(event.pointerType)
     ) {
       setEraserCursor(null);
       return;
@@ -313,7 +299,6 @@ export default function AnnotationLayer({
       x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
       y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
       visible: true,
-      pointerType: event.pointerType,
     });
   };
 
@@ -361,6 +346,7 @@ export default function AnnotationLayer({
         widthLevel: stroke.width,
         tool: stroke.tool,
         pageWidth: width,
+
       });
 
       if (stroke.points.length === 1) {
@@ -435,10 +421,7 @@ export default function AnnotationLayer({
 
     if (currentTool === 'none') return;
     if (
-      !canPointerDraw({
-        pointerType: event.pointerType,
-        touchInputMode,
-      })
+      !canPointerDraw(event.pointerType)
     ) {
       return;
     }
@@ -590,7 +573,7 @@ export default function AnnotationLayer({
           width: `${width}px`,
           height: `${height}px`,
           pointerEvents: currentTool === 'none' ? 'none' : 'auto',
-          touchAction: currentTool === 'none' || touchInputMode === 'pan' ? 'pan-x pan-y' : 'none',
+          touchAction: currentTool === 'none' ? 'pan-x pan-y' : 'none',
           cursor: currentTool === 'none' 
             ? 'default' 
             : currentTool === 'eraser' ? 'none' : 'crosshair'
