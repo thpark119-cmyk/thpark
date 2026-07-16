@@ -18,6 +18,21 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
+function getExportLineWidth(
+  widthLevel: number,
+  tool: ScoreAnnotationStroke['tool']
+): number {
+  const safeWidthLevel = Number.isFinite(widthLevel)
+    ? Math.min(3, Math.max(1, widthLevel))
+    : 1;
+
+  if (tool === 'highlighter') {
+    return safeWidthLevel * 8 + 12;
+  }
+
+  return safeWidthLevel * 2 + 1;
+}
+
 export async function createAnnotatedPdf(
   sourceStoragePath: string,
   annotations: ScoreAnnotationDocument
@@ -55,14 +70,7 @@ export async function createAnnotatedPdf(
       
       const color = rgb(r, g, b);
       
-      // Calculate drawing width relative to the page
-      // Width is typically stored relative to screen or base width. 
-      // We will assume stroke.width is a reasonable pixel width and scale it to PDF width
-      // Alternatively, stroke.width might be absolute or relative. Let's assume stroke.width is relative (e.g. 0.005) or we'll need to store it as relative.
-      // If the UI stores width as actual screen pixels, we might need a reference width.
-      // For now, let's assume it's relative if we can change our annotation logic, or we use a fixed multiplier.
-      // We'll multiply by PDF page width.
-      const lineWidth = stroke.width * width; 
+      const lineWidth = getExportLineWidth(stroke.width, stroke.tool);
 
       for (let i = 1; i < stroke.points.length; i++) {
         const p1 = stroke.points[i - 1];
