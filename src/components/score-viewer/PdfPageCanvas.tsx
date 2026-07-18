@@ -39,6 +39,8 @@ interface PdfPageCanvasProps {
   canGoPrevious: boolean;
   canGoNext: boolean;
   zoomScale: number;
+  isTwoFingerGestureActive?: boolean;
+  touchGestureSessionId?: number;
 }
 
 interface PageDisplaySize {
@@ -88,6 +90,8 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     canGoPrevious,
     canGoNext,
     zoomScale,
+    isTwoFingerGestureActive = false,
+    touchGestureSessionId = 0,
   } = props;
 
 
@@ -112,8 +116,15 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const viewTapCandidateRef = useRef<ViewTapCandidate | null>(null);
 
+  useEffect(() => {
+    if (isTwoFingerGestureActive) {
+      viewTapCandidateRef.current = null;
+    }
+  }, [isTwoFingerGestureActive]);
+
   const handleViewPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (
+      isTwoFingerGestureActive ||
       currentTool !== 'none' ||
       zoomScale !== 1 ||
       !event.isPrimary ||
@@ -160,6 +171,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     const duration = window.performance.now() - candidate.startedAt;
 
     if (
+      isTwoFingerGestureActive ||
       candidate.moved ||
       distance >= VIEW_TAP_MOVE_THRESHOLD_PX ||
       duration > VIEW_TAP_MAX_DURATION_MS ||
@@ -315,7 +327,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     setPageDisplaySize({ width: 0, height: 0 });
     setIsPageRendered(false);
     setPageError(null);
-  }, [pageNumber, documentFile, renderedPageWidth]);
+  }, [pageNumber, documentFile]);
 
   useEffect(() => {
     if (!isPageRendered) {
@@ -465,7 +477,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                 onLostPointerCapture={clearViewTapCandidate}
                 style={{
                   width: renderedPageWidth >= 40 ? `${renderedPageWidth}px` : undefined,
-                  touchAction: currentTool === 'none' ? 'pan-x pan-y' : undefined,
+                  touchAction: 'none',
                 }}
               >
                 <Page
@@ -530,6 +542,8 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                     strokeColor={strokeColor}
                     strokeWidth={strokeWidth}
                     eraserRadius={eraserRadius}
+                    isTwoFingerGestureActive={isTwoFingerGestureActive}
+                    touchGestureSessionId={touchGestureSessionId}
                   />
                 )}
 

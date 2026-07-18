@@ -112,6 +112,63 @@ function clampZoomScale(value: number): number {
   return Math.min(MAX_ZOOM_SCALE, Math.max(MIN_ZOOM_SCALE, value));
 }
 
+interface ScoreTouchPoint {
+  clientX: number;
+  clientY: number;
+}
+
+interface ScoreSingleTouchPan {
+  pointerId: number;
+  lastClientX: number;
+  lastClientY: number;
+}
+
+interface ScorePinchSession {
+  startDistance: number;
+  startZoomScale: number;
+  lastMidpointX: number;
+  lastMidpointY: number;
+  latestZoomScale: number;
+}
+
+interface PendingZoomAnchor {
+  xRatio: number;
+  yRatio: number;
+  viewportOffsetX: number;
+  viewportOffsetY: number;
+}
+
+function getTouchDistance(first: ScoreTouchPoint, second: ScoreTouchPoint): number {
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+}
+
+function getTouchMidpoint(first: ScoreTouchPoint, second: ScoreTouchPoint): { x: number; y: number } {
+  return {
+    x: (first.clientX + second.clientX) / 2,
+    y: (first.clientY + second.clientY) / 2,
+  };
+}
+
+function getFirstTwoTouchPoints(pointers: Map<number, ScoreTouchPoint>): [ScoreTouchPoint, ScoreTouchPoint] | null {
+  const points = Array.from(pointers.values());
+  if (points.length < 2) {
+    return null;
+  }
+  return [points[0], points[1]];
+}
+
+function normalizeZoomScale(value: number): number {
+  const clamped = clampZoomScale(value);
+  if (Math.abs(clamped - MIN_ZOOM_SCALE) < 0.015) {
+    return MIN_ZOOM_SCALE;
+  }
+  if (Math.abs(clamped - MAX_ZOOM_SCALE) < 0.015) {
+    return MAX_ZOOM_SCALE;
+  }
+  return Math.round(clamped * 100) / 100;
+}
+
+
 export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewerProps) {
   useBodyScrollLock(true);
   const { user } = useAuth();
@@ -121,35 +178,63 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const scoreViewportRef = useRef<HTMLDivElement>(null);
   const viewerViewportRef = useRef<HTMLDivElement>(null);
 
-  interface PendingZoomAnchor {
 
-    xRatio: number;
-    yRatio: number;
-  }
   const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
 
-  const handleZoomChange = useCallback(
-    (requestedScale: number) => {
-      const nextScale = clampZoomScale(requestedScale);
-      if (nextScale === zoomScale) {
-        return;
-      }
+  const touchPointersRef = useRef<Map<number, ScoreTouchPoint>>(new Map());
+  const singleTouchPanRef = useRef<ScoreSingleTouchPan | null>(null);
+  const pinchSessionRef = useRef<ScorePinchSession | null>(null);
+  const suppressTouchUntilReleaseRef = useRef(false);
+  const pinchFrameRef = useRef<number | null>(null);
+  const pendingPinchUpdateRef = useRef<{ zoomScale: number; midpointX: number; midpointY: number; } | null>(null);
+  
+  const zoomScaleRef = useRef(zoomScale);
+  useEffect(() => {
+    zoomScaleRef.current = zoomScale;
+  }, [zoomScale]);
 
-      const viewport = scoreViewportRef.current;
-      if (viewport) {
-        const centerX = viewport.scrollLeft + viewport.clientWidth / 2;
-        const centerY = viewport.scrollTop + viewport.clientHeight / 2;
+  const [isTwoFingerGestureActive, setIsTwoFingerGestureActive] = useState(false);
+  const [touchGestureSessionId, setTouchGestureSessionId] = useState(0);
 
-        pendingZoomAnchorRef.current = {
-          xRatio: centerX / Math.max(1, viewport.scrollWidth),
-          yRatio: centerY / Math.max(1, viewport.scrollHeight),
-        };
-      }
 
+
+  const handleZoomChangeAtPoint = useCallback((requestedScale: number, clientX: number, clientY: number) => {
+    const nextScale = normalizeZoomScale(requestedScale);
+    if (Math.abs(nextScale - zoomScaleRef.current) < 0.005) {
+      return;
+    }
+
+    const viewport = scoreViewportRef.current;
+    if (!viewport) {
+      zoomScaleRef.current = nextScale;
       setZoomScale(nextScale);
-    },
-    [zoomScale]
-  );
+      return;
+    }
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const viewportOffsetX = Math.max(0, Math.min(viewport.clientWidth, clientX - viewportRect.left));
+    const viewportOffsetY = Math.max(0, Math.min(viewport.clientHeight, clientY - viewportRect.top));
+
+    pendingZoomAnchorRef.current = {
+      xRatio: (viewport.scrollLeft + viewportOffsetX) / Math.max(1, viewport.scrollWidth),
+      yRatio: (viewport.scrollTop + viewportOffsetY) / Math.max(1, viewport.scrollHeight),
+      viewportOffsetX,
+      viewportOffsetY,
+    };
+
+    zoomScaleRef.current = nextScale;
+    setZoomScale(nextScale);
+  }, []);
+
+  const handleZoomChange = useCallback((requestedScale: number) => {
+    const viewport = scoreViewportRef.current;
+    if (!viewport) {
+      handleZoomChangeAtPoint(requestedScale, 0, 0);
+      return;
+    }
+    const rect = viewport.getBoundingClientRect();
+    handleZoomChangeAtPoint(requestedScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }, [handleZoomChangeAtPoint]);
 
   useEffect(() => {
     const anchor = pendingZoomAnchorRef.current;
@@ -162,8 +247,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       secondFrameId = window.requestAnimationFrame(() => {
         const viewport = scoreViewportRef.current;
         if (viewport) {
-          viewport.scrollLeft = anchor.xRatio * viewport.scrollWidth - viewport.clientWidth / 2;
-          viewport.scrollTop = anchor.yRatio * viewport.scrollHeight - viewport.clientHeight / 2;
+          viewport.scrollLeft = Math.max(0, anchor.xRatio * viewport.scrollWidth - anchor.viewportOffsetX);
+          viewport.scrollTop = Math.max(0, anchor.yRatio * viewport.scrollHeight - anchor.viewportOffsetY);
           pendingZoomAnchorRef.current = null;
         }
       });
@@ -176,7 +261,194 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       }
     };
   }, [zoomScale]);
+
+  const schedulePinchZoom = useCallback(({ zoomScale: requestedScale, midpointX, midpointY }: { zoomScale: number; midpointX: number; midpointY: number; }) => {
+    pendingPinchUpdateRef.current = { zoomScale: requestedScale, midpointX, midpointY };
+    if (pinchFrameRef.current !== null) {
+      return;
+    }
+    pinchFrameRef.current = window.requestAnimationFrame(() => {
+      pinchFrameRef.current = null;
+      const update = pendingPinchUpdateRef.current;
+      pendingPinchUpdateRef.current = null;
+      if (!update) {
+        return;
+      }
+      if (Math.abs(update.zoomScale - zoomScaleRef.current) < 0.02) {
+        return;
+      }
+      handleZoomChangeAtPoint(update.zoomScale, update.midpointX, update.midpointY);
+    });
+  }, [handleZoomChangeAtPoint]);
   
+
+  const resetTouchGestureState = useCallback(() => {
+    touchPointersRef.current.clear();
+    singleTouchPanRef.current = null;
+    pinchSessionRef.current = null;
+    suppressTouchUntilReleaseRef.current = false;
+    pendingPinchUpdateRef.current = null;
+    setIsTwoFingerGestureActive(false);
+
+    if (pinchFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinchFrameRef.current);
+      pinchFrameRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('blur', resetTouchGestureState);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        resetTouchGestureState();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', resetTouchGestureState);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      resetTouchGestureState(); // also reset on unmount
+    };
+  }, [resetTouchGestureState]);
+
+  const handleScorePointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') {
+      return;
+    }
+    
+    touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+    const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
+    if (firstTwo) {
+      const [first, second] = firstTwo;
+      const distance = getTouchDistance(first, second);
+      if (distance < 10) {
+        return;
+      }
+      const midpoint = getTouchMidpoint(first, second);
+      pinchSessionRef.current = {
+        startDistance: distance,
+        startZoomScale: zoomScaleRef.current,
+        lastMidpointX: midpoint.x,
+        lastMidpointY: midpoint.y,
+        latestZoomScale: zoomScaleRef.current,
+      };
+      
+      singleTouchPanRef.current = null;
+      suppressTouchUntilReleaseRef.current = true;
+      setIsTwoFingerGestureActive(true);
+      setTouchGestureSessionId(prev => prev + 1);
+
+      event.preventDefault();
+      event.stopPropagation();
+      
+      for (const pointerId of touchPointersRef.current.keys()) {
+        try {
+          event.currentTarget.setPointerCapture(pointerId);
+        } catch {}
+      }
+    } else {
+      if (currentTool === 'none' && touchPointersRef.current.size === 1 && !suppressTouchUntilReleaseRef.current) {
+        singleTouchPanRef.current = {
+          pointerId: event.pointerId,
+          lastClientX: event.clientX,
+          lastClientY: event.clientY,
+        };
+      }
+    }
+  };
+
+  const handleScorePointerMoveCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') {
+      return;
+    }
+    
+    if (touchPointersRef.current.has(event.pointerId)) {
+      touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    }
+    
+    if (touchPointersRef.current.size >= 2 && pinchSessionRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
+      if (firstTwo) {
+        const [first, second] = firstTwo;
+        const currentDistance = getTouchDistance(first, second);
+        const midpoint = getTouchMidpoint(first, second);
+        const session = pinchSessionRef.current;
+        
+        const nextZoomScale = normalizeZoomScale(session.startZoomScale * (currentDistance / session.startDistance));
+        
+        const midpointDeltaX = midpoint.x - session.lastMidpointX;
+        const midpointDeltaY = midpoint.y - session.lastMidpointY;
+        
+        const viewport = scoreViewportRef.current;
+        if (viewport) {
+          viewport.scrollLeft -= midpointDeltaX;
+          viewport.scrollTop -= midpointDeltaY;
+        }
+        
+        session.lastMidpointX = midpoint.x;
+        session.lastMidpointY = midpoint.y;
+        session.latestZoomScale = nextZoomScale;
+        
+        schedulePinchZoom({ zoomScale: nextZoomScale, midpointX: midpoint.x, midpointY: midpoint.y });
+      }
+    } else if (currentTool === 'none' && singleTouchPanRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      const pan = singleTouchPanRef.current;
+      const deltaX = event.clientX - pan.lastClientX;
+      const deltaY = event.clientY - pan.lastClientY;
+      
+      const viewport = scoreViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft -= deltaX;
+        viewport.scrollTop -= deltaY;
+      }
+      
+      pan.lastClientX = event.clientX;
+      pan.lastClientY = event.clientY;
+    }
+  };
+
+  const handleScorePointerUpCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') {
+      return;
+    }
+    
+    touchPointersRef.current.delete(event.pointerId);
+    
+    if (isTwoFingerGestureActive) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
+    if (touchPointersRef.current.size < 2) {
+      const session = pinchSessionRef.current;
+      if (session) {
+        handleZoomChangeAtPoint(session.latestZoomScale, session.lastMidpointX, session.lastMidpointY);
+      }
+      pinchSessionRef.current = null;
+      setIsTwoFingerGestureActive(false);
+    }
+    
+    if (touchPointersRef.current.size === 0) {
+      suppressTouchUntilReleaseRef.current = false;
+      singleTouchPanRef.current = null;
+    }
+    
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
+  };
+
+  const handleScorePointerCancelCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    handleScorePointerUpCapture(event);
+  };
+
   const [document, setDocument] = useState<ScoreAnnotationDocument>({
     schemaVersion: 1,
     repertoireId,
@@ -854,9 +1126,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       <div 
         ref={scoreViewportRef}
         data-score-viewer-viewport
+        onPointerDownCapture={handleScorePointerDownCapture}
+        onPointerMoveCapture={handleScorePointerMoveCapture}
+        onPointerUpCapture={handleScorePointerUpCapture}
+        onPointerCancelCapture={handleScorePointerCancelCapture}
         className="relative z-0 min-h-0 min-w-0 overflow-auto overscroll-contain bg-stone-900 px-0 py-2 md:px-4 md:py-4 [-webkit-overflow-scrolling:touch] pointer-events-auto select-none"
         style={{
-          touchAction: currentTool === 'none' ? 'pan-x pan-y' : 'none',
+          touchAction: 'none',
         }}
       >
         <PdfPageCanvas

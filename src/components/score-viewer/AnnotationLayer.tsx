@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ScoreAnnotationStroke, ScoreAnnotationTool, ScoreAnnotationPoint } from './annotationTypes';
 import { getScaledAnnotationLineWidth } from './annotationStrokeSizing';
 
@@ -11,6 +11,8 @@ interface AnnotationLayerProps {
   strokeColor: string;
   strokeWidth: number; // 1, 2, 3 representing thin, normal, thick
   eraserRadius: number;
+  isTwoFingerGestureActive?: boolean;
+  touchGestureSessionId?: number;
 }
 
 function canPointerDraw(pointerType: string): boolean {
@@ -252,7 +254,26 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
+  isTwoFingerGestureActive = false,
+  touchGestureSessionId = 0,
 }: AnnotationLayerProps) {
+
+  const cancelActiveAnnotationSession = useCallback(() => {
+    activeAnnotationPointerIdRef.current = null;
+    setCurrentStroke(null);
+    eraserSessionStrokesRef.current = null;
+    lastEraserPointRef.current = null;
+    eraserHasChangesRef.current = false;
+    setEraserPreviewStrokes(null);
+    setEraserCursor(null);
+  }, []);
+
+  useEffect(() => {
+    if (touchGestureSessionId <= 0) {
+      return;
+    }
+    cancelActiveAnnotationSession();
+  }, [touchGestureSessionId, cancelActiveAnnotationSession]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
   const activeAnnotationPointerIdRef = useRef<number | null>(null);
@@ -420,9 +441,13 @@ export default function AnnotationLayer({
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
-    if (
-      !canPointerDraw(event.pointerType)
-    ) {
+    if (!canPointerDraw(event.pointerType)) {
+      return;
+    }
+    if (event.pointerType === 'touch' && isTwoFingerGestureActive) {
+      return;
+    }
+    if (activeAnnotationPointerIdRef.current !== null) {
       return;
     }
     
@@ -464,6 +489,7 @@ export default function AnnotationLayer({
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
+    if (event.pointerType === 'touch' && isTwoFingerGestureActive) return;
     if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
     
     event.preventDefault();
@@ -544,21 +570,12 @@ export default function AnnotationLayer({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
-      setEraserCursor(null);
-    }
-    
-    if (currentTool === 'eraser') {
-      finishEraserSession();
-      return;
-    }
-    
-    if (currentTool === 'none') return;
-    
-    if (currentStroke) {
-      onStrokesChange([...strokes, currentStroke]);
-      setCurrentStroke(null);
-    }
+    setEraserCursor(null);
+    setCurrentStroke(null);
+    eraserSessionStrokesRef.current = null;
+    lastEraserPointRef.current = null;
+    eraserHasChangesRef.current = false;
+    setEraserPreviewStrokes(null);
   };
 
   if (width === 0 || height === 0) return null;
@@ -573,7 +590,7 @@ export default function AnnotationLayer({
           width: `${width}px`,
           height: `${height}px`,
           pointerEvents: currentTool === 'none' ? 'none' : 'auto',
-          touchAction: currentTool === 'none' ? 'pan-x pan-y' : 'none',
+          touchAction: 'none',
           cursor: currentTool === 'none' 
             ? 'default' 
             : currentTool === 'eraser' ? 'none' : 'crosshair'
