@@ -193,6 +193,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     zoomScaleRef.current = zoomScale;
   }, [zoomScale]);
 
+  const isTwoFingerGestureActiveRef = useRef(false);
   const [isTwoFingerGestureActive, setIsTwoFingerGestureActive] = useState(false);
   const [touchGestureSessionId, setTouchGestureSessionId] = useState(0);
 
@@ -336,6 +337,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       
       singleTouchPanRef.current = null;
       suppressTouchUntilReleaseRef.current = true;
+      isTwoFingerGestureActiveRef.current = true;
       setIsTwoFingerGestureActive(true);
       setTouchGestureSessionId(prev => prev + 1);
 
@@ -417,9 +419,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
     
+    const wasTwoFingerGestureActive = isTwoFingerGestureActiveRef.current;
+    
     touchPointersRef.current.delete(event.pointerId);
     
-    if (isTwoFingerGestureActive) {
+    if (wasTwoFingerGestureActive) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -430,6 +434,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         handleZoomChangeAtPoint(session.latestZoomScale, session.lastMidpointX, session.lastMidpointY);
       }
       pinchSessionRef.current = null;
+      isTwoFingerGestureActiveRef.current = false;
       setIsTwoFingerGestureActive(false);
     }
     
