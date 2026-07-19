@@ -254,7 +254,6 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
-  isTwoFingerGestureActive = false,
   touchGestureSessionId = 0,
 }: AnnotationLayerProps) {
 
@@ -444,19 +443,31 @@ export default function AnnotationLayer({
     if (!canPointerDraw(event.pointerType)) {
       return;
     }
-    if (event.pointerType === 'touch' && isTwoFingerGestureActive) {
-      return;
-    }
     if (activeAnnotationPointerIdRef.current !== null) {
       return;
     }
     
     event.preventDefault();
     activeAnnotationPointerIdRef.current = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // pointer capture를 지원하지 않아도
+      // 필기 자체는 계속 허용한다.
+    }
 
     const point = getNormalizedPoint(event);
-    if (!point) return;
+    if (!point) {
+      activeAnnotationPointerIdRef.current = null;
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // 정리 실패는 무시
+      }
+      return;
+    }
 
     if (currentTool === 'eraser') {
       eraserSessionStrokesRef.current = strokes;
@@ -489,7 +500,6 @@ export default function AnnotationLayer({
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
-    if (event.pointerType === 'touch' && isTwoFingerGestureActive) return;
     if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
     
     event.preventDefault();
