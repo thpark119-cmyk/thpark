@@ -299,14 +299,14 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   useEffect(() => {
     window.addEventListener('blur', resetTouchGestureState);
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
+      if (window.document.visibilityState === 'hidden') {
         resetTouchGestureState();
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.removeEventListener('blur', resetTouchGestureState);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.document.removeEventListener('visibilitychange', handleVisibilityChange);
       resetTouchGestureState(); // also reset on unmount
     };
   }, [resetTouchGestureState]);
@@ -905,7 +905,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
+      if (window.document.visibilityState === 'hidden') {
         void flushLatestAnnotations('visibility-hidden');
       }
     };
