@@ -138,8 +138,8 @@ interface PendingZoomAnchor {
   pageYRatio: number;
   viewportOffsetX: number;
   viewportOffsetY: number;
-  previousPageWidth: number;
-  previousPageHeight: number;
+  requestedZoomScale: number;
+  requestId: number;
 }
 
 function clampUnitRatio(value: number): number {
@@ -188,6 +188,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
 
   const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
+  const zoomAnchorRequestIdRef = useRef(0);
+  const zoomAnchorFrameRef = useRef<number | null>(null);
 
   const touchPointersRef = useRef<Map<number, ScoreTouchPoint>>(new Map());
   const singleTouchPanRef = useRef<ScoreSingleTouchPan | null>(null);
@@ -247,49 +249,71 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
     const clampedClientX = Math.max(viewportRect.left, Math.min(viewportRect.right, clientX));
     const clampedClientY = Math.max(viewportRect.top, Math.min(viewportRect.bottom, clientY));
-    const viewportOffsetX = clampedClientX - viewportRect.left;
-    const viewportOffsetY = clampedClientY - viewportRect.top;
+    const nextRequestId = zoomAnchorRequestIdRef.current + 1;
+    zoomAnchorRequestIdRef.current = nextRequestId;
 
     pendingZoomAnchorRef.current = {
-      pageXRatio: clampUnitRatio((clampedClientX - pageRect.left) / pageRect.width),
-      pageYRatio: clampUnitRatio((clampedClientY - pageRect.top) / pageRect.height),
-      viewportOffsetX,
-      viewportOffsetY,
-      previousPageWidth: pageRect.width,
-      previousPageHeight: pageRect.height,
+      pageXRatio: Math.max(0, Math.min(1, (clampedClientX - pageRect.left) / pageRect.width)),
+      pageYRatio: Math.max(0, Math.min(1, (clampedClientY - pageRect.top) / pageRect.height)),
+      viewportOffsetX: clientX - viewportRect.left,
+      viewportOffsetY: clientY - viewportRect.top,
+      requestedZoomScale: nextScale,
+      requestId: nextRequestId,
     };
 
     zoomScaleRef.current = nextScale;
     setZoomScale(nextScale);
   }, [getScorePageSurface]);
 
-  const restorePendingZoomAnchor = useCallback((): boolean => {
+  const handlePageGeometryReady = useCallback((renderedZoomScale: number) => {
     const anchor = pendingZoomAnchorRef.current;
-    const viewport = scoreViewportRef.current;
-    const pageSurface = getScorePageSurface();
-
-    if (!anchor || !viewport || !pageSurface) {
-      return false;
+    if (!anchor) {
+      return;
     }
 
-    const viewportRect = viewport.getBoundingClientRect();
-    const pageRect = pageSurface.getBoundingClientRect();
-
-    if (pageRect.width <= 0 || pageRect.height <= 0) {
-      return false;
+    if (Math.abs(renderedZoomScale - anchor.requestedZoomScale) >= 0.005) {
+      return;
     }
 
-    const targetClientX = viewportRect.left + anchor.viewportOffsetX;
-    const targetClientY = viewportRect.top + anchor.viewportOffsetY;
-    
-    const currentPagePointX = pageRect.left + pageRect.width * anchor.pageXRatio;
-    const currentPagePointY = pageRect.top + pageRect.height * anchor.pageYRatio;
+    const expectedRequestId = anchor.requestId;
 
-    viewport.scrollLeft += currentPagePointX - targetClientX;
-    viewport.scrollTop += currentPagePointY - targetClientY;
+    if (zoomAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(zoomAnchorFrameRef.current);
+    }
 
-    pendingZoomAnchorRef.current = null;
-    return true;
+    zoomAnchorFrameRef.current = window.requestAnimationFrame(() => {
+      zoomAnchorFrameRef.current = null;
+
+      const latestAnchor = pendingZoomAnchorRef.current;
+      if (!latestAnchor || latestAnchor.requestId !== expectedRequestId) {
+        return;
+      }
+
+      const viewport = scoreViewportRef.current;
+      const pageSurface = getScorePageSurface();
+
+      if (!viewport || !pageSurface) {
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const pageRect = pageSurface.getBoundingClientRect();
+
+      if (pageRect.width <= 0 || pageRect.height <= 0) {
+        return;
+      }
+
+      const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
+      const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
+
+      const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
+      const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
+
+      viewport.scrollLeft += renderedAnchorClientX - targetClientX;
+      viewport.scrollTop += renderedAnchorClientY - targetClientY;
+
+      pendingZoomAnchorRef.current = null;
+    });
   }, [getScorePageSurface]);
 
   const handleZoomChange = useCallback((requestedScale: number) => {
@@ -301,48 +325,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     const rect = viewport.getBoundingClientRect();
     handleZoomChangeAtPoint(requestedScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
   }, [handleZoomChangeAtPoint]);
-
-  useEffect(() => {
-    const anchor = pendingZoomAnchorRef.current;
-    if (!anchor) {
-      return;
-    }
-
-    let frameId: number | null = null;
-    let frameCount = 0;
-
-    const tryRestore = () => {
-      const pageSurface = getScorePageSurface();
-      if (!pageSurface) {
-        if (frameCount < 12) {
-          frameCount += 1;
-          frameId = window.requestAnimationFrame(tryRestore);
-        }
-        return;
-      }
-
-      const rect = pageSurface.getBoundingClientRect();
-      const pageSizeChanged =
-        Math.abs(rect.width - anchor.previousPageWidth) >= 0.5 ||
-        Math.abs(rect.height - anchor.previousPageHeight) >= 0.5;
-
-      if (pageSizeChanged || frameCount >= 11) {
-        restorePendingZoomAnchor();
-        return;
-      }
-
-      frameCount += 1;
-      frameId = window.requestAnimationFrame(tryRestore);
-    };
-
-    frameId = window.requestAnimationFrame(tryRestore);
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-    };
-  }, [zoomScale, getScorePageSurface, restorePendingZoomAnchor]);
 
   const finishTwoFingerGesture = useCallback(() => {
     const session = pinchSessionRef.current;
@@ -425,6 +407,12 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       window.removeEventListener('blur', resetTouchGestureState);
       window.document.removeEventListener('visibilitychange', handleVisibilityChange);
       resetTouchGestureState(); // also reset on unmount
+      
+      pendingZoomAnchorRef.current = null;
+      if (zoomAnchorFrameRef.current !== null) {
+        window.cancelAnimationFrame(zoomAnchorFrameRef.current);
+        zoomAnchorFrameRef.current = null;
+      }
     };
   }, [resetTouchGestureState]);
 
@@ -1296,6 +1284,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           canGoPrevious={currentPage > 1}
           canGoNext={currentPage < pageCount}
           zoomScale={zoomScale}
+          onPageGeometryReady={handlePageGeometryReady}
         />
       </div>
 

@@ -40,6 +40,7 @@ interface PdfPageCanvasProps {
   canGoNext: boolean;
   zoomScale: number;
   isTwoFingerGestureActive?: boolean;
+  onPageGeometryReady?: (renderedZoomScale: number) => void;
   touchGestureSessionId?: number;
 }
 
@@ -92,6 +93,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     zoomScale,
     isTwoFingerGestureActive = false,
     touchGestureSessionId = 0,
+    onPageGeometryReady,
   } = props;
 
 
@@ -230,6 +232,10 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     if (nextWidth < 40 || nextHeight < 40) {
       return;
     }
+    
+    // Notify ScoreViewer that the page has rendered and its real geometry is available
+    onPageGeometryReady?.(zoomScale);
+
     setPageDisplaySize(previous =>
       previous.width === nextWidth && previous.height === nextHeight
         ? previous
@@ -238,7 +244,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
             height: nextHeight,
           }
     );
-  }, []);
+  }, [onPageGeometryReady, zoomScale]);
 
   useEffect(() => {
     const promiseCompatibility = (
