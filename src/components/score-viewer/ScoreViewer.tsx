@@ -125,8 +125,8 @@ interface ScoreSingleTouchPan {
   lastClientY: number;
 }
 
-const PINCH_DISTANCE_DEADZONE_PX = 6;
-const PINCH_RATIO_DEADZONE = 0.03;
+const PINCH_DISTANCE_DEADZONE_PX = 4;
+const PINCH_RATIO_DEADZONE = 0.015;
 
 interface ScorePinchSession {
   startDistance: number;
@@ -139,7 +139,7 @@ interface ScorePinchSession {
   pageStartTop: number;
   anchorLocalX: number;
   anchorLocalY: number;
-  pinchBaseDistance: number | null;
+  pinchIntentActive: boolean;
   latestPreviewScale: number;
   latestZoomScale: number;
 }
@@ -249,19 +249,22 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
     const { midpointX, midpointY, distance } = update;
 
-    if (session.pinchBaseDistance === null) {
-      const distanceDelta = Math.abs(distance - session.startDistance);
-      const ratioDelta = Math.abs(distance / session.startDistance - 1);
+    const distanceDelta = Math.abs(distance - session.startDistance);
+    const ratioDelta = Math.abs(distance / session.startDistance - 1);
 
-      if (distanceDelta >= PINCH_DISTANCE_DEADZONE_PX || ratioDelta >= PINCH_RATIO_DEADZONE) {
-        session.pinchBaseDistance = distance;
+    if (!session.pinchIntentActive) {
+      if (distanceDelta < PINCH_DISTANCE_DEADZONE_PX && ratioDelta < PINCH_RATIO_DEADZONE) {
+        // 화면 이동만 허용하고
+        // 확대율은 시작 확대율로 유지
+      } else {
+        session.pinchIntentActive = true;
       }
     }
 
     let nextZoomScale = session.startZoomScale;
-    if (session.pinchBaseDistance !== null) {
+    if (session.pinchIntentActive) {
       nextZoomScale = normalizeZoomScale(
-        session.startZoomScale * (distance / session.pinchBaseDistance)
+        session.startZoomScale * (distance / session.startDistance)
       );
     }
 
@@ -537,7 +540,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       window.dispatchEvent(new Event(SCORE_TWO_FINGER_GESTURE_START_EVENT));
     }
 
-    const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
+        const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
     if (firstTwo) {
       const [first, second] = firstTwo;
       const distance = getTouchDistance(first, second);
@@ -545,11 +548,28 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         return;
       }
       const midpoint = getTouchMidpoint(first, second);
+
+      const pageSurface = getScorePageSurface();
+      if (!pageSurface) {
+        return;
+      }
+      
+      clearGesturePreviewStyle();
+      const pageRect = pageSurface.getBoundingClientRect();
+
       pinchSessionRef.current = {
         startDistance: distance,
         startZoomScale: zoomScaleRef.current,
+        startMidpointX: midpoint.x,
+        startMidpointY: midpoint.y,
         lastMidpointX: midpoint.x,
         lastMidpointY: midpoint.y,
+        pageStartLeft: pageRect.left,
+        pageStartTop: pageRect.top,
+        anchorLocalX: Math.max(0, Math.min(pageRect.width, midpoint.x - pageRect.left)),
+        anchorLocalY: Math.max(0, Math.min(pageRect.height, midpoint.y - pageRect.top)),
+        pinchIntentActive: false,
+        latestPreviewScale: 1,
         latestZoomScale: zoomScaleRef.current,
       };
       
@@ -557,6 +577,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       suppressTouchUntilReleaseRef.current = true;
       isTwoFingerGestureActiveRef.current = true;
       setIsTwoFingerGestureActive(true);
+
       event.preventDefault();
       event.stopPropagation();
     } else {
