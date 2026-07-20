@@ -19,6 +19,57 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+type PdfPageQuarterRotation = 0 | 90 | 180 | 270;
+
+function normalizePageRotation(angle: number): PdfPageQuarterRotation {
+  const normalized = ((angle % 360) + 360) % 360;
+  switch (normalized) {
+    case 90:
+    case 180:
+    case 270:
+      return normalized;
+    default:
+      return 0;
+  }
+}
+
+function mapNormalizedScreenPointToPdfPoint(
+  point: { x: number; y: number },
+  cropBox: { x: number; y: number; width: number; height: number },
+  rotation: PdfPageQuarterRotation
+): { x: number; y: number } {
+  const nx = clampUnit(point.x);
+  const ny = clampUnit(point.y);
+  
+  const { x: cropX, y: cropY, width: cropWidth, height: cropHeight } = cropBox;
+  
+  switch (rotation) {
+    case 90:
+      return {
+        x: cropX + ny * cropWidth,
+        y: cropY + nx * cropHeight,
+      };
+    case 180:
+      return {
+        x: cropX + (1 - nx) * cropWidth,
+        y: cropY + ny * cropHeight,
+      };
+    case 270:
+      return {
+        x: cropX + (1 - ny) * cropWidth,
+        y: cropY + (1 - nx) * cropHeight,
+      };
+    default:
+      return {
+        x: cropX + nx * cropWidth,
+        y: cropY + (1 - ny) * cropHeight,
+      };
+  }
+}
 
 export async function createAnnotatedPdf(
   sourceStoragePath: string,
@@ -36,7 +87,14 @@ export async function createAnnotatedPdf(
   // 3. Draw annotations on each page
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
     const page = pages[pageIndex];
-    const { width, height } = page.getSize();
+    const cropBox = page.getCropBox();
+    const rotation = normalizePageRotation(page.getRotation().angle);
+
+    if (cropBox.width <= 0 || cropBox.height <= 0) {
+      continue;
+    }
+
+    const displayedPageWidth = rotation === 90 || rotation === 270 ? cropBox.height : cropBox.width;
     
     // Check if there are annotations for this page (1-indexed)
     const pageAnnotations = annotations.pages[pageIndex + 1];
@@ -60,16 +118,19 @@ export async function createAnnotatedPdf(
       const lineWidth = getScaledAnnotationLineWidth({
         widthLevel: stroke.width,
         tool: stroke.tool,
-        pageWidth: width,
+        pageWidth: displayedPageWidth,
       });
 
       for (let i = 1; i < stroke.points.length; i++) {
         const p1 = stroke.points[i - 1];
         const p2 = stroke.points[i];
         
+        const start = mapNormalizedScreenPointToPdfPoint(p1, cropBox, rotation);
+        const end = mapNormalizedScreenPointToPdfPoint(p2, cropBox, rotation);
+
         page.drawLine({
-          start: { x: p1.x * width, y: height - p1.y * height },
-          end: { x: p2.x * width, y: height - p2.y * height },
+          start,
+          end,
           thickness: lineWidth,
           color: color,
           opacity: opacity,
