@@ -134,10 +134,16 @@ interface ScorePinchSession {
 }
 
 interface PendingZoomAnchor {
-  xRatio: number;
-  yRatio: number;
+  pageXRatio: number;
+  pageYRatio: number;
   viewportOffsetX: number;
   viewportOffsetY: number;
+  previousPageWidth: number;
+  previousPageHeight: number;
+}
+
+function clampUnitRatio(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function getTouchDistance(first: ScoreTouchPoint, second: ScoreTouchPoint): number {
@@ -198,6 +204,14 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     touchReleaseTimerRef.current = null;
   }, []);
 
+  const getScorePageSurface = useCallback((): HTMLElement | null => {
+    const viewport = scoreViewportRef.current;
+    if (!viewport) {
+      return null;
+    }
+    return viewport.querySelector<HTMLElement>('[data-score-page-surface]');
+  }, []);
+
   
   const zoomScaleRef = useRef(zoomScale);
   useEffect(() => {
@@ -216,26 +230,68 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     }
 
     const viewport = scoreViewportRef.current;
-    if (!viewport) {
+    const pageSurface = getScorePageSurface();
+    if (!viewport || !pageSurface) {
       zoomScaleRef.current = nextScale;
       setZoomScale(nextScale);
       return;
     }
 
     const viewportRect = viewport.getBoundingClientRect();
-    const viewportOffsetX = Math.max(0, Math.min(viewport.clientWidth, clientX - viewportRect.left));
-    const viewportOffsetY = Math.max(0, Math.min(viewport.clientHeight, clientY - viewportRect.top));
+    const pageRect = pageSurface.getBoundingClientRect();
+    
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+      zoomScaleRef.current = nextScale;
+      setZoomScale(nextScale);
+      return;
+    }
+
+    const clampedClientX = Math.max(viewportRect.left, Math.min(viewportRect.right, clientX));
+    const clampedClientY = Math.max(viewportRect.top, Math.min(viewportRect.bottom, clientY));
+    const viewportOffsetX = clampedClientX - viewportRect.left;
+    const viewportOffsetY = clampedClientY - viewportRect.top;
 
     pendingZoomAnchorRef.current = {
-      xRatio: (viewport.scrollLeft + viewportOffsetX) / Math.max(1, viewport.scrollWidth),
-      yRatio: (viewport.scrollTop + viewportOffsetY) / Math.max(1, viewport.scrollHeight),
+      pageXRatio: clampUnitRatio((clampedClientX - pageRect.left) / pageRect.width),
+      pageYRatio: clampUnitRatio((clampedClientY - pageRect.top) / pageRect.height),
       viewportOffsetX,
       viewportOffsetY,
+      previousPageWidth: pageRect.width,
+      previousPageHeight: pageRect.height,
     };
 
     zoomScaleRef.current = nextScale;
     setZoomScale(nextScale);
-  }, []);
+  }, [getScorePageSurface]);
+
+  const restorePendingZoomAnchor = useCallback((): boolean => {
+    const anchor = pendingZoomAnchorRef.current;
+    const viewport = scoreViewportRef.current;
+    const pageSurface = getScorePageSurface();
+
+    if (!anchor || !viewport || !pageSurface) {
+      return false;
+    }
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const pageRect = pageSurface.getBoundingClientRect();
+
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+      return false;
+    }
+
+    const targetClientX = viewportRect.left + anchor.viewportOffsetX;
+    const targetClientY = viewportRect.top + anchor.viewportOffsetY;
+    
+    const currentPagePointX = pageRect.left + pageRect.width * anchor.pageXRatio;
+    const currentPagePointY = pageRect.top + pageRect.height * anchor.pageYRatio;
+
+    viewport.scrollLeft += currentPagePointX - targetClientX;
+    viewport.scrollTop += currentPagePointY - targetClientY;
+
+    pendingZoomAnchorRef.current = null;
+    return true;
+  }, [getScorePageSurface]);
 
   const handleZoomChange = useCallback((requestedScale: number) => {
     const viewport = scoreViewportRef.current;
@@ -253,25 +309,41 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
 
-    let secondFrameId: number | null = null;
-    const firstFrameId = window.requestAnimationFrame(() => {
-      secondFrameId = window.requestAnimationFrame(() => {
-        const viewport = scoreViewportRef.current;
-        if (viewport) {
-          viewport.scrollLeft = Math.max(0, anchor.xRatio * viewport.scrollWidth - anchor.viewportOffsetX);
-          viewport.scrollTop = Math.max(0, anchor.yRatio * viewport.scrollHeight - anchor.viewportOffsetY);
-          pendingZoomAnchorRef.current = null;
+    let frameId: number | null = null;
+    let frameCount = 0;
+
+    const tryRestore = () => {
+      const pageSurface = getScorePageSurface();
+      if (!pageSurface) {
+        if (frameCount < 12) {
+          frameCount += 1;
+          frameId = window.requestAnimationFrame(tryRestore);
         }
-      });
-    });
+        return;
+      }
+
+      const rect = pageSurface.getBoundingClientRect();
+      const pageSizeChanged =
+        Math.abs(rect.width - anchor.previousPageWidth) >= 0.5 ||
+        Math.abs(rect.height - anchor.previousPageHeight) >= 0.5;
+
+      if (pageSizeChanged || frameCount >= 11) {
+        restorePendingZoomAnchor();
+        return;
+      }
+
+      frameCount += 1;
+      frameId = window.requestAnimationFrame(tryRestore);
+    };
+
+    frameId = window.requestAnimationFrame(tryRestore);
 
     return () => {
-      window.cancelAnimationFrame(firstFrameId);
-      if (secondFrameId !== null) {
-        window.cancelAnimationFrame(secondFrameId);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
       }
     };
-  }, [zoomScale]);
+  }, [zoomScale, getScorePageSurface, restorePendingZoomAnchor]);
 
 
   const finishTwoFingerGesture = useCallback(() => {
