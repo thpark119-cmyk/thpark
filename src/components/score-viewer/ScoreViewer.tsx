@@ -110,11 +110,19 @@ const MIN_ZOOM_SCALE = 1;
 const MAX_ZOOM_SCALE = 2;
 const ZOOM_SCALE_STEP = 0.25;
 
-const PINCH_ACTIVATION_DISTANCE_PX = 6;
-const PINCH_ACTIVATION_RATIO = 0.02;
-
 const PINCH_RENDER_INTERVAL_MS = 80;
 const PINCH_RENDER_MIN_SCALE_DELTA = 0.02;
+
+const PAN_INTENT_DISTANCE_PX = 8;
+const ZOOM_ENTER_DISTANCE_PX = 10;
+const ZOOM_ENTER_RATIO = 0.04;
+const PAN_TO_ZOOM_DISTANCE_PX = 18;
+const PAN_TO_ZOOM_RATIO = 0.08;
+const ZOOM_NOISE_DISTANCE_PX = 1.5;
+const ZOOM_NOISE_RATIO = 0.007;
+const PINCH_ZOOM_SENSITIVITY = 0.8;
+
+type TwoFingerGestureMode = 'undecided' | 'pan' | 'zoom';
 
 function clampZoomScale(value: number): number {
   return Math.min(MAX_ZOOM_SCALE, Math.max(MIN_ZOOM_SCALE, value));
@@ -132,12 +140,17 @@ interface ScoreSingleTouchPan {
 }
 
 interface ScorePinchSession {
+  gestureMode: TwoFingerGestureMode;
   startDistance: number;
   startZoomScale: number;
+  startMidpointX: number;
+  startMidpointY: number;
   lastMidpointX: number;
   lastMidpointY: number;
+  zoomReferenceDistance: number;
+  zoomReferenceScale: number;
+  lastAcceptedZoomDistance: number;
   latestZoomScale: number;
-  pinchZoomActive: boolean;
   lastRequestedZoomScale: number;
 }
 
@@ -384,7 +397,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     flushPendingTwoFingerPan();
     const session = pinchSessionRef.current;
     
-    const shouldCommitFinalZoom = session ? session.pinchZoomActive : false;
+    const shouldCommitFinalZoom = session?.gestureMode === 'zoom' &&
+      Math.abs(session.latestZoomScale - session.startZoomScale) >= 0.005;
     
     const finalZoom = shouldCommitFinalZoom
       ? {
@@ -522,12 +536,17 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       }
       const midpoint = getTouchMidpoint(first, second);
       pinchSessionRef.current = {
+        gestureMode: 'undecided',
         startDistance: distance,
         startZoomScale: zoomScaleRef.current,
+        startMidpointX: midpoint.x,
+        startMidpointY: midpoint.y,
         lastMidpointX: midpoint.x,
         lastMidpointY: midpoint.y,
+        zoomReferenceDistance: distance,
+        zoomReferenceScale: zoomScaleRef.current,
+        lastAcceptedZoomDistance: distance,
         latestZoomScale: zoomScaleRef.current,
-        pinchZoomActive: false,
         lastRequestedZoomScale: zoomScaleRef.current,
       };
       
@@ -573,11 +592,31 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         const midpoint = getTouchMidpoint(first, second);
         const session = pinchSessionRef.current;
         
-        const distanceDelta = Math.abs(currentDistance - session.startDistance);
-        const ratioDelta = Math.abs(currentDistance / session.startDistance - 1);
-        
-        if (!session.pinchZoomActive && (distanceDelta >= PINCH_ACTIVATION_DISTANCE_PX || ratioDelta >= PINCH_ACTIVATION_RATIO)) {
-          session.pinchZoomActive = true;
+        const midpointTravel = Math.hypot(
+          midpoint.x - session.startMidpointX,
+          midpoint.y - session.startMidpointY
+        );
+        const totalDistanceDelta = Math.abs(currentDistance - session.startDistance);
+        const totalRatioDelta = Math.abs(currentDistance / session.startDistance - 1);
+
+        if (session.gestureMode === 'undecided') {
+          if (totalDistanceDelta >= ZOOM_ENTER_DISTANCE_PX || totalRatioDelta >= ZOOM_ENTER_RATIO) {
+            session.gestureMode = 'zoom';
+            session.zoomReferenceDistance = session.startDistance;
+            session.zoomReferenceScale = session.startZoomScale;
+            session.lastAcceptedZoomDistance = currentDistance;
+          } else if (midpointTravel >= PAN_INTENT_DISTANCE_PX) {
+            session.gestureMode = 'pan';
+          }
+        } else if (session.gestureMode === 'pan') {
+          if (totalDistanceDelta >= PAN_TO_ZOOM_DISTANCE_PX || totalRatioDelta >= PAN_TO_ZOOM_RATIO) {
+            session.gestureMode = 'zoom';
+            session.zoomReferenceDistance = currentDistance;
+            session.zoomReferenceScale = zoomScaleRef.current;
+            session.lastAcceptedZoomDistance = currentDistance;
+            session.latestZoomScale = zoomScaleRef.current;
+            session.lastRequestedZoomScale = zoomScaleRef.current;
+          }
         }
 
         const midpointDeltaX = midpoint.x - session.lastMidpointX;
@@ -585,25 +624,36 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         
         scheduleTwoFingerPan(midpointDeltaX, midpointDeltaY);
 
-        let nextZoomScale: number;
-        if (!session.pinchZoomActive) {
-          nextZoomScale = session.startZoomScale;
+        let nextZoomScale = session.latestZoomScale;
+
+        if (session.gestureMode === 'zoom') {
+          const acceptedDistanceDelta = Math.abs(currentDistance - session.lastAcceptedZoomDistance);
+          const acceptedRatioDelta = Math.abs(currentDistance / session.lastAcceptedZoomDistance - 1);
+
+          if (acceptedDistanceDelta >= ZOOM_NOISE_DISTANCE_PX || acceptedRatioDelta >= ZOOM_NOISE_RATIO) {
+            session.lastAcceptedZoomDistance = currentDistance;
+            
+            const rawDistanceRatio = currentDistance / session.zoomReferenceDistance;
+            const adjustedDistanceRatio = Math.pow(rawDistanceRatio, PINCH_ZOOM_SENSITIVITY);
+            nextZoomScale = normalizeZoomScale(session.zoomReferenceScale * adjustedDistanceRatio);
+            
+            session.latestZoomScale = nextZoomScale;
+
+            if (Math.abs(nextZoomScale - session.lastRequestedZoomScale) >= PINCH_RENDER_MIN_SCALE_DELTA) {
+              session.lastRequestedZoomScale = nextZoomScale;
+              schedulePinchZoom({
+                zoomScale: nextZoomScale,
+                midpointX: midpoint.x,
+                midpointY: midpoint.y,
+              });
+            }
+          }
         } else {
-          nextZoomScale = normalizeZoomScale(session.startZoomScale * (currentDistance / session.startDistance));
+          session.latestZoomScale = session.gestureMode === 'pan' && session.zoomReferenceScale !== session.startZoomScale ? session.zoomReferenceScale : session.startZoomScale;
         }
 
         session.lastMidpointX = midpoint.x;
         session.lastMidpointY = midpoint.y;
-        session.latestZoomScale = nextZoomScale;
-
-        if (session.pinchZoomActive && Math.abs(nextZoomScale - session.lastRequestedZoomScale) >= PINCH_RENDER_MIN_SCALE_DELTA) {
-          session.lastRequestedZoomScale = nextZoomScale;
-          schedulePinchZoom({
-            zoomScale: nextZoomScale,
-            midpointX: midpoint.x,
-            midpointY: midpoint.y,
-          });
-        }
       }
     } else if (currentTool === 'none' && singleTouchPanRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
