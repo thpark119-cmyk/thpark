@@ -245,6 +245,8 @@ function applyEraserSweep(
   };
 }
 
+const SCORE_TWO_FINGER_GESTURE_START_EVENT = 'mio-score-two-finger-gesture-start';
+
 export default function AnnotationLayer({
   width,
   height,
@@ -254,42 +256,43 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
-  touchGestureSessionId = 0,
 }: AnnotationLayerProps) {
 
-  const releaseActivePointerCapture = useCallback(() => {
+  const cancelActiveAnnotationSession = useCallback(() => {
     const pointerId = activeAnnotationPointerIdRef.current;
     const canvas = canvasRef.current;
-    if (pointerId === null || !canvas) {
-      return;
-    }
-    try {
-      if (canvas.hasPointerCapture(pointerId)) {
-        canvas.releasePointerCapture(pointerId);
-      }
-    } catch {
-      // 이미 종료됐거나 다른 요소로
-      // capture가 이동한 pointer는 무시한다.
-    }
-  }, []);
 
-  const cancelActiveAnnotationSession = useCallback(() => {
-    releaseActivePointerCapture();
     activeAnnotationPointerIdRef.current = null;
+
+    if (pointerId !== null && canvas) {
+      try {
+        if (canvas.hasPointerCapture(pointerId)) {
+          canvas.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // 이미 종료되었거나 capture가 없는 pointer는 무시
+      }
+    }
+
     setCurrentStroke(null);
     eraserSessionStrokesRef.current = null;
     lastEraserPointRef.current = null;
     eraserHasChangesRef.current = false;
     setEraserPreviewStrokes(null);
     setEraserCursor(null);
-  }, [releaseActivePointerCapture]);
+  }, []);
 
   useEffect(() => {
-    if (touchGestureSessionId <= 0) {
-      return;
-    }
-    cancelActiveAnnotationSession();
-  }, [touchGestureSessionId, cancelActiveAnnotationSession]);
+    const handleTwoFingerGestureStart = () => {
+      cancelActiveAnnotationSession();
+    };
+
+    window.addEventListener(SCORE_TWO_FINGER_GESTURE_START_EVENT, handleTwoFingerGestureStart);
+
+    return () => {
+      window.removeEventListener(SCORE_TWO_FINGER_GESTURE_START_EVENT, handleTwoFingerGestureStart);
+    };
+  }, [cancelActiveAnnotationSession]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
   const activeAnnotationPointerIdRef = useRef<number | null>(null);

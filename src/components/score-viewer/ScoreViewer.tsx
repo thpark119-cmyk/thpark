@@ -10,6 +10,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import PdfPageCanvas from './PdfPageCanvas';
 
+const SCORE_TWO_FINGER_GESTURE_START_EVENT = 'mio-score-two-finger-gesture-start';
+
 interface ScoreViewerProps {
   file: CloudScoreFile;
   repertoireId: string;
@@ -204,7 +206,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   const isTwoFingerGestureActiveRef = useRef(false);
   const [isTwoFingerGestureActive, setIsTwoFingerGestureActive] = useState(false);
-  const [touchGestureSessionId, setTouchGestureSessionId] = useState(0);
 
 
 
@@ -282,19 +283,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           y: session.lastMidpointY,
         }
       : null;
-
-    const viewport = scoreViewportRef.current;
-    if (viewport) {
-      for (const pointerId of touchPointersRef.current.keys()) {
-        try {
-          if (viewport.hasPointerCapture(pointerId)) {
-            viewport.releasePointerCapture(pointerId);
-          }
-        } catch {
-          // 종료된 pointer 또는 pointer capture 미지원은 무시
-        }
-      }
-    }
 
     touchPointersRef.current.clear();
     singleTouchPanRef.current = null;
@@ -382,6 +370,10 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     
     touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
 
+    if (touchPointersRef.current.size === 2) {
+      window.dispatchEvent(new Event(SCORE_TWO_FINGER_GESTURE_START_EVENT));
+    }
+
     const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
     if (firstTwo) {
       const [first, second] = firstTwo;
@@ -402,16 +394,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       suppressTouchUntilReleaseRef.current = true;
       isTwoFingerGestureActiveRef.current = true;
       setIsTwoFingerGestureActive(true);
-      setTouchGestureSessionId(prev => prev + 1);
-
       event.preventDefault();
       event.stopPropagation();
-      
-      for (const pointerId of touchPointersRef.current.keys()) {
-        try {
-          event.currentTarget.setPointerCapture(pointerId);
-        } catch {}
-      }
     } else {
       if (currentTool === 'none' && touchPointersRef.current.size === 1 && !suppressTouchUntilReleaseRef.current) {
         singleTouchPanRef.current = {
@@ -511,12 +495,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     if (touchPointersRef.current.size === 0) {
       singleTouchPanRef.current = null;
     }
-    
-    try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    } catch {}
   };
 
   const handleScorePointerCancelCapture = (event: React.PointerEvent<HTMLDivElement>) => {
