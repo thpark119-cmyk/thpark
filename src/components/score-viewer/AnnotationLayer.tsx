@@ -257,7 +257,24 @@ export default function AnnotationLayer({
   touchGestureSessionId = 0,
 }: AnnotationLayerProps) {
 
+  const releaseActivePointerCapture = useCallback(() => {
+    const pointerId = activeAnnotationPointerIdRef.current;
+    const canvas = canvasRef.current;
+    if (pointerId === null || !canvas) {
+      return;
+    }
+    try {
+      if (canvas.hasPointerCapture(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // 이미 종료됐거나 다른 요소로
+      // capture가 이동한 pointer는 무시한다.
+    }
+  }, []);
+
   const cancelActiveAnnotationSession = useCallback(() => {
+    releaseActivePointerCapture();
     activeAnnotationPointerIdRef.current = null;
     setCurrentStroke(null);
     eraserSessionStrokesRef.current = null;
@@ -265,7 +282,7 @@ export default function AnnotationLayer({
     eraserHasChangesRef.current = false;
     setEraserPreviewStrokes(null);
     setEraserCursor(null);
-  }, []);
+  }, [releaseActivePointerCapture]);
 
   useEffect(() => {
     if (touchGestureSessionId <= 0) {
@@ -575,17 +592,14 @@ export default function AnnotationLayer({
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
-    activeAnnotationPointerIdRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    cancelActiveAnnotationSession();
+  };
 
-    setEraserCursor(null);
-    setCurrentStroke(null);
-    eraserSessionStrokesRef.current = null;
-    lastEraserPointRef.current = null;
-    eraserHasChangesRef.current = false;
-    setEraserPreviewStrokes(null);
+  const handleLostPointerCapture = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activeAnnotationPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+    cancelActiveAnnotationSession();
   };
 
   if (width === 0 || height === 0) return null;
@@ -609,6 +623,7 @@ export default function AnnotationLayer({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onLostPointerCapture={handleLostPointerCapture}
         onPointerEnter={event => updateEraserCursor(event)}
         onPointerLeave={() => {
           if (activeAnnotationPointerIdRef.current === null) {
