@@ -74,6 +74,40 @@ function PdfErrorMessage({ text, onRetry }: { text: string; onRetry?: () => void
   );
 }
 
+interface MemoizedPdfPageProps {
+  pageNumber: number;
+  renderedPageWidth: number;
+  devicePixelRatio: number;
+  onLoadError: (error: Error) => void;
+  onRenderError: (error: Error) => void;
+  onRenderSuccess: () => void;
+}
+
+const MemoizedPdfPage = React.memo(function MemoizedPdfPage({
+  pageNumber,
+  renderedPageWidth,
+  devicePixelRatio,
+  onLoadError,
+  onRenderError,
+  onRenderSuccess,
+}: MemoizedPdfPageProps) {
+  return (
+    <Page
+      pageNumber={pageNumber}
+      width={renderedPageWidth}
+      devicePixelRatio={devicePixelRatio}
+      renderMode="canvas"
+      renderTextLayer={false}
+      renderAnnotationLayer={false}
+      onLoadError={onLoadError}
+      onRenderError={onRenderError}
+      onRenderSuccess={onRenderSuccess}
+      loading={<PdfLoadingMessage text="PDF 페이지를 표시하는 중입니다..." />}
+      error={null}
+    />
+  );
+});
+
 export default function PdfPageCanvas(props: PdfPageCanvasProps) {
   const { 
     storagePath, 
@@ -419,6 +453,47 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const hasError = downloadError || documentError || pageError;
 
+  const pdfDevicePixelRatio = useMemo(() => Math.min(window.devicePixelRatio || 1, 2), []);
+
+  const handlePageLoadError = useCallback((error: Error) => {
+    setIsPageRendered(false);
+    console.error('[Mio PDF Viewer]', {
+      engine: 'react-pdf',
+      event: 'page-load-error',
+      pageNumber,
+      errorName: error.name,
+      errorMessage: error.message,
+    });
+    setPageError('PDF 페이지를 불러오지 못했습니다.');
+  }, [pageNumber]);
+
+  const handlePageRenderError = useCallback((error: Error) => {
+    setIsPageRendered(false);
+    console.error('[Mio PDF Viewer]', {
+      engine: 'react-pdf',
+      event: 'page-render-error',
+      pageNumber,
+      errorName: error.name,
+      errorMessage: error.message,
+    });
+    setPageError('PDF 페이지를 화면에 표시하지 못했습니다.');
+  }, [pageNumber]);
+
+  const handlePageRenderSuccess = useCallback(() => {
+    setIsPageRendered(true);
+    setPageError(null);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(measureRenderedPage);
+    });
+    console.info('[Mio PDF Viewer]', {
+      engine: 'react-pdf',
+      event: 'page-render-success',
+      pageNumber,
+      containerWidth,
+      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    });
+  }, [pageNumber, containerWidth, measureRenderedPage]);
+
   return (
     <div
       ref={containerRef}
@@ -475,6 +550,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
             {containerWidth >= 40 && (
               <div 
                 ref={pageWrapperRef}
+                data-score-page-surface
                 className="relative max-w-none mx-auto shadow-xl bg-white"
                 onPointerDown={handleViewPointerDown}
                 onPointerMove={handleViewPointerMove}
@@ -486,51 +562,13 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                   touchAction: 'none',
                 }}
               >
-                <Page
+                <MemoizedPdfPage
                   pageNumber={pageNumber}
-                  width={renderedPageWidth}
-                  devicePixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
-                  renderMode="canvas"
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  onLoadError={(error) => {
-                    setIsPageRendered(false);
-                    console.error('[Mio PDF Viewer]', {
-                      engine: 'react-pdf',
-                      event: 'page-load-error',
-                      pageNumber,
-                      errorName: error.name,
-                      errorMessage: error.message,
-                    });
-                    setPageError('PDF 페이지를 불러오지 못했습니다.');
-                  }}
-                  onRenderError={(error) => {
-                    setIsPageRendered(false);
-                    console.error('[Mio PDF Viewer]', {
-                      engine: 'react-pdf',
-                      event: 'page-render-error',
-                      pageNumber,
-                      errorName: error.name,
-                      errorMessage: error.message,
-                    });
-                    setPageError('PDF 페이지를 화면에 표시하지 못했습니다.');
-                  }}
-                  onRenderSuccess={() => {
-                    setIsPageRendered(true);
-                    setPageError(null);
-                    window.requestAnimationFrame(() => {
-                      window.requestAnimationFrame(measureRenderedPage);
-                    });
-                    console.info('[Mio PDF Viewer]', {
-                      engine: 'react-pdf',
-                      event: 'page-render-success',
-                      pageNumber,
-                      containerWidth,
-                      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
-                    });
-                  }}
-                  loading={<PdfLoadingMessage text="PDF 페이지를 표시하는 중입니다..." />}
-                  error={null}
+                  renderedPageWidth={renderedPageWidth}
+                  devicePixelRatio={pdfDevicePixelRatio}
+                  onLoadError={handlePageLoadError}
+                  onRenderError={handlePageRenderError}
+                  onRenderSuccess={handlePageRenderSuccess}
                 />
                 
 
