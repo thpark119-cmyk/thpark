@@ -185,6 +185,11 @@ function normalizeZoomScale(value: number): number {
 }
 
 
+interface PendingTwoFingerPan {
+  deltaX: number;
+  deltaY: number;
+}
+
 export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewerProps) {
   useBodyScrollLock(true);
   const { user } = useAuth();
@@ -206,6 +211,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const pinchFrameRef = useRef<number | null>(null);
   const lastPinchRenderAtRef = useRef<number>(0);
   const pendingPinchUpdateRef = useRef<{ zoomScale: number; midpointX: number; midpointY: number; } | null>(null);
+  const pendingTwoFingerPanRef = useRef<PendingTwoFingerPan>({ deltaX: 0, deltaY: 0 });
+  const twoFingerPanFrameRef = useRef<number | null>(null);
   const touchReleaseTimerRef = useRef<number | null>(null);
   const clearTouchReleaseTimer = useCallback(() => {
     if (touchReleaseTimerRef.current === null) {
@@ -325,6 +332,44 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     });
   }, [getScorePageSurface]);
 
+  const flushPendingTwoFingerPan = useCallback(() => {
+    if (twoFingerPanFrameRef.current !== null) {
+      window.cancelAnimationFrame(twoFingerPanFrameRef.current);
+      twoFingerPanFrameRef.current = null;
+    }
+    const pending = pendingTwoFingerPanRef.current;
+    if (pending.deltaX !== 0 || pending.deltaY !== 0) {
+      const viewport = scoreViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft -= pending.deltaX;
+        viewport.scrollTop -= pending.deltaY;
+      }
+      pending.deltaX = 0;
+      pending.deltaY = 0;
+    }
+  }, []);
+
+  const scheduleTwoFingerPan = useCallback((deltaX: number, deltaY: number) => {
+    pendingTwoFingerPanRef.current.deltaX += deltaX;
+    pendingTwoFingerPanRef.current.deltaY += deltaY;
+
+    if (twoFingerPanFrameRef.current !== null) {
+      return;
+    }
+
+    twoFingerPanFrameRef.current = window.requestAnimationFrame(() => {
+      twoFingerPanFrameRef.current = null;
+      const pending = pendingTwoFingerPanRef.current;
+      const viewport = scoreViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft -= pending.deltaX;
+        viewport.scrollTop -= pending.deltaY;
+      }
+      pending.deltaX = 0;
+      pending.deltaY = 0;
+    });
+  }, []);
+
   const handleZoomChange = useCallback((requestedScale: number) => {
     const viewport = scoreViewportRef.current;
     if (!viewport) {
@@ -336,6 +381,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, [handleZoomChangeAtPoint]);
 
   const finishTwoFingerGesture = useCallback(() => {
+    flushPendingTwoFingerPan();
     const session = pinchSessionRef.current;
     
     const shouldCommitFinalZoom = session ? session.pinchZoomActive : false;
@@ -372,7 +418,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     if (finalZoom) {
       handleZoomChangeAtPoint(finalZoom.scale, finalZoom.x, finalZoom.y);
     }
-  }, [clearTouchReleaseTimer, handleZoomChangeAtPoint]);
+  }, [clearTouchReleaseTimer, handleZoomChangeAtPoint, flushPendingTwoFingerPan]);
 
   const schedulePinchZoom = useCallback(({ zoomScale: requestedScale, midpointX, midpointY }: { zoomScale: number; midpointX: number; midpointY: number; }) => {
     pendingPinchUpdateRef.current = { zoomScale: requestedScale, midpointX, midpointY };
@@ -422,6 +468,12 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       window.cancelAnimationFrame(pinchFrameRef.current);
       pinchFrameRef.current = null;
     }
+    if (twoFingerPanFrameRef.current !== null) {
+      window.cancelAnimationFrame(twoFingerPanFrameRef.current);
+      twoFingerPanFrameRef.current = null;
+    }
+    pendingTwoFingerPanRef.current.deltaX = 0;
+    pendingTwoFingerPanRef.current.deltaY = 0;
   }, []);
 
   useEffect(() => {
@@ -531,11 +583,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         const midpointDeltaX = midpoint.x - session.lastMidpointX;
         const midpointDeltaY = midpoint.y - session.lastMidpointY;
         
-        const viewport = scoreViewportRef.current;
-        if (viewport) {
-          viewport.scrollLeft -= midpointDeltaX;
-          viewport.scrollTop -= midpointDeltaY;
-        }
+        scheduleTwoFingerPan(midpointDeltaX, midpointDeltaY);
 
         let nextZoomScale: number;
         if (!session.pinchZoomActive) {

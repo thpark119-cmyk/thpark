@@ -256,6 +256,7 @@ export default function AnnotationLayer({
   strokeColor,
   strokeWidth,
   eraserRadius,
+  isTwoFingerGestureActive = false,
 }: AnnotationLayerProps) {
 
   const cancelActiveAnnotationSession = useCallback(() => {
@@ -293,6 +294,13 @@ export default function AnnotationLayer({
       window.removeEventListener(SCORE_TWO_FINGER_GESTURE_START_EVENT, handleTwoFingerGestureStart);
     };
   }, [cancelActiveAnnotationSession]);
+
+  useEffect(() => {
+    if (isTwoFingerGestureActive) {
+      cancelActiveAnnotationSession();
+    }
+  }, [isTwoFingerGestureActive, cancelActiveAnnotationSession]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
   const activeAnnotationPointerIdRef = useRef<number | null>(null);
@@ -314,6 +322,10 @@ export default function AnnotationLayer({
   const [eraserCursor, setEraserCursor] = useState<EraserCursorState | null>(null);
 
   const updateEraserCursor = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTwoFingerGestureActive) {
+      setEraserCursor(null);
+      return;
+    }
     if (currentTool !== 'eraser') {
       return;
     }
@@ -457,6 +469,7 @@ export default function AnnotationLayer({
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTwoFingerGestureActive) return;
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
@@ -517,6 +530,7 @@ export default function AnnotationLayer({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTwoFingerGestureActive) return;
     updateEraserCursor(event);
 
     if (currentTool === 'none') return;
@@ -570,6 +584,7 @@ export default function AnnotationLayer({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTwoFingerGestureActive) return;
     if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
     activeAnnotationPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -594,6 +609,7 @@ export default function AnnotationLayer({
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTwoFingerGestureActive) return;
     if (activeAnnotationPointerIdRef.current !== event.pointerId) return;
     cancelActiveAnnotationSession();
   };
@@ -616,7 +632,7 @@ export default function AnnotationLayer({
         style={{
           width: `${width}px`,
           height: `${height}px`,
-          pointerEvents: currentTool === 'none' ? 'none' : 'auto',
+          pointerEvents: currentTool === 'none' || isTwoFingerGestureActive ? 'none' : 'auto',
           touchAction: 'none',
           cursor: currentTool === 'none' 
             ? 'default' 
@@ -634,7 +650,7 @@ export default function AnnotationLayer({
           }
         }}
       />
-      {currentTool === 'eraser' && eraserCursor?.visible && (
+      {!isTwoFingerGestureActive && currentTool === 'eraser' && eraserCursor?.visible && (
         <div
           data-score-eraser-cursor
           aria-hidden="true"
