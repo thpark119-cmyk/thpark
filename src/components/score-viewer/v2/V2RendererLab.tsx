@@ -43,6 +43,7 @@ export default function V2RendererLab() {
   const [errorMessage, setErrorMessage] = useState('');
   const [docInstanceId, setDocInstanceId] = useState(0);
   const [engineGeneration, setEngineGeneration] = useState(0);
+  const [canvasInspectionVersion, setCanvasInspectionVersion] = useState(0);
 
   // Info
   const [frontInfo, setFrontInfo] = useState<PageSurfaceFrontInfoV2 | null>(null);
@@ -126,7 +127,7 @@ export default function V2RendererLab() {
         if (result.status === 'loaded') {
           console.info('[Mio V2 Renderer Lab] file-load-success');
           setDocName(file.name);
-          setNumPages(result.info.numPages);
+          setNumPages(result.numPages);
           setPageNumber(1);
           setCssScale(1);
           setOutputScale(Math.min(window.devicePixelRatio || 1, 2) >= 1.5 ? 1.5 : 1);
@@ -344,10 +345,10 @@ export default function V2RendererLab() {
 
         {/* Right/Bottom Column: Stats & Logs */}
         <div className="w-full md:w-80 flex flex-col gap-4">
-          <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3">
+          <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3" data-inspection-version={canvasInspectionVersion}>
             <div className="flex items-center justify-between">
                <h2 className="text-sm font-bold text-stone-300">Front Canvas Info</h2>
-               <button onClick={() => setFrontInfo({...frontInfo} as any)} className="text-[10px] bg-stone-800 px-2 py-1 rounded hover:bg-stone-700">Canvas 상태 새로고침</button>
+               <button onClick={() => setCanvasInspectionVersion((v) => v + 1)} className="text-[10px] bg-stone-800 px-2 py-1 rounded hover:bg-stone-700">Canvas 상태 새로고침</button>
             </div>
             {frontInfo ? (
               <div className="text-xs text-stone-400 space-y-1 bg-stone-950 p-2 rounded">

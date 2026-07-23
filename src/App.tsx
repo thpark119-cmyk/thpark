@@ -77,6 +77,12 @@ export default function App() {
 
   const isAdmin = isAdminUser(user);
 
+  React.useEffect(() => {
+    if (!isAdmin && activeTab === 'v2_renderer_lab') {
+      setActiveTab('dashboard');
+    }
+  }, [isAdmin, activeTab]);
+
   const navItems = [
     { id: 'dashboard', label: t('navigation.dashboard'), icon: LayoutGrid },
     { id: 'mylessons', label: t('navigation.receivedLessons'), icon: BookOpen },

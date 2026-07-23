@@ -1,3 +1,4 @@
 export function isAdminUser(user: any): boolean {
-  return user?.email === 'thpark119@gmail.com';
+  if (!user || !user.email) return false;
+  return user.email.trim().toLowerCase() === 'thpark119@gmail.com';
 }
