@@ -1,4 +1,7 @@
+export type PdfDocumentLoadStatusV2 = 'loaded' | 'stale';
+
 export interface PdfDocumentInfoV2 {
+  status: PdfDocumentLoadStatusV2;
   generation: number;
   numPages: number;
   fingerprint: string | null;

@@ -10,7 +10,8 @@ import {
   PDFDocumentLoadingTask,
   PDFDocumentProxy,
   PDFPageProxy,
-  RenderTask
+  RenderTask,
+  RenderingCancelledException
 } from './pdfJsV2';
 
 export class PdfRenderEngineV2 {
@@ -43,6 +44,67 @@ export class PdfRenderEngineV2 {
     return this._activeRenderRequestId;
   }
 
+  private logDebug(event: string, ...details: unknown[]) {
+    if (import.meta.env.DEV) {
+      console.debug(`[Mio PdfRenderEngineV2] ${event}`, ...details);
+    }
+  }
+
+  private logWarning(event: string, ...details: unknown[]) {
+    if (import.meta.env.DEV) {
+      console.warn(`[Mio PdfRenderEngineV2] ${event}`, ...details);
+    }
+  }
+
+  private async disposeDocumentResources(): Promise<void> {
+    const task = this._loadingTask;
+    const proxy = this._documentProxy;
+    
+    this._loadingTask = null;
+    this._documentProxy = null;
+    this.clearPageCache();
+    this.cancelActiveRender();
+
+    if (task) {
+      try {
+        await task.destroy();
+      } catch (e: unknown) {
+        this.logWarning('Error destroying previous loading task:', e);
+      }
+    } else if (proxy) {
+      try {
+        await proxy.destroy();
+      } catch (e: unknown) {
+        this.logWarning('Error destroying previous document proxy:', e);
+      }
+    }
+  }
+
+  private releaseActiveRender(task: RenderTask, requestId: number): void {
+    if (this._activeRenderTask === task && this._activeRenderRequestId === requestId) {
+      this._activeRenderTask = null;
+      this._activeRenderRequestId = null;
+    }
+  }
+
+  public cancelActiveRender(): void {
+    const task = this._activeRenderTask;
+    this._activeRenderTask = null;
+    this._activeRenderRequestId = null;
+    
+    if (task) {
+      try {
+        task.cancel();
+      } catch (e: unknown) {
+        // ignore
+      }
+    }
+  }
+
+  public clearPageCache(): void {
+    this._pageCache.clear();
+  }
+
   public async loadDocument(bytes: Uint8Array): Promise<PdfDocumentInfoV2> {
     if (this._isDestroyed) {
       throw new PdfRenderEngineErrorV2('Engine is destroyed', 'ENGINE_DESTROYED');
@@ -54,53 +116,44 @@ export class PdfRenderEngineV2 {
       throw new PdfRenderEngineErrorV2('Bytes length is 0', 'INVALID_PDF_BYTES');
     }
 
-    this.cancelActiveRender();
-
-    if (this._loadingTask) {
-      try {
-        this._loadingTask.destroy();
-      } catch (e) {
-        console.warn('[Mio PdfRenderEngineV2] Error destroying previous loading task:', e);
-      }
-      this._loadingTask = null;
-    }
-
-    if (this._documentProxy) {
-      try {
-        this._documentProxy.destroy();
-      } catch (e) {
-        console.warn('[Mio PdfRenderEngineV2] Error destroying previous document proxy:', e);
-      }
-      this._documentProxy = null;
-    }
-
-    this._pageCache.clear();
     this._generation += 1;
     const currentGeneration = this._generation;
 
-    this._state = 'loading';
-    console.debug('[Mio PdfRenderEngineV2] document-load-start (gen: ' + currentGeneration + ')');
+    await this.disposeDocumentResources();
 
+    if (this._generation !== currentGeneration || this._isDestroyed) {
+      this.logDebug('document-load-stale: before task creation (gen: ' + currentGeneration + ')');
+      return { status: 'stale', generation: currentGeneration, numPages: 0, fingerprint: null };
+    }
+
+    this._state = 'loading';
+    this.logDebug('document-load-start (gen: ' + currentGeneration + ')');
+
+    let loadingTask: PDFDocumentLoadingTask;
     try {
       const dataCopy = new Uint8Array(bytes);
-      this._loadingTask = getDocument({ data: dataCopy });
-      
-      const documentProxy = await this._loadingTask.promise;
-      
-      if (this._isDestroyed) {
-        try {
-          documentProxy.destroy();
-        } catch (e) {}
-        console.debug('[Mio PdfRenderEngineV2] document-load-stale: engine destroyed (gen: ' + currentGeneration + ')');
-        return { generation: currentGeneration, numPages: 0, fingerprint: null };
-      }
+      loadingTask = getDocument({ data: dataCopy });
+      this._loadingTask = loadingTask;
+    } catch (e: unknown) {
+      this._state = 'idle';
+      throw new PdfRenderEngineErrorV2('Failed to create loading task', 'DOCUMENT_LOAD_FAILED', e);
+    }
 
-      if (this._generation !== currentGeneration) {
+    try {
+      const documentProxy = await loadingTask.promise;
+      
+      if (
+        this._isDestroyed || 
+        this._generation !== currentGeneration || 
+        this._loadingTask !== loadingTask
+      ) {
         try {
           documentProxy.destroy();
-        } catch (e) {}
-        console.debug('[Mio PdfRenderEngineV2] document-load-stale: generation changed (gen: ' + currentGeneration + ')');
-        return { generation: currentGeneration, numPages: 0, fingerprint: null };
+        } catch (e: unknown) {
+          // ignore
+        }
+        this.logDebug('document-load-stale: after load (gen: ' + currentGeneration + ')');
+        return { status: 'stale', generation: currentGeneration, numPages: 0, fingerprint: null };
       }
 
       this._documentProxy = documentProxy;
@@ -109,16 +162,19 @@ export class PdfRenderEngineV2 {
       const fingerprints = documentProxy.fingerprints || [];
       const fingerprint = fingerprints[0] || null;
       
-      console.debug('[Mio PdfRenderEngineV2] document-load-success (gen: ' + currentGeneration + ', pages: ' + documentProxy.numPages + ')');
+      this.logDebug('document-load-success (gen: ' + currentGeneration + ', pages: ' + documentProxy.numPages + ')');
 
       return {
+        status: 'loaded',
         generation: currentGeneration,
         numPages: documentProxy.numPages,
         fingerprint: typeof fingerprint === 'string' ? fingerprint : null
       };
-    } catch (e: any) {
-      this._state = 'idle';
-      console.error('[Mio PdfRenderEngineV2] document-load-error (gen: ' + currentGeneration + '):', e);
+    } catch (e: unknown) {
+      if (this._loadingTask === loadingTask) {
+        this._loadingTask = null;
+        this._state = 'idle';
+      }
       throw new PdfRenderEngineErrorV2('Failed to load document', 'DOCUMENT_LOAD_FAILED', e);
     }
   }
@@ -127,7 +183,8 @@ export class PdfRenderEngineV2 {
     if (this._isDestroyed) {
       throw new PdfRenderEngineErrorV2('Engine is destroyed', 'ENGINE_DESTROYED');
     }
-    if (!this._documentProxy) {
+    const proxy = this._documentProxy;
+    if (!proxy) {
       throw new PdfRenderEngineErrorV2('No document loaded', 'DOCUMENT_NOT_LOADED');
     }
     if (this._generation !== expectedGeneration) {
@@ -138,23 +195,27 @@ export class PdfRenderEngineV2 {
     }
 
     if (this._pageCache.has(pageNumber)) {
-      console.debug('[Mio PdfRenderEngineV2] page-cache-hit (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
+      this.logDebug('page-cache-hit (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
       return this._pageCache.get(pageNumber)!;
     }
 
-    console.debug('[Mio PdfRenderEngineV2] page-load-start (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
+    this.logDebug('page-load-start (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
     try {
-      const page = await this._documentProxy.getPage(pageNumber);
+      const page = await proxy.getPage(pageNumber);
       
-      if (this._generation !== expectedGeneration) {
-        console.debug('[Mio PdfRenderEngineV2] page-load-stale (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
+      if (
+        this._isDestroyed ||
+        this._generation !== expectedGeneration ||
+        this._documentProxy !== proxy
+      ) {
+        this.logDebug('page-load-stale (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
         throw new PdfRenderEngineErrorV2('Generation mismatch after page load', 'PAGE_LOAD_FAILED');
       }
 
       this._pageCache.set(pageNumber, page);
-      console.debug('[Mio PdfRenderEngineV2] page-load-success (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
+      this.logDebug('page-load-success (gen: ' + expectedGeneration + ', page: ' + pageNumber + ')');
       return page;
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e instanceof PdfRenderEngineErrorV2) {
         throw e;
       }
@@ -193,28 +254,34 @@ export class PdfRenderEngineV2 {
     const expectedGeneration = this._generation;
     this._activeRenderRequestId = requestId;
 
-    console.debug('[Mio PdfRenderEngineV2] render-start (gen: ' + expectedGeneration + ', req: ' + requestId + ', page: ' + pageNumber + ')');
+    this.logDebug('render-start (gen: ' + expectedGeneration + ', req: ' + requestId + ', page: ' + pageNumber + ')');
+
+    const makeStaleResult = (): PdfRenderResultV2 => ({
+      status: 'stale',
+      generation: expectedGeneration,
+      requestId,
+      pageNumber,
+      cssScale,
+      outputScale,
+      cssWidth: 0,
+      cssHeight: 0,
+      pixelWidth: 0,
+      pixelHeight: 0,
+      renderDurationMs: performance.now() - startTime
+    });
 
     let page: PDFPageProxy;
     try {
       page = await this.getPage(pageNumber, expectedGeneration);
-    } catch (e: any) {
-      if (this._generation !== expectedGeneration || this._isDestroyed) {
-        return {
-          status: 'stale',
-          generation: expectedGeneration,
-          requestId,
-          pageNumber,
-          cssScale,
-          outputScale,
-          cssWidth: 0,
-          cssHeight: 0,
-          pixelWidth: 0,
-          pixelHeight: 0,
-          renderDurationMs: performance.now() - startTime
-        };
+    } catch (e: unknown) {
+      if (this._generation !== expectedGeneration || this._isDestroyed || this._activeRenderRequestId !== requestId) {
+        return makeStaleResult();
       }
       throw e;
+    }
+
+    if (this._generation !== expectedGeneration || this._isDestroyed || this._activeRenderRequestId !== requestId) {
+      return makeStaleResult();
     }
 
     const viewport = page.getViewport({ scale: cssScale });
@@ -234,15 +301,18 @@ export class PdfRenderEngineV2 {
       throw new PdfRenderEngineErrorV2('Failed to get 2d context from canvas', 'CANVAS_CONTEXT_UNAVAILABLE');
     }
 
-    const transform = outputScale !== 1 
-      ? [outputScale, 0, 0, outputScale, 0, 0] 
-      : null;
+    if (this._generation !== expectedGeneration || this._isDestroyed || this._activeRenderRequestId !== requestId) {
+      return makeStaleResult();
+    }
+
+    const transform: [number, number, number, number, number, number] | undefined = 
+      outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
 
     const renderTask = page.render({
       canvasContext: ctx,
       canvas: canvas,
       viewport: viewport,
-      transform: transform as any
+      transform: transform
     });
 
     this._activeRenderTask = renderTask;
@@ -256,23 +326,11 @@ export class PdfRenderEngineV2 {
         this._activeRenderRequestId !== requestId ||
         this._activeRenderTask !== renderTask
       ) {
-        console.debug('[Mio PdfRenderEngineV2] render-stale (gen: ' + expectedGeneration + ', req: ' + requestId + ')');
-        return {
-          status: 'stale',
-          generation: expectedGeneration,
-          requestId,
-          pageNumber,
-          cssScale,
-          outputScale,
-          cssWidth,
-          cssHeight,
-          pixelWidth,
-          pixelHeight,
-          renderDurationMs: performance.now() - startTime
-        };
+        this.logDebug('render-stale (gen: ' + expectedGeneration + ', req: ' + requestId + ')');
+        return { ...makeStaleResult(), cssWidth, cssHeight, pixelWidth, pixelHeight };
       }
 
-      console.debug('[Mio PdfRenderEngineV2] render-complete (gen: ' + expectedGeneration + ', req: ' + requestId + ', duration: ' + (performance.now() - startTime) + 'ms)');
+      this.logDebug('render-complete (gen: ' + expectedGeneration + ', req: ' + requestId + ', duration: ' + (performance.now() - startTime) + 'ms)');
       return {
         status: 'completed',
         generation: expectedGeneration,
@@ -286,9 +344,9 @@ export class PdfRenderEngineV2 {
         pixelHeight,
         renderDurationMs: performance.now() - startTime
       };
-    } catch (e: any) {
-      if (e?.name === 'RenderingCancelledException' || e?.message?.includes('cancelled')) {
-        console.debug('[Mio PdfRenderEngineV2] render-cancelled (gen: ' + expectedGeneration + ', req: ' + requestId + ')');
+    } catch (e: unknown) {
+      if (e instanceof RenderingCancelledException || (e instanceof Error && e.name === 'RenderingCancelledException')) {
+        this.logDebug('render-cancelled (gen: ' + expectedGeneration + ', req: ' + requestId + ')');
         return {
           status: 'cancelled',
           generation: expectedGeneration,
@@ -303,24 +361,10 @@ export class PdfRenderEngineV2 {
           renderDurationMs: performance.now() - startTime
         };
       }
-      console.error('[Mio PdfRenderEngineV2] render-error (gen: ' + expectedGeneration + ', req: ' + requestId + '):', e);
       throw new PdfRenderEngineErrorV2('Failed to render page', 'PAGE_RENDER_FAILED', e);
+    } finally {
+      this.releaseActiveRender(renderTask, requestId);
     }
-  }
-
-  public cancelActiveRender(): void {
-    if (this._activeRenderTask) {
-      try {
-        this._activeRenderTask.cancel();
-      } catch (e) {
-      }
-      this._activeRenderTask = null;
-    }
-    this._activeRenderRequestId = null;
-  }
-
-  public clearPageCache(): void {
-    this._pageCache.clear();
   }
 
   public async destroy(): Promise<void> {
@@ -332,23 +376,8 @@ export class PdfRenderEngineV2 {
     this._generation += 1;
     this._state = 'destroyed';
     
-    console.debug('[Mio PdfRenderEngineV2] engine-destroy');
+    this.logDebug('engine-destroy');
 
-    this.cancelActiveRender();
-    this.clearPageCache();
-
-    if (this._loadingTask) {
-      try {
-        await this._loadingTask.destroy();
-      } catch (e) {}
-      this._loadingTask = null;
-    }
-
-    if (this._documentProxy) {
-      try {
-        await this._documentProxy.destroy();
-      } catch (e) {}
-      this._documentProxy = null;
-    }
+    await this.disposeDocumentResources();
   }
 }

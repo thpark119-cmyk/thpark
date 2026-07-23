@@ -1,5 +1,4 @@
-// @ts-ignore - Ignoring if there are minor type resolution warnings for the legacy path
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, GlobalWorkerOptions, RenderingCancelledException } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
 
 GlobalWorkerOptions.workerSrc = new URL(
@@ -9,7 +8,8 @@ GlobalWorkerOptions.workerSrc = new URL(
 
 export {
   getDocument,
-  GlobalWorkerOptions
+  GlobalWorkerOptions,
+  RenderingCancelledException
 };
 
 export type {
