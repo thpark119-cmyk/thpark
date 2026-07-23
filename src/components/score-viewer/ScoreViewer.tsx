@@ -831,6 +831,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         if (latestAnchor && latestAnchor.requestedZoomScale === finalScale) {
           snapshot.requestId = latestAnchor.requestId;
           snapshot.requestedScale = latestAnchor.requestedZoomScale;
+          schedulePinchSnapshotRemoval(snapshot);
         } else {
           removePinchSnapshot(snapshot.generation);
         }
@@ -845,7 +846,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       }
     }
 
-    touchPointersRef.current.clear();
     singleTouchPanRef.current = null;
     pinchSessionRef.current = null;
     isTwoFingerGestureActiveRef.current = false;
@@ -853,11 +853,16 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
     clearTouchReleaseTimer();
 
-    suppressTouchUntilReleaseRef.current = true;
-    touchReleaseTimerRef.current = window.setTimeout(() => {
+    if (touchPointersRef.current.size > 0) {
+      suppressTouchUntilReleaseRef.current = true;
+      touchReleaseTimerRef.current = window.setTimeout(() => {
+        suppressTouchUntilReleaseRef.current = false;
+        touchReleaseTimerRef.current = null;
+        touchPointersRef.current.clear();
+      }, 160);
+    } else {
       suppressTouchUntilReleaseRef.current = false;
-      touchReleaseTimerRef.current = null;
-    }, 160);
+    }
   }, [
     clearTouchReleaseTimer,
     handleZoomChangeAtPoint,
@@ -939,27 +944,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       window.dispatchEvent(new Event(SCORE_TWO_FINGER_GESTURE_START_EVENT));
     }
 
+    const activeSnapshot = activePinchSnapshotRef.current;
+    if (activeSnapshot) {
+      removePinchSnapshot(activeSnapshot.generation);
+    }
+
     const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
     if (firstTwo) {
-      const activeSnapshot = activePinchSnapshotRef.current;
-      if (activeSnapshot) {
-        if (
-          currentPageRef.current === activeSnapshot.pageNumber &&
-          file?.id === activeSnapshot.fileId &&
-          file?.storagePath === activeSnapshot.storagePath &&
-          isPinchSnapshotReplacementReady(activeSnapshot)
-        ) {
-          removePinchSnapshot(activeSnapshot.generation);
-        } else {
-          event.preventDefault();
-          event.stopPropagation();
-          touchPointersRef.current.clear();
-          singleTouchPanRef.current = null;
-          suppressTouchUntilReleaseRef.current = true;
-          return;
-        }
-      }
-
       const [first, second] = firstTwo;
       const distance = getTouchDistance(first, second);
       if (distance < 10) {
@@ -1125,9 +1116,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
     
+    const pointerId = event.pointerId;
+    touchPointersRef.current.delete(pointerId);
+    if (event.currentTarget.hasPointerCapture(pointerId)) {
+      try { event.currentTarget.releasePointerCapture(pointerId); } catch {}
+    }
+
     const wasTwoFingerGestureActive = isTwoFingerGestureActiveRef.current || pinchSessionRef.current !== null;
-    
-    touchPointersRef.current.delete(event.pointerId);
     
     if (wasTwoFingerGestureActive) {
       event.preventDefault();
@@ -1139,10 +1134,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     if (suppressTouchUntilReleaseRef.current) {
       event.preventDefault();
       event.stopPropagation();
-      suppressTouchUntilReleaseRef.current = false;
-      clearTouchReleaseTimer();
-      touchPointersRef.current.clear();
-      singleTouchPanRef.current = null;
+      if (touchPointersRef.current.size === 0) {
+        suppressTouchUntilReleaseRef.current = false;
+        clearTouchReleaseTimer();
+        singleTouchPanRef.current = null;
+      }
       return;
     }
     
@@ -1156,9 +1152,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
 
-    const wasTwoFingerGestureActive = isTwoFingerGestureActiveRef.current || pinchSessionRef.current !== null;
+    const pointerId = event.pointerId;
+    touchPointersRef.current.delete(pointerId);
+    if (event.currentTarget.hasPointerCapture(pointerId)) {
+      try { event.currentTarget.releasePointerCapture(pointerId); } catch {}
+    }
 
-    touchPointersRef.current.delete(event.pointerId);
+    const wasTwoFingerGestureActive = isTwoFingerGestureActiveRef.current || pinchSessionRef.current !== null;
 
     if (wasTwoFingerGestureActive) {
       event.preventDefault();
