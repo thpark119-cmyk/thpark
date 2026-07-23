@@ -110,9 +110,6 @@ const MIN_ZOOM_SCALE = 1;
 const MAX_ZOOM_SCALE = 2;
 const ZOOM_SCALE_STEP = 0.25;
 
-const PINCH_RENDER_INTERVAL_MS = 80;
-const PINCH_RENDER_MIN_SCALE_DELTA = 0.02;
-
 const PAN_INTENT_DISTANCE_PX = 8;
 const ZOOM_ENTER_DISTANCE_PX = 10;
 const ZOOM_ENTER_RATIO = 0.04;
@@ -123,6 +120,12 @@ const ZOOM_NOISE_RATIO = 0.007;
 const PINCH_ZOOM_SENSITIVITY = 0.8;
 
 type TwoFingerGestureMode = 'undecided' | 'pan' | 'zoom';
+
+interface PendingPinchPreview {
+  previewScale: number;
+  originX: number;
+  originY: number;
+}
 
 function clampZoomScale(value: number): number {
   return Math.min(MAX_ZOOM_SCALE, Math.max(MIN_ZOOM_SCALE, value));
@@ -151,7 +154,9 @@ interface ScorePinchSession {
   zoomReferenceScale: number;
   lastAcceptedZoomDistance: number;
   latestZoomScale: number;
-  lastRequestedZoomScale: number;
+  previewOriginX: number | null;
+  previewOriginY: number | null;
+  latestPreviewScale: number;
 }
 
 interface PendingZoomAnchor {
@@ -222,8 +227,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const pinchSessionRef = useRef<ScorePinchSession | null>(null);
   const suppressTouchUntilReleaseRef = useRef(false);
   const pinchFrameRef = useRef<number | null>(null);
-  const lastPinchRenderAtRef = useRef<number>(0);
-  const pendingPinchUpdateRef = useRef<{ zoomScale: number; midpointX: number; midpointY: number; } | null>(null);
+  const pendingPinchPreviewRef = useRef<PendingPinchPreview | null>(null);
+  const pendingFinalPinchScaleRef = useRef<number | null>(null);
   const pendingTwoFingerPanRef = useRef<PendingTwoFingerPan>({ deltaX: 0, deltaY: 0 });
   const twoFingerPanFrameRef = useRef<number | null>(null);
   const touchReleaseTimerRef = useRef<number | null>(null);
@@ -252,6 +257,45 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const [isTwoFingerGestureActive, setIsTwoFingerGestureActive] = useState(false);
 
 
+
+  const clearPinchPreviewStyle = useCallback(() => {
+    const pageSurface = getScorePageSurface();
+    if (!pageSurface) return;
+    pageSurface.style.transform = '';
+    pageSurface.style.transformOrigin = '';
+    pageSurface.style.willChange = '';
+  }, [getScorePageSurface]);
+
+  const applyPinchPreviewStyle = useCallback((update: PendingPinchPreview) => {
+    const pageSurface = getScorePageSurface();
+    if (!pageSurface) return;
+    
+    if (update.previewScale <= 0) return;
+    
+    if (Math.abs(update.previewScale - 1) < 0.005) {
+      clearPinchPreviewStyle();
+      return;
+    }
+    
+    pageSurface.style.transformOrigin = `${update.originX}px ${update.originY}px`;
+    pageSurface.style.willChange = 'transform';
+    pageSurface.style.transform = `scale3d(${update.previewScale}, ${update.previewScale}, 1)`;
+  }, [getScorePageSurface, clearPinchPreviewStyle]);
+
+  const schedulePinchPreview = useCallback((update: PendingPinchPreview) => {
+    pendingPinchPreviewRef.current = update;
+    if (pinchFrameRef.current !== null) {
+      return;
+    }
+    pinchFrameRef.current = window.requestAnimationFrame(() => {
+      pinchFrameRef.current = null;
+      const latestUpdate = pendingPinchPreviewRef.current;
+      pendingPinchPreviewRef.current = null;
+      if (latestUpdate) {
+        applyPinchPreviewStyle(latestUpdate);
+      }
+    });
+  }, [applyPinchPreviewStyle]);
 
   const handleZoomChangeAtPoint = useCallback((requestedScale: number, clientX: number, clientY: number) => {
     const nextScale = normalizeZoomScale(requestedScale);
@@ -295,6 +339,12 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, [getScorePageSurface]);
 
   const handlePageGeometryReady = useCallback((renderedZoomScale: number) => {
+    const pendingFinalScale = pendingFinalPinchScaleRef.current;
+    if (pendingFinalScale !== null && Math.abs(renderedZoomScale - pendingFinalScale) < 0.005) {
+      clearPinchPreviewStyle();
+      pendingFinalPinchScaleRef.current = null;
+    }
+
     const anchor = pendingZoomAnchorRef.current;
     if (!anchor) {
       return;
@@ -343,7 +393,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
       pendingZoomAnchorRef.current = null;
     });
-  }, [getScorePageSurface]);
+  }, [getScorePageSurface, clearPinchPreviewStyle]);
 
   const flushPendingTwoFingerPan = useCallback(() => {
     if (twoFingerPanFrameRef.current !== null) {
@@ -399,27 +449,53 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     
     const shouldCommitFinalZoom = session?.gestureMode === 'zoom' &&
       Math.abs(session.latestZoomScale - session.startZoomScale) >= 0.005;
-    
-    const finalZoom = shouldCommitFinalZoom
-      ? {
-          scale: session!.latestZoomScale,
-          x: session!.lastMidpointX,
-          y: session!.lastMidpointY,
-        }
-      : null;
+      
+    if (!shouldCommitFinalZoom) {
+      if (pinchFrameRef.current !== null) {
+        window.cancelAnimationFrame(pinchFrameRef.current);
+        pinchFrameRef.current = null;
+      }
+      pendingPinchPreviewRef.current = null;
+      clearPinchPreviewStyle();
+      pendingFinalPinchScaleRef.current = null;
+    } else {
+      const finalScale = normalizeZoomScale(session!.latestZoomScale);
+      const lastMidpointX = session!.lastMidpointX;
+      const lastMidpointY = session!.lastMidpointY;
+      const finalPreviewScale = session!.latestPreviewScale;
+      const previewOriginX = session!.previewOriginX;
+      const previewOriginY = session!.previewOriginY;
+
+      if (pinchFrameRef.current !== null) {
+        window.cancelAnimationFrame(pinchFrameRef.current);
+        pinchFrameRef.current = null;
+      }
+      
+      const latestUpdate = pendingPinchPreviewRef.current;
+      pendingPinchPreviewRef.current = null;
+      if (latestUpdate) {
+        applyPinchPreviewStyle(latestUpdate);
+      }
+      
+      clearPinchPreviewStyle();
+      pendingFinalPinchScaleRef.current = finalScale;
+      
+      handleZoomChangeAtPoint(finalScale, lastMidpointX, lastMidpointY);
+      
+      if (previewOriginX !== null && previewOriginY !== null) {
+        applyPinchPreviewStyle({
+          previewScale: finalPreviewScale,
+          originX: previewOriginX,
+          originY: previewOriginY,
+        });
+      }
+    }
 
     touchPointersRef.current.clear();
     singleTouchPanRef.current = null;
     pinchSessionRef.current = null;
-    pendingPinchUpdateRef.current = null;
     isTwoFingerGestureActiveRef.current = false;
     setIsTwoFingerGestureActive(false);
-
-    if (pinchFrameRef.current !== null) {
-      window.clearTimeout(pinchFrameRef.current);
-      window.cancelAnimationFrame(pinchFrameRef.current);
-      pinchFrameRef.current = null;
-    }
 
     clearTouchReleaseTimer();
 
@@ -428,60 +504,26 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       suppressTouchUntilReleaseRef.current = false;
       touchReleaseTimerRef.current = null;
     }, 160);
+  }, [clearTouchReleaseTimer, handleZoomChangeAtPoint, flushPendingTwoFingerPan, clearPinchPreviewStyle, applyPinchPreviewStyle]);
 
-    if (finalZoom) {
-      handleZoomChangeAtPoint(finalZoom.scale, finalZoom.x, finalZoom.y);
-    }
-  }, [clearTouchReleaseTimer, handleZoomChangeAtPoint, flushPendingTwoFingerPan]);
 
-  const schedulePinchZoom = useCallback(({ zoomScale: requestedScale, midpointX, midpointY }: { zoomScale: number; midpointX: number; midpointY: number; }) => {
-    pendingPinchUpdateRef.current = { zoomScale: requestedScale, midpointX, midpointY };
-    if (pinchFrameRef.current !== null) {
-      return;
-    }
-
-    const now = Date.now();
-    const timeSinceLastRender = now - lastPinchRenderAtRef.current;
-    
-    if (timeSinceLastRender < PINCH_RENDER_INTERVAL_MS) {
-      const delay = PINCH_RENDER_INTERVAL_MS - timeSinceLastRender;
-      pinchFrameRef.current = window.setTimeout(() => {
-        pinchFrameRef.current = null;
-        const update = pendingPinchUpdateRef.current;
-        pendingPinchUpdateRef.current = null;
-        if (!update) return;
-        
-        lastPinchRenderAtRef.current = Date.now();
-        handleZoomChangeAtPoint(update.zoomScale, update.midpointX, update.midpointY);
-      }, delay) as unknown as number;
-      return;
-    }
-
-    pinchFrameRef.current = window.requestAnimationFrame(() => {
-      pinchFrameRef.current = null;
-      const update = pendingPinchUpdateRef.current;
-      pendingPinchUpdateRef.current = null;
-      if (!update) return;
-
-      lastPinchRenderAtRef.current = Date.now();
-      handleZoomChangeAtPoint(update.zoomScale, update.midpointX, update.midpointY);
-    });
-  }, [handleZoomChangeAtPoint]);
 
   const resetTouchGestureState = useCallback(() => {
     touchPointersRef.current.clear();
     singleTouchPanRef.current = null;
     pinchSessionRef.current = null;
     suppressTouchUntilReleaseRef.current = false;
-    pendingPinchUpdateRef.current = null;
+    pendingPinchPreviewRef.current = null;
+    pendingFinalPinchScaleRef.current = null;
     isTwoFingerGestureActiveRef.current = false;
     setIsTwoFingerGestureActive(false);
 
     if (pinchFrameRef.current !== null) {
-      window.clearTimeout(pinchFrameRef.current);
       window.cancelAnimationFrame(pinchFrameRef.current);
       pinchFrameRef.current = null;
     }
+    clearPinchPreviewStyle();
+    
     if (twoFingerPanFrameRef.current !== null) {
       window.cancelAnimationFrame(twoFingerPanFrameRef.current);
       twoFingerPanFrameRef.current = null;
@@ -547,7 +589,9 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         zoomReferenceScale: zoomScaleRef.current,
         lastAcceptedZoomDistance: distance,
         latestZoomScale: zoomScaleRef.current,
-        lastRequestedZoomScale: zoomScaleRef.current,
+        previewOriginX: null,
+        previewOriginY: null,
+        latestPreviewScale: 1,
       };
       
       singleTouchPanRef.current = null;
@@ -605,6 +649,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
             session.zoomReferenceDistance = session.startDistance;
             session.zoomReferenceScale = session.startZoomScale;
             session.lastAcceptedZoomDistance = currentDistance;
+            
+            const pageSurface = getScorePageSurface();
+            if (pageSurface) {
+              const rect = pageSurface.getBoundingClientRect();
+              session.previewOriginX = Math.max(0, Math.min(rect.width, midpoint.x - rect.left));
+              session.previewOriginY = Math.max(0, Math.min(rect.height, midpoint.y - rect.top));
+            }
           } else if (midpointTravel >= PAN_INTENT_DISTANCE_PX) {
             session.gestureMode = 'pan';
           }
@@ -615,7 +666,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
             session.zoomReferenceScale = zoomScaleRef.current;
             session.lastAcceptedZoomDistance = currentDistance;
             session.latestZoomScale = zoomScaleRef.current;
-            session.lastRequestedZoomScale = zoomScaleRef.current;
+            
+            const pageSurface = getScorePageSurface();
+            if (pageSurface) {
+              const rect = pageSurface.getBoundingClientRect();
+              session.previewOriginX = Math.max(0, Math.min(rect.width, midpoint.x - rect.left));
+              session.previewOriginY = Math.max(0, Math.min(rect.height, midpoint.y - rect.top));
+            }
           }
         }
 
@@ -638,13 +695,15 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
             nextZoomScale = normalizeZoomScale(session.zoomReferenceScale * adjustedDistanceRatio);
             
             session.latestZoomScale = nextZoomScale;
-
-            if (Math.abs(nextZoomScale - session.lastRequestedZoomScale) >= PINCH_RENDER_MIN_SCALE_DELTA) {
-              session.lastRequestedZoomScale = nextZoomScale;
-              schedulePinchZoom({
-                zoomScale: nextZoomScale,
-                midpointX: midpoint.x,
-                midpointY: midpoint.y,
+            
+            const previewScale = nextZoomScale / session.startZoomScale;
+            session.latestPreviewScale = previewScale;
+            
+            if (session.previewOriginX !== null && session.previewOriginY !== null) {
+              schedulePinchPreview({
+                previewScale,
+                originX: session.previewOriginX,
+                originY: session.previewOriginY,
               });
             }
           }
