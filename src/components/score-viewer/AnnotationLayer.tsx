@@ -257,7 +257,12 @@ export default function AnnotationLayer({
   strokeWidth,
   eraserRadius,
   isTwoFingerGestureActive = false,
+  touchGestureSessionId,
 }: AnnotationLayerProps) {
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
+  const activeAnnotationPointerIdRef = useRef<number | null>(null);
 
   const cancelActiveAnnotationSession = useCallback(() => {
     const pointerId = activeAnnotationPointerIdRef.current;
@@ -284,16 +289,8 @@ export default function AnnotationLayer({
   }, []);
 
   useEffect(() => {
-    const handleTwoFingerGestureStart = () => {
-      cancelActiveAnnotationSession();
-    };
-
-    window.addEventListener(SCORE_TWO_FINGER_GESTURE_START_EVENT, handleTwoFingerGestureStart);
-
-    return () => {
-      window.removeEventListener(SCORE_TWO_FINGER_GESTURE_START_EVENT, handleTwoFingerGestureStart);
-    };
-  }, [cancelActiveAnnotationSession]);
+    cancelActiveAnnotationSession();
+  }, [touchGestureSessionId, cancelActiveAnnotationSession]);
 
   useEffect(() => {
     if (isTwoFingerGestureActive) {
@@ -301,9 +298,6 @@ export default function AnnotationLayer({
     }
   }, [isTwoFingerGestureActive, cancelActiveAnnotationSession]);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
-  const activeAnnotationPointerIdRef = useRef<number | null>(null);
 
   const [eraserPreviewStrokes, setEraserPreviewStrokes] = useState<ScoreAnnotationStroke[] | null>(null);
   const eraserSessionStrokesRef = useRef<ScoreAnnotationStroke[] | null>(null);

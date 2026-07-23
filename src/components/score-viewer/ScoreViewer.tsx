@@ -106,24 +106,7 @@ async function loadOriginalScoreBlob(storagePath: string): Promise<Blob> {
   return response.blob();
 }
 
-interface ActivePinchSnapshot {
-  overlay: HTMLDivElement;
-  canvas: HTMLCanvasElement;
-  requestId: number | null;
-  requestedScale: number | null;
-  generation: number;
-  pageNumber: number;
-  fileId: string;
-  storagePath: string;
-}
 
-const PINCH_SNAPSHOT_MAX_PIXELS = 4_194_304;
-const PINCH_SNAPSHOT_MIN_DPR = 0.5;
-const PINCH_SNAPSHOT_MAX_DPR = 1.5;
-const PINCH_SNAPSHOT_READY_TOLERANCE_PX = 3;
-const PINCH_SNAPSHOT_STABLE_FRAMES = 2;
-const PINCH_SNAPSHOT_MAX_READY_FRAMES = 30;
-const PINCH_SNAPSHOT_Z_INDEX = 60;
 
 const MIN_ZOOM_SCALE = 1;
 const MAX_ZOOM_SCALE = 2;
@@ -244,13 +227,10 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const touchPointersRef = useRef<Map<number, ScoreTouchPoint>>(new Map());
   const singleTouchPanRef = useRef<ScoreSingleTouchPan | null>(null);
   const pinchSessionRef = useRef<ScorePinchSession | null>(null);
-  const suppressTouchUntilReleaseRef = useRef(false);
+  const endingTouchPointerIdsRef = useRef<Set<number>>(new Set());
   const pinchFrameRef = useRef<number | null>(null);
   const pendingPinchPreviewRef = useRef<PendingPinchPreview | null>(null);
   const pendingFinalPinchScaleRef = useRef<number | null>(null);
-  const activePinchSnapshotRef = useRef<ActivePinchSnapshot | null>(null);
-  const pinchSnapshotRemovalFrameRef = useRef<number | null>(null);
-  const pinchSnapshotGenerationRef = useRef<number>(0);
   const currentPageRef = useRef<number>(1);
   const currentPageHasStrokesRef = useRef<boolean>(false);
   const pendingTwoFingerPanRef = useRef<PendingTwoFingerPan>({ deltaX: 0, deltaY: 0 });
@@ -273,181 +253,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     return viewport.querySelector<HTMLElement>('[data-score-page-surface]');
   }, []);
 
-  const disposePinchSnapshot = useCallback((snapshot: ActivePinchSnapshot): void => {
-    if (snapshot.overlay.parentNode) {
-      try {
-        snapshot.overlay.parentNode.removeChild(snapshot.overlay);
-      } catch {}
-    }
-    try {
-      snapshot.canvas.width = 0;
-      snapshot.canvas.height = 0;
-    } catch {}
-  }, []);
-
-  const removePinchSnapshot = useCallback((expectedGeneration?: number): boolean => {
-    const activeSnapshot = activePinchSnapshotRef.current;
-    if (!activeSnapshot) {
-      return false;
-    }
-    
-    if (expectedGeneration !== undefined && activeSnapshot.generation !== expectedGeneration) {
-      return false;
-    }
-
-    const snapshotToDispose = activeSnapshot;
-    activePinchSnapshotRef.current = null;
-
-    if (pinchSnapshotRemovalFrameRef.current !== null) {
-      window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-      pinchSnapshotRemovalFrameRef.current = null;
-    }
-
-    disposePinchSnapshot(snapshotToDispose);
-    return true;
-  }, [disposePinchSnapshot]);
-
-  const createPinchSnapshot = useCallback((): ActivePinchSnapshot | null => {
-    const viewport = scoreViewportRef.current;
-    const pageSurface = getScorePageSurface();
-
-    if (!viewport || !pageSurface) {
-      return null;
-    }
-
-    const viewportRect = viewport.getBoundingClientRect();
-    const pageRect = pageSurface.getBoundingClientRect();
-
-    if (viewportRect.width < 1 || viewportRect.height < 1 || pageRect.width < 1 || pageRect.height < 1) {
-      return null;
-    }
-
-    if (
-      pageRect.right < viewportRect.left ||
-      pageRect.left > viewportRect.right ||
-      pageRect.bottom < viewportRect.top ||
-      pageRect.top > viewportRect.bottom
-    ) {
-      return null;
-    }
-
-    const sourceCanvases = Array.from(pageSurface.querySelectorAll('canvas')) as HTMLCanvasElement[];
-    const validCanvases = sourceCanvases.filter(canvas => {
-      if (canvas.width <= 0 || canvas.height <= 0) return false;
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return false;
-      const computedStyle = window.getComputedStyle(canvas);
-      if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden' || computedStyle.opacity === '0') return false;
-      return true;
-    });
-
-    if (validCanvases.length === 0) {
-      return null;
-    }
-
-    const overlay = document.createElement('div');
-    overlay.setAttribute('data-score-pinch-snapshot', 'true');
-    overlay.style.position = 'fixed';
-    overlay.style.left = `${viewportRect.left}px`;
-    overlay.style.top = `${viewportRect.top}px`;
-    overlay.style.width = `${viewportRect.width}px`;
-    overlay.style.height = `${viewportRect.height}px`;
-    overlay.style.overflow = 'hidden';
-    overlay.style.pointerEvents = 'none';
-    overlay.style.touchAction = 'none';
-    overlay.style.zIndex = `${PINCH_SNAPSHOT_Z_INDEX}`;
-    overlay.style.contain = 'strict';
-
-    const snapshotCanvas = document.createElement('canvas');
-    snapshotCanvas.style.position = 'absolute';
-    snapshotCanvas.style.display = 'block';
-    snapshotCanvas.style.pointerEvents = 'none';
-    snapshotCanvas.style.transform = 'none';
-    snapshotCanvas.style.transformOrigin = '0 0';
-    snapshotCanvas.style.left = `${pageRect.left - viewportRect.left}px`;
-    snapshotCanvas.style.top = `${pageRect.top - viewportRect.top}px`;
-    snapshotCanvas.style.width = `${pageRect.width}px`;
-    snapshotCanvas.style.height = `${pageRect.height}px`;
-
-    const cssWidth = pageRect.width;
-    const cssHeight = pageRect.height;
-    const maxAllowedDpr = cssWidth > 0 && cssHeight > 0 
-      ? Math.sqrt(PINCH_SNAPSHOT_MAX_PIXELS / (cssWidth * cssHeight)) 
-      : PINCH_SNAPSHOT_MAX_DPR;
-
-    const snapshotDpr = Math.max(
-      PINCH_SNAPSHOT_MIN_DPR,
-      Math.min(
-        window.devicePixelRatio || 1,
-        PINCH_SNAPSHOT_MAX_DPR,
-        maxAllowedDpr
-      )
-    );
-    
-    if (isNaN(snapshotDpr) || !isFinite(snapshotDpr)) {
-      return null;
-    }
-
-    try {
-      snapshotCanvas.width = Math.max(1, Math.ceil(pageRect.width * snapshotDpr));
-      snapshotCanvas.height = Math.max(1, Math.ceil(pageRect.height * snapshotDpr));
-
-      const context = snapshotCanvas.getContext('2d');
-      if (!context) {
-        throw new Error('Failed to get 2d context');
-      }
-
-      context.setTransform(snapshotDpr, 0, 0, snapshotDpr, 0, 0);
-      context.imageSmoothingEnabled = true;
-      if ('imageSmoothingQuality' in context) {
-        (context as any).imageSmoothingQuality = 'high';
-      }
-
-      let successCount = 0;
-      validCanvases.forEach((sourceCanvas: HTMLCanvasElement) => {
-        try {
-          const sourceRect = sourceCanvas.getBoundingClientRect();
-          const destinationX = sourceRect.left - pageRect.left;
-          const destinationY = sourceRect.top - pageRect.top;
-          const destinationWidth = sourceRect.width;
-          const destinationHeight = sourceRect.height;
-          
-          context.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, destinationX, destinationY, destinationWidth, destinationHeight);
-          successCount++;
-        } catch (err) {
-          console.warn('[Mio Score Snapshot] canvas copy failed:', err);
-        }
-      });
-
-      if (successCount === 0) {
-        throw new Error('No canvas successfully copied');
-      }
-
-      overlay.appendChild(snapshotCanvas);
-      document.body.appendChild(overlay);
-
-      pinchSnapshotGenerationRef.current += 1;
-
-      return {
-        overlay,
-        canvas: snapshotCanvas,
-        requestId: null,
-        requestedScale: null,
-        generation: pinchSnapshotGenerationRef.current,
-        pageNumber: currentPageRef.current,
-        fileId: file?.id || '',
-        storagePath: file?.storagePath || ''
-      };
-    } catch (err) {
-      console.warn('[Mio Score Snapshot] failed to create snapshot:', err);
-      snapshotCanvas.width = 0;
-      snapshotCanvas.height = 0;
-      if (overlay.parentNode) {
-        overlay.parentNode.removeChild(overlay);
-      }
-      return null;
-    }
-  }, [getScorePageSurface, file?.id, file?.storagePath]);
 
   const zoomScaleRef = useRef(zoomScale);
   useEffect(() => {
@@ -456,6 +261,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   const isTwoFingerGestureActiveRef = useRef(false);
   const [isTwoFingerGestureActive, setIsTwoFingerGestureActive] = useState(false);
+  const [touchGestureSessionId, setTouchGestureSessionId] = useState(0);
 
   const isCanvasVisiblyReady = useCallback((canvas: HTMLCanvasElement): boolean => {
     if (canvas.width <= 0 || canvas.height <= 0) return false;
@@ -469,97 +275,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     
     return true;
   }, []);
-
-  const isPinchSnapshotReplacementReady = useCallback((snapshot: ActivePinchSnapshot): boolean => {
-    const activeSnapshot = activePinchSnapshotRef.current;
-    if (!activeSnapshot || activeSnapshot.generation !== snapshot.generation) return false;
-    if (currentPageRef.current !== snapshot.pageNumber) return false;
-    if (file?.id !== snapshot.fileId || file?.storagePath !== snapshot.storagePath) return false;
-
-    const pageSurface = getScorePageSurface();
-    if (!pageSurface) return false;
-    if (pageSurface.style.transform && pageSurface.style.transform !== 'none' && pageSurface.style.transform !== '') return false;
-
-    const sourceCanvases = Array.from(pageSurface.querySelectorAll('canvas')) as HTMLCanvasElement[];
-    const pdfCanvas = sourceCanvases.find(c => c.classList.contains('react-pdf__Page__canvas'));
-    
-    if (!pdfCanvas || !isCanvasVisiblyReady(pdfCanvas)) return false;
-
-    const surfaceRect = pageSurface.getBoundingClientRect();
-    const pdfRect = pdfCanvas.getBoundingClientRect();
-
-    if (Math.abs(pdfRect.left - surfaceRect.left) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-    if (Math.abs(pdfRect.top - surfaceRect.top) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-    if (Math.abs(pdfRect.width - surfaceRect.width) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-    if (Math.abs(pdfRect.height - surfaceRect.height) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-
-    if (currentPageHasStrokesRef.current) {
-      const annotationCanvases = sourceCanvases.filter(c => c !== pdfCanvas);
-      const readyAnnotationCanvas = annotationCanvases.find(c => {
-        if (!isCanvasVisiblyReady(c)) return false;
-        const aRect = c.getBoundingClientRect();
-        if (Math.abs(aRect.left - pdfRect.left) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-        if (Math.abs(aRect.top - pdfRect.top) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-        if (Math.abs(aRect.width - pdfRect.width) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-        if (Math.abs(aRect.height - pdfRect.height) > PINCH_SNAPSHOT_READY_TOLERANCE_PX) return false;
-        return true;
-      });
-      if (!readyAnnotationCanvas) return false;
-    }
-
-    return true;
-  }, [file?.id, file?.storagePath, getScorePageSurface, isCanvasVisiblyReady]);
-
-  const schedulePinchSnapshotRemoval = useCallback((snapshot: ActivePinchSnapshot) => {
-    const activeSnapshot = activePinchSnapshotRef.current;
-    if (!activeSnapshot || activeSnapshot.generation !== snapshot.generation) return;
-    if (activeSnapshot.requestId !== snapshot.requestId || activeSnapshot.requestedScale !== snapshot.requestedScale) return;
-    if (currentPageRef.current !== snapshot.pageNumber) return;
-    if (file?.id !== snapshot.fileId || file?.storagePath !== snapshot.storagePath) return;
-
-    if (pinchSnapshotRemovalFrameRef.current !== null) {
-      window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-      pinchSnapshotRemovalFrameRef.current = null;
-    }
-
-    let checkedFrames = 0;
-    let stableReadyFrames = 0;
-
-    const checkReady = () => {
-      pinchSnapshotRemovalFrameRef.current = null;
-      
-      const currentSnapshot = activePinchSnapshotRef.current;
-      if (!currentSnapshot || currentSnapshot.generation !== snapshot.generation) return;
-      if (currentSnapshot.requestId !== snapshot.requestId || currentSnapshot.requestedScale !== snapshot.requestedScale) return;
-      if (currentPageRef.current !== snapshot.pageNumber) return;
-      if (file?.id !== snapshot.fileId || file?.storagePath !== snapshot.storagePath) return;
-
-      if (isPinchSnapshotReplacementReady(snapshot)) {
-        stableReadyFrames += 1;
-      } else {
-        stableReadyFrames = 0;
-      }
-      checkedFrames += 1;
-
-      if (stableReadyFrames >= PINCH_SNAPSHOT_STABLE_FRAMES) {
-        removePinchSnapshot(snapshot.generation);
-      } else if (checkedFrames < PINCH_SNAPSHOT_MAX_READY_FRAMES) {
-        pinchSnapshotRemovalFrameRef.current = window.requestAnimationFrame(checkReady);
-      } else {
-        console.warn('[Mio Score Snapshot] Ready check timed out', {
-          generation: snapshot.generation,
-          requestId: snapshot.requestId,
-          requestedScale: snapshot.requestedScale,
-          pageNumber: snapshot.pageNumber,
-          hasStrokes: currentPageHasStrokesRef.current,
-          checkedFrames
-        });
-        removePinchSnapshot(snapshot.generation);
-      }
-    };
-
-    pinchSnapshotRemovalFrameRef.current = window.requestAnimationFrame(checkReady);
-  }, [file?.id, file?.storagePath, isPinchSnapshotReplacementReady, removePinchSnapshot]);
 
   const clearPinchPreviewStyle = useCallback(() => {
     const pageSurface = getScorePageSurface();
@@ -708,21 +423,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           pendingFinalPinchScaleRef.current = null;
         }
 
-        const snapshot = activePinchSnapshotRef.current;
-        if (
-          snapshot &&
-          snapshot.requestId !== null &&
-          snapshot.requestId === expectedRequestId &&
-          snapshot.requestedScale !== null &&
-          Math.abs(snapshot.requestedScale - renderedZoomScale) < 0.005
-        ) {
-          schedulePinchSnapshotRemoval(snapshot);
-        }
       } finally {
         zoomAnchorFrameRef.current = null;
       }
     });
-  }, [getScorePageSurface, clearPinchPreviewStyle, schedulePinchSnapshotRemoval]);
+  }, [getScorePageSurface, clearPinchPreviewStyle]);
 
   const flushPendingTwoFingerPan = useCallback(() => {
     if (twoFingerPanFrameRef.current !== null) {
@@ -773,105 +478,48 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, [handleZoomChangeAtPoint]);
 
   const finishTwoFingerGesture = useCallback(() => {
-    flushPendingTwoFingerPan();
+    if (!pinchSessionRef.current) {
+      return;
+    }
     const session = pinchSessionRef.current;
-    
-    const shouldCommitFinalZoom = session?.gestureMode === 'zoom' &&
-      Math.abs(session.latestZoomScale - session.startZoomScale) >= 0.005;
-      
-    if (!shouldCommitFinalZoom) {
-      if (pinchFrameRef.current !== null) {
-        window.cancelAnimationFrame(pinchFrameRef.current);
-        pinchFrameRef.current = null;
-      }
-      pendingPinchPreviewRef.current = null;
-      clearPinchPreviewStyle();
-      pendingFinalPinchScaleRef.current = null;
-    } else {
-      const finalScale = normalizeZoomScale(session!.latestZoomScale);
-      const lastMidpointX = session!.lastMidpointX;
-      const lastMidpointY = session!.lastMidpointY;
-      const finalPreviewScale = session!.latestPreviewScale;
-      const previewOriginX = session!.previewOriginX;
-      const previewOriginY = session!.previewOriginY;
 
-      if (pinchFrameRef.current !== null) {
-        window.cancelAnimationFrame(pinchFrameRef.current);
-        pinchFrameRef.current = null;
-      }
-      
-      const latestUpdate = pendingPinchPreviewRef.current;
-      pendingPinchPreviewRef.current = null;
-      if (latestUpdate) {
-        applyPinchPreviewStyle(latestUpdate);
-      }
+    let finalScale: number | null = null;
+    let lastMidpointX = 0;
+    let lastMidpointY = 0;
 
-      const previousSnapshot = activePinchSnapshotRef.current;
-      const snapshot = createPinchSnapshot();
-      if (snapshot && document.body.contains(snapshot.overlay)) {
-        activePinchSnapshotRef.current = snapshot;
-        if (pinchSnapshotRemovalFrameRef.current !== null) {
-          window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-          pinchSnapshotRemovalFrameRef.current = null;
-        }
-        if (previousSnapshot && previousSnapshot.generation !== snapshot.generation) {
-          disposePinchSnapshot(previousSnapshot);
-        }
-      } else if (previousSnapshot) {
-        removePinchSnapshot(previousSnapshot.generation);
-      }
-      
-      clearPinchPreviewStyle();
-      pendingFinalPinchScaleRef.current = finalScale;
-      
-      handleZoomChangeAtPoint(finalScale, lastMidpointX, lastMidpointY);
-      
-      if (snapshot && activePinchSnapshotRef.current === snapshot) {
-        const latestAnchor = pendingZoomAnchorRef.current;
-        if (latestAnchor && latestAnchor.requestedZoomScale === finalScale) {
-          snapshot.requestId = latestAnchor.requestId;
-          snapshot.requestedScale = latestAnchor.requestedZoomScale;
-          schedulePinchSnapshotRemoval(snapshot);
-        } else {
-          removePinchSnapshot(snapshot.generation);
-        }
-      }
-      
-      if (previewOriginX !== null && previewOriginY !== null) {
-        applyPinchPreviewStyle({
-          previewScale: finalPreviewScale,
-          originX: previewOriginX,
-          originY: previewOriginY,
-        });
-      }
+    if (session.gestureMode === 'zoom' && session.latestZoomScale !== session.startZoomScale) {
+      finalScale = normalizeZoomScale(session.latestZoomScale);
+      lastMidpointX = session.lastMidpointX;
+      lastMidpointY = session.lastMidpointY;
     }
 
-    singleTouchPanRef.current = null;
     pinchSessionRef.current = null;
+    singleTouchPanRef.current = null;
     isTwoFingerGestureActiveRef.current = false;
     setIsTwoFingerGestureActive(false);
-
     clearTouchReleaseTimer();
 
-    if (touchPointersRef.current.size > 0) {
-      suppressTouchUntilReleaseRef.current = true;
-      touchReleaseTimerRef.current = window.setTimeout(() => {
-        suppressTouchUntilReleaseRef.current = false;
-        touchReleaseTimerRef.current = null;
-        touchPointersRef.current.clear();
-      }, 160);
-    } else {
-      suppressTouchUntilReleaseRef.current = false;
+    for (const pointerId of touchPointersRef.current.keys()) {
+      endingTouchPointerIdsRef.current.add(pointerId);
+    }
+
+    if (pinchFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinchFrameRef.current);
+      pinchFrameRef.current = null;
+    }
+    pendingPinchPreviewRef.current = null;
+
+    flushPendingTwoFingerPan();
+    clearPinchPreviewStyle();
+
+    if (finalScale !== null) {
+      handleZoomChangeAtPoint(finalScale, lastMidpointX, lastMidpointY);
     }
   }, [
     clearTouchReleaseTimer,
     handleZoomChangeAtPoint,
     flushPendingTwoFingerPan,
-    clearPinchPreviewStyle,
-    applyPinchPreviewStyle,
-    createPinchSnapshot,
-    disposePinchSnapshot,
-    removePinchSnapshot
+    clearPinchPreviewStyle
   ]);
 
 
@@ -880,7 +528,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     touchPointersRef.current.clear();
     singleTouchPanRef.current = null;
     pinchSessionRef.current = null;
-    suppressTouchUntilReleaseRef.current = false;
+    endingTouchPointerIdsRef.current.clear();
     pendingPinchPreviewRef.current = null;
     pendingFinalPinchScaleRef.current = null;
     isTwoFingerGestureActiveRef.current = false;
@@ -899,13 +547,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     pendingTwoFingerPanRef.current.deltaX = 0;
     pendingTwoFingerPanRef.current.deltaY = 0;
     
-    pinchSnapshotGenerationRef.current += 1;
-    if (pinchSnapshotRemovalFrameRef.current !== null) {
-      window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-      pinchSnapshotRemovalFrameRef.current = null;
-    }
-    removePinchSnapshot();
-  }, [clearPinchPreviewStyle, removePinchSnapshot]);
+  }, [clearPinchPreviewStyle]);
 
   useEffect(() => {
     window.addEventListener('blur', resetTouchGestureState);
@@ -932,22 +574,13 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     if (event.pointerType !== 'touch') {
       return;
     }
-    if (suppressTouchUntilReleaseRef.current) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
     
     touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
 
     if (touchPointersRef.current.size === 2) {
-      window.dispatchEvent(new Event(SCORE_TWO_FINGER_GESTURE_START_EVENT));
+      setTouchGestureSessionId(val => val + 1);
     }
 
-    const activeSnapshot = activePinchSnapshotRef.current;
-    if (activeSnapshot) {
-      removePinchSnapshot(activeSnapshot.generation);
-    }
 
     const firstTwo = getFirstTwoTouchPoints(touchPointersRef.current);
     if (firstTwo) {
@@ -975,13 +608,24 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       };
       
       singleTouchPanRef.current = null;
-      suppressTouchUntilReleaseRef.current = true;
       isTwoFingerGestureActiveRef.current = true;
       setIsTwoFingerGestureActive(true);
+
+      const viewport = scoreViewportRef.current;
+      if (viewport) {
+        for (const pointerId of touchPointersRef.current.keys()) {
+          try {
+            if (!viewport.hasPointerCapture(pointerId)) {
+              viewport.setPointerCapture(pointerId);
+            }
+          } catch {}
+        }
+      }
+
       event.preventDefault();
       event.stopPropagation();
     } else {
-      if (currentTool === 'none' && touchPointersRef.current.size === 1 && !suppressTouchUntilReleaseRef.current) {
+      if (currentTool === 'none' && touchPointersRef.current.size === 1 && endingTouchPointerIdsRef.current.size === 0) {
         singleTouchPanRef.current = {
           pointerId: event.pointerId,
           lastClientX: event.clientX,
@@ -993,11 +637,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   const handleScorePointerMoveCapture = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') {
-      return;
-    }
-    if (suppressTouchUntilReleaseRef.current && !isTwoFingerGestureActiveRef.current) {
-      event.preventDefault();
-      event.stopPropagation();
       return;
     }
     
@@ -1131,11 +770,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
     
-    if (suppressTouchUntilReleaseRef.current) {
+    if (endingTouchPointerIdsRef.current.has(pointerId)) {
+      endingTouchPointerIdsRef.current.delete(pointerId);
       event.preventDefault();
       event.stopPropagation();
       if (touchPointersRef.current.size === 0) {
-        suppressTouchUntilReleaseRef.current = false;
         clearTouchReleaseTimer();
         singleTouchPanRef.current = null;
       }
@@ -1169,7 +808,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
     if (touchPointersRef.current.size === 0) {
       singleTouchPanRef.current = null;
-      suppressTouchUntilReleaseRef.current = false;
       clearTouchReleaseTimer();
     }
   };
@@ -1188,30 +826,18 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const [pageCount, setPageCount] = useState(1);
   
   useEffect(() => {
-    pinchSnapshotGenerationRef.current += 1;
-    if (pinchSnapshotRemovalFrameRef.current !== null) {
-      window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-      pinchSnapshotRemovalFrameRef.current = null;
-    }
-    removePinchSnapshot();
     pendingFinalPinchScaleRef.current = null;
     pendingZoomAnchorRef.current = null;
     if (zoomAnchorFrameRef.current !== null) {
       window.cancelAnimationFrame(zoomAnchorFrameRef.current);
       zoomAnchorFrameRef.current = null;
     }
-  }, [file?.id, file?.storagePath, repertoireId, removePinchSnapshot]);
+  }, [file?.id, file?.storagePath, repertoireId]);
   
   useEffect(() => {
-    pinchSnapshotGenerationRef.current += 1;
-    if (pinchSnapshotRemovalFrameRef.current !== null) {
-      window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
-      pinchSnapshotRemovalFrameRef.current = null;
-    }
-    removePinchSnapshot();
     pendingFinalPinchScaleRef.current = null;
     pendingZoomAnchorRef.current = null;
-  }, [currentPage, removePinchSnapshot]);
+  }, [currentPage]);
   
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -1892,6 +1518,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         }}
       >
         <PdfPageCanvas
+                    touchGestureSessionId={touchGestureSessionId}
           storagePath={file.storagePath}
           pageNumber={currentPage}
           onPageCountChange={setPageCount}
