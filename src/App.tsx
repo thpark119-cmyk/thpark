@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { Music, LayoutGrid, BookOpen, ClipboardList, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon } from 'lucide-react';
+import { Music, LayoutGrid, BookOpen, ClipboardList, Users, FileMusic, Sparkles, LogIn, LogOut, Loader2, ShieldCheck, AlertTriangle, Clock, Mic, Settings as SettingsIcon, FlaskConical } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import { PracticeTimerProvider } from './context/PracticeTimerContext';
@@ -20,6 +20,7 @@ const AITutor = lazy(() => import('./components/AITutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const Settings = lazy(() => import('./components/Settings'));
 const Practice = lazy(() => import('./components/Practice'));
+const V2RendererLab = lazy(() => import('./components/score-viewer/v2/V2RendererLab'));
 
 // Reusable Loading Spinner for Suspense
 const LoadingView = () => {
@@ -88,6 +89,7 @@ export default function App() {
 
   if (isAdmin) {
     navItems.push({ id: 'tutor', label: t('navigation.tutor'), icon: Sparkles });
+    navItems.push({ id: 'v2_renderer_lab', label: 'V2 Renderer Lab', icon: FlaskConical });
     navItems.push({ id: 'admin', label: t('app.developer'), icon: ShieldCheck });
   }
 
@@ -279,6 +281,7 @@ export default function App() {
                   {activeTab === 'settings' && <Settings setActiveTab={setActiveTab} />}
                   {activeTab === 'tutor' && (isAdmin ? <AITutor /> : <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />)}
                   {activeTab === 'admin' && <AdminPanel />}
+                  {activeTab === 'v2_renderer_lab' && (isAdmin ? <V2RendererLab /> : <Dashboard setActiveTab={setActiveTab} setTargetLessonId={setTargetLessonId} user={user} />)}
                 </motion.div>
               </AnimatePresence>
             </Suspense>
