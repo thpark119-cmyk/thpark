@@ -13,6 +13,9 @@ interface AnnotationLayerProps {
   eraserRadius: number;
   isTwoFingerGestureActive?: boolean;
   touchGestureSessionId?: number;
+  zoomRenderRequestId?: number | null;
+  onAnnotationRenderReady?: (requestId: number, renderedZoomScale: number) => void;
+  renderedZoomScale?: number;
 }
 
 function canPointerDraw(pointerType: string): boolean {
@@ -258,6 +261,9 @@ export default function AnnotationLayer({
   eraserRadius,
   isTwoFingerGestureActive = false,
   touchGestureSessionId,
+  zoomRenderRequestId,
+  onAnnotationRenderReady,
+  renderedZoomScale = 1,
 }: AnnotationLayerProps) {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -431,7 +437,11 @@ export default function AnnotationLayer({
     if (currentStroke) {
       drawStroke(currentStroke);
     }
-  }, [width, height, strokes, currentStroke, eraserPreviewStrokes]);
+
+    if (zoomRenderRequestId !== undefined && zoomRenderRequestId !== null && document.body.contains(canvas)) {
+      onAnnotationRenderReady?.(zoomRenderRequestId, renderedZoomScale);
+    }
+  }, [width, height, strokes, currentStroke, eraserPreviewStrokes, zoomRenderRequestId, renderedZoomScale, onAnnotationRenderReady]);
 
   const toPixelPoint = (point: ScoreAnnotationPoint): PixelPoint => ({
     x: point.x * width,

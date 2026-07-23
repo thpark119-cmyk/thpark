@@ -161,6 +161,15 @@ interface ScorePinchSession {
   latestPreviewScale: number;
 }
 
+
+interface ZoomRenderRequest {
+  requestId: number;
+  requestedScale: number;
+  startedAt: number;
+  pdfReadyAt: number | null;
+  annotationReadyAt: number | null;
+}
+
 interface PendingZoomAnchor {
   pageXRatio: number;
   pageYRatio: number;
@@ -220,6 +229,10 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const viewerViewportRef = useRef<HTMLDivElement>(null);
 
 
+
+  const zoomRenderRequestIdRef = useRef(0);
+  const activeZoomRenderRequestRef = useRef<ZoomRenderRequest | null>(null);
+
   const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
   const zoomAnchorRequestIdRef = useRef(0);
   const zoomAnchorFrameRef = useRef<number | null>(null);
@@ -277,6 +290,17 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, []);
 
   const clearPinchPreviewStyle = useCallback(() => {
+    if (import.meta.env.DEV) {
+      const request = activeZoomRenderRequestRef.current;
+      console.info('[Mio Zoom Performance]', {
+        phase: 'preview-clear',
+        requestId: request?.requestId ?? null,
+        totalDuration: request ? performance.now() - request.startedAt : null,
+        pdfReady: request?.pdfReadyAt !== null,
+        annotationReady: request?.annotationReadyAt !== null,
+      });
+    }
+
     const pageSurface = getScorePageSurface();
     if (!pageSurface) return;
     pageSurface.style.transform = '';
@@ -321,11 +345,35 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       return;
     }
 
+    const commitZoomScale = (scaleToCommit: number) => {
+      const requestId = zoomRenderRequestIdRef.current + 1;
+      zoomRenderRequestIdRef.current = requestId;
+
+      activeZoomRenderRequestRef.current = {
+        requestId,
+        requestedScale: scaleToCommit,
+        startedAt: performance.now(),
+        pdfReadyAt: null,
+        annotationReadyAt: null,
+      };
+
+      if (import.meta.env.DEV) {
+        console.info('[Mio Zoom Performance]', {
+          phase: 'zoom-commit',
+          requestId,
+          requestedScale: scaleToCommit,
+          time: performance.now(),
+        });
+      }
+
+      zoomScaleRef.current = scaleToCommit;
+      setZoomScale(scaleToCommit);
+    };
+
     const viewport = scoreViewportRef.current;
     const pageSurface = getScorePageSurface();
     if (!viewport || !pageSurface) {
-      zoomScaleRef.current = nextScale;
-      setZoomScale(nextScale);
+      commitZoomScale(nextScale);
       return;
     }
 
@@ -333,8 +381,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     const pageRect = pageSurface.getBoundingClientRect();
     
     if (pageRect.width <= 0 || pageRect.height <= 0) {
-      zoomScaleRef.current = nextScale;
-      setZoomScale(nextScale);
+      commitZoomScale(nextScale);
       return;
     }
 
@@ -352,8 +399,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       requestId: nextRequestId,
     };
 
-    zoomScaleRef.current = nextScale;
-    setZoomScale(nextScale);
+    commitZoomScale(nextScale);
   }, [getScorePageSurface]);
 
   const handlePageGeometryReady = useCallback((renderedZoomScale: number) => {
@@ -428,6 +474,49 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       }
     });
   }, [getScorePageSurface, clearPinchPreviewStyle]);
+
+
+  const handlePdfRenderReady = useCallback((requestId: number, renderedScale: number) => {
+    const request = activeZoomRenderRequestRef.current;
+
+    if (!request) return;
+    if (request.requestId !== requestId) return;
+
+    if (Math.abs(request.requestedScale - renderedScale) >= 0.005) {
+      return;
+    }
+
+    request.pdfReadyAt = performance.now();
+
+    if (import.meta.env.DEV) {
+      console.info('[Mio Zoom Performance]', {
+        phase: 'pdf-ready',
+        requestId,
+        duration: request.pdfReadyAt - request.startedAt,
+      });
+    }
+  }, []);
+
+  const handleAnnotationRenderReady = useCallback((requestId: number, renderedScale: number) => {
+    const request = activeZoomRenderRequestRef.current;
+
+    if (!request) return;
+    if (request.requestId !== requestId) return;
+
+    if (Math.abs(request.requestedScale - renderedScale) >= 0.005) {
+      return;
+    }
+
+    request.annotationReadyAt = performance.now();
+
+    if (import.meta.env.DEV) {
+      console.info('[Mio Zoom Performance]', {
+        phase: 'annotation-ready',
+        requestId,
+        duration: request.annotationReadyAt - request.startedAt,
+      });
+    }
+  }, []);
 
   const flushPendingTwoFingerPan = useCallback(() => {
     if (twoFingerPanFrameRef.current !== null) {
@@ -1518,6 +1607,9 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         }}
       >
         <PdfPageCanvas
+                    zoomRenderRequestId={zoomRenderRequestIdRef.current}
+                    onPdfRenderReady={handlePdfRenderReady}
+                    onAnnotationRenderReady={handleAnnotationRenderReady}
                     touchGestureSessionId={touchGestureSessionId}
           storagePath={file.storagePath}
           pageNumber={currentPage}

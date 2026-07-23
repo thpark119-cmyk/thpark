@@ -42,6 +42,9 @@ interface PdfPageCanvasProps {
   isTwoFingerGestureActive?: boolean;
   onPageGeometryReady?: (renderedZoomScale: number) => void;
   touchGestureSessionId?: number;
+  zoomRenderRequestId?: number | null;
+  onPdfRenderReady?: (requestId: number, renderedZoomScale: number) => void;
+  onAnnotationRenderReady?: (requestId: number, renderedZoomScale: number) => void;
 }
 
 interface PageDisplaySize {
@@ -127,6 +130,9 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
     zoomScale,
     isTwoFingerGestureActive = false,
     touchGestureSessionId = 0,
+    zoomRenderRequestId,
+    onPdfRenderReady,
+    onAnnotationRenderReady,
     onPageGeometryReady,
   } = props;
 
@@ -490,9 +496,11 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
       event: 'page-render-success',
       pageNumber,
       containerWidth,
-      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     });
-  }, [pageNumber, containerWidth, measureRenderedPage]);
+    if (zoomRenderRequestId !== undefined && zoomRenderRequestId !== null) {
+      onPdfRenderReady?.(zoomRenderRequestId, zoomScale);
+    }
+  }, [pageNumber, containerWidth, measureRenderedPage, zoomRenderRequestId, zoomScale, onPdfRenderReady]);
 
   return (
     <div
@@ -588,6 +596,9 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                     eraserRadius={eraserRadius}
                     isTwoFingerGestureActive={isTwoFingerGestureActive}
                     touchGestureSessionId={touchGestureSessionId}
+                    zoomRenderRequestId={zoomRenderRequestId}
+                    onAnnotationRenderReady={onAnnotationRenderReady}
+                    renderedZoomScale={zoomScale}
                   />
                 )}
 
