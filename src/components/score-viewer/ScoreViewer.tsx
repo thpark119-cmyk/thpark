@@ -162,6 +162,22 @@ interface ScorePinchSession {
 }
 
 
+const ZOOM_PREVIEW_HANDOFF_TIMEOUT_MS = 750;
+
+type ZoomPreviewHandoffReason = 
+  | 'ready'
+  | 'timeout'
+  | 'superseded-by-zoom'
+  | 'superseded-by-pointer'
+  | 'page-change'
+  | 'file-change'
+  | 'viewer-close'
+  | 'blur'
+  | 'hidden'
+  | 'pagehide'
+  | 'unmount'
+  | 'reset';
+
 interface ZoomRenderRequest {
   requestId: number;
   requestedScale: number;
@@ -239,6 +255,8 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const activeZoomRenderRequestRef = useRef<ZoomRenderRequest | null>(null);
   const zoomHandoffFirstFrameRef = useRef<number | null>(null);
   const zoomHandoffSecondFrameRef = useRef<number | null>(null);
+  const zoomHandoffTimeoutRef = useRef<number | null>(null);
+  const zoomHandoffTimeoutRequestIdRef = useRef<number | null>(null);
 
   const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
   const zoomAnchorRequestIdRef = useRef(0);
@@ -296,6 +314,167 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     return true;
   }, []);
 
+  const cancelZoomHandoffSchedulers = useCallback((requestId?: number) => {
+    if (requestId !== undefined && zoomHandoffTimeoutRequestIdRef.current !== requestId) {
+      // Do not cancel timeout for a different request
+    } else {
+      if (zoomHandoffTimeoutRef.current !== null) {
+        window.clearTimeout(zoomHandoffTimeoutRef.current);
+        zoomHandoffTimeoutRef.current = null;
+      }
+      zoomHandoffTimeoutRequestIdRef.current = null;
+    }
+
+    if (zoomHandoffFirstFrameRef.current !== null) {
+      window.cancelAnimationFrame(zoomHandoffFirstFrameRef.current);
+      zoomHandoffFirstFrameRef.current = null;
+    }
+    if (zoomHandoffSecondFrameRef.current !== null) {
+      window.cancelAnimationFrame(zoomHandoffSecondFrameRef.current);
+      zoomHandoffSecondFrameRef.current = null;
+    }
+  }, []);
+
+  const clearMatchingZoomRequestRefs = useCallback((request: ZoomRenderRequest) => {
+    if (pendingZoomAnchorRef.current) {
+      if (request.anchorRequestId !== null && pendingZoomAnchorRef.current.requestId === request.anchorRequestId) {
+        pendingZoomAnchorRef.current = null;
+      }
+    }
+    if (pendingFinalPinchScaleRef.current !== null) {
+      if (Math.abs(pendingFinalPinchScaleRef.current - request.requestedScale) < 0.005) {
+        pendingFinalPinchScaleRef.current = null;
+      }
+    }
+  }, []);
+
+  const completeZoomPreviewHandoff = useCallback((requestId: number, reason: ZoomPreviewHandoffReason, requireAllReady: boolean): boolean => {
+    const request = activeZoomRenderRequestRef.current;
+    if (!request || request.requestId !== requestId || !request.usesPinchPreview) {
+      return false;
+    }
+
+    if (requireAllReady) {
+      if (request.pdfReadyAt === null || request.annotationReadyAt === null || request.geometryReadyAt === null) {
+        return false;
+      }
+      if (pendingFinalPinchScaleRef.current === null || Math.abs(pendingFinalPinchScaleRef.current - request.requestedScale) >= 0.005) {
+        return false;
+      }
+      if (!pendingZoomAnchorRef.current || pendingZoomAnchorRef.current.requestId !== request.anchorRequestId) {
+        return false;
+      }
+    }
+
+    cancelZoomHandoffSchedulers(requestId);
+
+    const latestAnchor = pendingZoomAnchorRef.current;
+    const viewport = scoreViewportRef.current;
+    const pageSurface = getScorePageSurface();
+
+    if (pageSurface) {
+      pageSurface.style.transform = '';
+      pageSurface.style.transformOrigin = '';
+      pageSurface.style.willChange = '';
+    }
+
+    if (viewport && pageSurface && latestAnchor && latestAnchor.requestId === request.anchorRequestId) {
+      const viewportRect = viewport.getBoundingClientRect();
+      const pageRect = pageSurface.getBoundingClientRect();
+
+      if (pageRect.width > 0 && pageRect.height > 0) {
+        const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
+        const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
+        
+        const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
+        const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
+        
+        viewport.scrollLeft += renderedAnchorClientX - targetClientX;
+        viewport.scrollTop += renderedAnchorClientY - targetClientY;
+      }
+    }
+
+    clearMatchingZoomRequestRefs(request);
+    request.previewClearedAt = performance.now();
+
+    if (activeZoomRenderRequestRef.current === request) {
+      activeZoomRenderRequestRef.current = null;
+    }
+
+    if (import.meta.env.DEV) {
+      if (reason === 'ready') {
+        console.info('[Mio Zoom Performance]', {
+          phase: 'handoff-complete',
+          reason,
+          requestId: request.requestId,
+          requestedScale: request.requestedScale,
+          pdfDuration: request.pdfReadyAt ? request.pdfReadyAt - request.startedAt : null,
+          annotationDuration: request.annotationReadyAt ? request.annotationReadyAt - request.startedAt : null,
+          geometryDuration: request.geometryReadyAt ? request.geometryReadyAt - request.startedAt : null,
+          totalDuration: request.previewClearedAt - request.startedAt,
+          readyGap: request.pdfReadyAt && request.annotationReadyAt ? Math.abs(request.pdfReadyAt - request.annotationReadyAt) : null,
+          usedPinchPreview: true,
+        });
+      } else {
+        console.info('[Mio Zoom Performance]', {
+          phase: 'handoff-fallback',
+          reason,
+          requestId: request.requestId,
+          requestedScale: request.requestedScale,
+          pdfReady: request.pdfReadyAt !== null,
+          annotationReady: request.annotationReadyAt !== null,
+          geometryReady: request.geometryReadyAt !== null,
+          totalDuration: request.previewClearedAt - request.startedAt,
+          usedPinchPreview: true,
+        });
+      }
+    }
+
+    return true;
+  }, [cancelZoomHandoffSchedulers, clearMatchingZoomRequestRefs, getScorePageSurface]);
+
+  const scheduleZoomHandoffTimeout = useCallback((requestId: number) => {
+    const request = activeZoomRenderRequestRef.current;
+    if (!request || request.requestId !== requestId || !request.usesPinchPreview) {
+      return;
+    }
+
+    if (zoomHandoffTimeoutRef.current !== null) {
+      window.clearTimeout(zoomHandoffTimeoutRef.current);
+    }
+
+    zoomHandoffTimeoutRequestIdRef.current = requestId;
+    zoomHandoffTimeoutRef.current = window.setTimeout(() => {
+      const currentReq = activeZoomRenderRequestRef.current;
+      if (
+        currentReq &&
+        currentReq.requestId === requestId &&
+        currentReq.usesPinchPreview &&
+        zoomHandoffTimeoutRequestIdRef.current === requestId
+      ) {
+        completeZoomPreviewHandoff(requestId, 'timeout', false);
+      }
+    }, ZOOM_PREVIEW_HANDOFF_TIMEOUT_MS);
+  }, [completeZoomPreviewHandoff]);
+
+  const cancelActiveZoomHandoff = useCallback((reason: ZoomPreviewHandoffReason) => {
+    const request = activeZoomRenderRequestRef.current;
+    if (!request) return;
+
+    if (request.usesPinchPreview) {
+      completeZoomPreviewHandoff(request.requestId, reason, false);
+    } else {
+      cancelZoomHandoffSchedulers();
+      activeZoomRenderRequestRef.current = null;
+      if (pendingZoomAnchorRef.current?.requestId === request.anchorRequestId) {
+        pendingZoomAnchorRef.current = null;
+      }
+      if (pendingFinalPinchScaleRef.current !== null && Math.abs(pendingFinalPinchScaleRef.current - request.requestedScale) < 0.005) {
+        pendingFinalPinchScaleRef.current = null;
+      }
+    }
+  }, [completeZoomPreviewHandoff, cancelZoomHandoffSchedulers]);
+
   const clearPinchPreviewStyle = useCallback(() => {
     if (import.meta.env.DEV) {
       const request = activeZoomRenderRequestRef.current;
@@ -352,6 +531,15 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     clientY: number,
     options?: { preservePinchPreviewUntilReady?: boolean }
   ): number | null => {
+    const existingReq = activeZoomRenderRequestRef.current;
+    if (existingReq) {
+      if (existingReq.usesPinchPreview) {
+        completeZoomPreviewHandoff(existingReq.requestId, 'superseded-by-zoom', false);
+      } else {
+        cancelZoomHandoffSchedulers();
+        activeZoomRenderRequestRef.current = null;
+      }
+    }
     const nextScale = normalizeZoomScale(requestedScale);
     if (Math.abs(nextScale - zoomScaleRef.current) < 0.005) {
       return null;
@@ -388,6 +576,10 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
       zoomScaleRef.current = scaleToCommit;
       setZoomScale(scaleToCommit);
+
+      if (options?.preservePinchPreviewUntilReady) {
+        scheduleZoomHandoffTimeout(requestId);
+      }
     };
 
     const viewport = scoreViewportRef.current;
@@ -427,14 +619,24 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     const request = activeZoomRenderRequestRef.current;
     if (!request || request.requestId !== requestId) return;
     if (!request.usesPinchPreview) return;
-    if (request.pdfReadyAt === null || request.annotationReadyAt === null || request.geometryReadyAt === null) return;
-    if (request.handoffScheduled) return;
+    if (request.pdfReadyAt === null || request.annotationReadyAt === null || request.geometryReadyAt === null) {
+      request.handoffScheduled = false;
+      return;
+    }
 
     const pendingFinalScale = pendingFinalPinchScaleRef.current;
-    if (pendingFinalScale === null || Math.abs(request.requestedScale - pendingFinalScale) >= 0.005) return;
+    if (pendingFinalScale === null || Math.abs(request.requestedScale - pendingFinalScale) >= 0.005) {
+      request.handoffScheduled = false;
+      return;
+    }
 
     const anchor = pendingZoomAnchorRef.current;
-    if (!anchor || anchor.requestId !== request.anchorRequestId) return;
+    if (!anchor || anchor.requestId !== request.anchorRequestId) {
+      request.handoffScheduled = false;
+      return;
+    }
+
+    if (request.handoffScheduled) return;
 
     request.handoffScheduled = true;
 
@@ -450,98 +652,39 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       
       const req1 = activeZoomRenderRequestRef.current;
       if (!req1 || req1.requestId !== requestId) return;
-      if (req1.pdfReadyAt === null || req1.annotationReadyAt === null || req1.geometryReadyAt === null) return;
+      if (req1.pdfReadyAt === null || req1.annotationReadyAt === null || req1.geometryReadyAt === null) {
+        req1.handoffScheduled = false;
+        return;
+      }
       
       const finalScale1 = pendingFinalPinchScaleRef.current;
-      if (finalScale1 === null || Math.abs(req1.requestedScale - finalScale1) >= 0.005) return;
+      if (finalScale1 === null || Math.abs(req1.requestedScale - finalScale1) >= 0.005) {
+        req1.handoffScheduled = false;
+        return;
+      }
 
       const anchor1 = pendingZoomAnchorRef.current;
-      if (!anchor1 || anchor1.requestId !== req1.anchorRequestId) return;
+      if (!anchor1 || anchor1.requestId !== req1.anchorRequestId) {
+        req1.handoffScheduled = false;
+        return;
+      }
 
       zoomHandoffSecondFrameRef.current = window.requestAnimationFrame(() => {
         zoomHandoffSecondFrameRef.current = null;
 
-        const req2 = activeZoomRenderRequestRef.current;
-        if (!req2 || req2.requestId !== requestId) return;
-        if (!req2.usesPinchPreview) return;
-        if (req2.pdfReadyAt === null || req2.annotationReadyAt === null || req2.geometryReadyAt === null) return;
-
-        const finalScale2 = pendingFinalPinchScaleRef.current;
-        if (finalScale2 === null || Math.abs(req2.requestedScale - finalScale2) >= 0.005) return;
-
-        const latestAnchor = pendingZoomAnchorRef.current;
-        if (!latestAnchor || latestAnchor.requestId !== req2.anchorRequestId) return;
-
-        const viewport = scoreViewportRef.current;
-        const pageSurface = getScorePageSurface();
-        if (!viewport || !pageSurface) return;
-
-        // Same callback sequence:
-        // 1. clearPinchPreviewStyle
-        clearPinchPreviewStyle();
-
-        // 2. measure actual page rect after preview is cleared
-        const viewportRect = viewport.getBoundingClientRect();
-        const pageRect = pageSurface.getBoundingClientRect();
-
-        if (pageRect.width > 0 && pageRect.height > 0) {
-          // 3. scroll adjustment
-          const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
-          const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
-          
-          const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
-          const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
-          
-          viewport.scrollLeft += renderedAnchorClientX - targetClientX;
-          viewport.scrollTop += renderedAnchorClientY - targetClientY;
-        }
-
-        // 4. clear pending anchor
-        pendingZoomAnchorRef.current = null;
-        // 5. clear pending final scale
-        pendingFinalPinchScaleRef.current = null;
-        // 6. record preview cleared time
-        req2.previewClearedAt = performance.now();
-
-        // 7. print dev log
-        if (import.meta.env.DEV) {
-          console.info('[Mio Zoom Performance]', {
-            phase: 'handoff-complete',
-            requestId: req2.requestId,
-            requestedScale: req2.requestedScale,
-            pdfDuration: req2.pdfReadyAt - req2.startedAt,
-            annotationDuration: req2.annotationReadyAt - req2.startedAt,
-            geometryDuration: req2.geometryReadyAt - req2.startedAt,
-            totalDuration: req2.previewClearedAt - req2.startedAt,
-            readyGap: Math.abs(req2.pdfReadyAt - req2.annotationReadyAt),
-            usedPinchPreview: true,
-          });
-        }
-
-        // 8. clear active request
-        activeZoomRenderRequestRef.current = null;
+        completeZoomPreviewHandoff(requestId, 'ready', true);
       });
     });
-  }, [getScorePageSurface, clearPinchPreviewStyle]);
+  }, [completeZoomPreviewHandoff]);
 
   const handlePageGeometryReady = useCallback((renderedZoomScale: number) => {
     const anchor = pendingZoomAnchorRef.current;
-    const pendingFinalScale = pendingFinalPinchScaleRef.current;
-    
-    if (!anchor) {
-      return;
-    }
-
-    if (Math.abs(renderedZoomScale - anchor.requestedZoomScale) >= 0.005) {
-      return;
-    }
-
-    const expectedRequestId = anchor.requestId;
-    const expectedRequestedScale = anchor.requestedZoomScale;
+    if (!anchor) return;
+    if (Math.abs(renderedZoomScale - anchor.requestedZoomScale) >= 0.005) return;
 
     const request = activeZoomRenderRequestRef.current;
     if (request && request.usesPinchPreview) {
-      if (Math.abs(request.requestedScale - renderedZoomScale) < 0.005 && request.anchorRequestId === expectedRequestId) {
+      if (Math.abs(request.requestedScale - renderedZoomScale) < 0.005 && request.anchorRequestId === anchor.requestId) {
         if (request.geometryReadyAt === null) {
           request.geometryReadyAt = performance.now();
           if (import.meta.env.DEV) {
@@ -553,67 +696,56 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
           }
           tryScheduleZoomPreviewHandoff(request.requestId);
         }
-        return;
       }
+      return;
     }
-
-    const shouldClearPinchPreview = pendingFinalScale !== null && Math.abs(renderedZoomScale - pendingFinalScale) < 0.005;
 
     if (zoomAnchorFrameRef.current !== null) {
       window.cancelAnimationFrame(zoomAnchorFrameRef.current);
     }
+    
+    const expectedRequestId = anchor.requestId;
+    const expectedRequestedScale = anchor.requestedZoomScale;
 
     zoomAnchorFrameRef.current = window.requestAnimationFrame(() => {
+      zoomAnchorFrameRef.current = null;
       try {
         const latestAnchor = pendingZoomAnchorRef.current;
         if (!latestAnchor || latestAnchor.requestId !== expectedRequestId || latestAnchor.requestedZoomScale !== expectedRequestedScale) {
           return;
         }
-        
-        if (shouldClearPinchPreview) {
-          const currentFinalScale = pendingFinalPinchScaleRef.current;
-          if (currentFinalScale === null || Math.abs(renderedZoomScale - currentFinalScale) >= 0.005) {
-            return;
-          }
-        }
 
         const viewport = scoreViewportRef.current;
         const pageSurface = getScorePageSurface();
 
-        if (!viewport || !pageSurface) {
-          return;
+        if (viewport && pageSurface) {
+          const viewportRect = viewport.getBoundingClientRect();
+          const pageRect = pageSurface.getBoundingClientRect();
+
+          if (pageRect.width > 0 && pageRect.height > 0) {
+            const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
+            const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
+
+            const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
+            const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
+
+            viewport.scrollLeft += renderedAnchorClientX - targetClientX;
+            viewport.scrollTop += renderedAnchorClientY - targetClientY;
+          }
         }
-
-        if (shouldClearPinchPreview) {
-          clearPinchPreviewStyle();
+        
+        if (pendingZoomAnchorRef.current?.requestId === expectedRequestId) {
+          pendingZoomAnchorRef.current = null;
         }
-
-        const viewportRect = viewport.getBoundingClientRect();
-        const pageRect = pageSurface.getBoundingClientRect();
-
-        if (pageRect.width <= 0 || pageRect.height <= 0) {
-          return;
+        
+        if (activeZoomRenderRequestRef.current && activeZoomRenderRequestRef.current.anchorRequestId === expectedRequestId) {
+          activeZoomRenderRequestRef.current = null;
         }
-
-        const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
-        const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
-
-        const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
-        const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
-
-        viewport.scrollLeft += renderedAnchorClientX - targetClientX;
-        viewport.scrollTop += renderedAnchorClientY - targetClientY;
-
-        pendingZoomAnchorRef.current = null;
-        if (shouldClearPinchPreview) {
-          pendingFinalPinchScaleRef.current = null;
-        }
-
-      } finally {
-        zoomAnchorFrameRef.current = null;
+      } catch (error) {
+        console.error('[ScoreViewer] Error handling zoom geometry:', error);
       }
     });
-  }, [getScorePageSurface, clearPinchPreviewStyle, tryScheduleZoomPreviewHandoff]);
+  }, [getScorePageSurface, tryScheduleZoomPreviewHandoff]);
 
 
   const handlePdfRenderReady = useCallback((requestId: number, renderedScale: number) => {
@@ -751,10 +883,11 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     pendingPinchPreviewRef.current = null;
 
     flushPendingTwoFingerPan();
-    clearPinchPreviewStyle();
 
     if (finalScale !== null) {
-      handleZoomChangeAtPoint(finalScale, lastMidpointX, lastMidpointY);
+      handleZoomChangeAtPoint(finalScale, lastMidpointX, lastMidpointY, { preservePinchPreviewUntilReady: true });
+    } else {
+      clearPinchPreviewStyle();
     }
   }, [
     clearTouchReleaseTimer,
@@ -791,27 +924,40 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, [clearPinchPreviewStyle]);
 
   useEffect(() => {
-    window.addEventListener('blur', resetTouchGestureState);
+    const handleBlur = () => {
+      cancelActiveZoomHandoff('blur');
+      resetTouchGestureState();
+    };
     const handleVisibilityChange = () => {
       if (window.document.visibilityState === 'hidden') {
+        cancelActiveZoomHandoff('hidden');
         resetTouchGestureState();
       }
     };
+    window.addEventListener('blur', handleBlur);
     window.document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener('blur', resetTouchGestureState);
+      window.removeEventListener('blur', handleBlur);
       window.document.removeEventListener('visibilitychange', handleVisibilityChange);
+      cancelActiveZoomHandoff('unmount');
       resetTouchGestureState(); // also reset on unmount
       
+      cancelZoomHandoffSchedulers();
+      activeZoomRenderRequestRef.current = null;
+      pendingFinalPinchScaleRef.current = null;
       pendingZoomAnchorRef.current = null;
       if (zoomAnchorFrameRef.current !== null) {
         window.cancelAnimationFrame(zoomAnchorFrameRef.current);
         zoomAnchorFrameRef.current = null;
       }
     };
-  }, [resetTouchGestureState]);
+  }, [resetTouchGestureState, cancelActiveZoomHandoff, cancelZoomHandoffSchedulers]);
 
   const handleScorePointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    const activeReq = activeZoomRenderRequestRef.current;
+    if (activeReq && activeReq.usesPinchPreview) {
+      completeZoomPreviewHandoff(activeReq.requestId, 'superseded-by-pointer', false);
+    }
     if (event.pointerType !== 'touch') {
       return;
     }
@@ -1384,7 +1530,16 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
 
   // When changing pages, reset history for simplicity, 
   // or we could maintain a history per page. We'll reset for simplicity.
+  useEffect(() => {
+    cancelActiveZoomHandoff('file-change');
+  }, [file.id, file.storagePath, repertoireId, cancelActiveZoomHandoff]);
+
+  useEffect(() => {
+    cancelActiveZoomHandoff('page-change');
+  }, [currentPage, cancelActiveZoomHandoff]);
+
   const changePage = (delta: number) => {
+    cancelActiveZoomHandoff('page-change');
     const newPage = Math.max(1, Math.min(pageCount, currentPage + delta));
     if (newPage !== currentPage) {
       setCurrentPage(newPage);
@@ -1534,6 +1689,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     };
 
     const handlePageHide = () => {
+      cancelActiveZoomHandoff('pagehide');
       void flushLatestAnnotations('pagehide');
     };
 
@@ -1615,7 +1771,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     }
   };
 
-  const handleClose = useCallback(async () => {
+  const handleCloseViewer = useCallback(async () => {
     if (isClosing) {
       return;
     }
@@ -1635,8 +1791,9 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       }
     }
 
+    cancelActiveZoomHandoff('viewer-close');
     onClose();
-  }, [isClosing, flushLatestAnnotations, onClose]);
+  }, [isClosing, flushLatestAnnotations, onClose, cancelActiveZoomHandoff]);
 
   if (!file || !file.storagePath) {
     return (
@@ -1652,7 +1809,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
         }}
       >
         <div className="relative z-40 h-14 bg-stone-800 border-b border-white/10 flex items-center px-4 shrink-0 safe-top">
-          <button onClick={handleClose} className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
+          <button onClick={handleCloseViewer} className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
             <X size={24} />
           </button>
           <span className="text-white font-medium ml-2">오류</span>
@@ -1683,7 +1840,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       {/* Top Bar */}
       <div className="relative z-40 h-12 md:h-14 bg-stone-800 border-b border-white/10 flex items-center justify-between px-2 md:px-4 shrink-0 min-w-0 safe-top pointer-events-auto">
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
-          <button type="button" data-score-viewer-close onClick={handleClose} disabled={isClosing} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0 disabled:opacity-30">
+          <button type="button" data-score-viewer-close onClick={handleCloseViewer} disabled={isClosing} className="p-1.5 md:p-2 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors shrink-0 disabled:opacity-30">
             <X size={24} />
           </button>
           <span className="text-white font-medium truncate min-w-0">{file.fileName}</span>
