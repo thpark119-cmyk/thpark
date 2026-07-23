@@ -245,22 +245,6 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   const twoFingerPanFrameRef = useRef<number | null>(null);
   const touchReleaseTimerRef = useRef<number | null>(null);
 
-  const clearTouchReleaseTimer = useCallback(() => {
-    if (touchReleaseTimerRef.current === null) {
-      return;
-    }
-    window.clearTimeout(touchReleaseTimerRef.current);
-    touchReleaseTimerRef.current = null;
-  }, []);
-
-  const getScorePageSurface = useCallback((): HTMLElement | null => {
-    const viewport = scoreViewportRef.current;
-    if (!viewport) {
-      return null;
-    }
-    return viewport.querySelector<HTMLElement>('[data-score-page-surface]');
-  }, []);
-
   const removePinchSnapshot = useCallback(() => {
     if (pinchSnapshotRemovalFrameRef.current !== null) {
       window.cancelAnimationFrame(pinchSnapshotRemovalFrameRef.current);
@@ -306,7 +290,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     }
 
     const sourceCanvases = Array.from(pageSurface.querySelectorAll<HTMLCanvasElement>('canvas'));
-    const validCanvases = sourceCanvases.filter((canvas: HTMLCanvasElement) => {
+    const validCanvases = sourceCanvases.filter(canvas => {
       if (canvas.width <= 0 || canvas.height <= 0) return false;
       const rect = canvas.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return false;
@@ -359,7 +343,7 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     }
 
     let successCount = 0;
-    validCanvases.forEach((sourceCanvas: HTMLCanvasElement) => {
+    validCanvases.forEach(sourceCanvas => {
       try {
         const sourceRect = sourceCanvas.getBoundingClientRect();
         const destinationX = sourceRect.left - pageRect.left;
@@ -390,6 +374,22 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
       requestedScale: null,
     };
   }, [getScorePageSurface, removePinchSnapshot]);
+
+  const clearTouchReleaseTimer = useCallback(() => {
+    if (touchReleaseTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(touchReleaseTimerRef.current);
+    touchReleaseTimerRef.current = null;
+  }, []);
+
+  const getScorePageSurface = useCallback((): HTMLElement | null => {
+    const viewport = scoreViewportRef.current;
+    if (!viewport) {
+      return null;
+    }
+    return viewport.querySelector<HTMLElement>('[data-score-page-surface]');
+  }, []);
 
   const zoomScaleRef = useRef(zoomScale);
   useEffect(() => {
