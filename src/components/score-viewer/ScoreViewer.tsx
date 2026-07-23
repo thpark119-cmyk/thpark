@@ -117,6 +117,8 @@ interface ActivePinchSnapshot {
   storagePath: string;
 }
 
+const PINCH_SNAPSHOT_MAX_PIXELS = 4_194_304;
+const PINCH_SNAPSHOT_MIN_DPR = 0.5;
 const PINCH_SNAPSHOT_MAX_DPR = 1.5;
 const PINCH_SNAPSHOT_READY_TOLERANCE_PX = 3;
 const PINCH_SNAPSHOT_STABLE_FRAMES = 2;
@@ -367,58 +369,84 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     snapshotCanvas.style.width = `${pageRect.width}px`;
     snapshotCanvas.style.height = `${pageRect.height}px`;
 
-    const snapshotDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, PINCH_SNAPSHOT_MAX_DPR));
-    snapshotCanvas.width = Math.max(1, Math.ceil(pageRect.width * snapshotDpr));
-    snapshotCanvas.height = Math.max(1, Math.ceil(pageRect.height * snapshotDpr));
+    const cssWidth = pageRect.width;
+    const cssHeight = pageRect.height;
+    const maxAllowedDpr = cssWidth > 0 && cssHeight > 0 
+      ? Math.sqrt(PINCH_SNAPSHOT_MAX_PIXELS / (cssWidth * cssHeight)) 
+      : PINCH_SNAPSHOT_MAX_DPR;
 
-    const context = snapshotCanvas.getContext('2d');
-    if (!context) {
+    const snapshotDpr = Math.max(
+      PINCH_SNAPSHOT_MIN_DPR,
+      Math.min(
+        window.devicePixelRatio || 1,
+        PINCH_SNAPSHOT_MAX_DPR,
+        maxAllowedDpr
+      )
+    );
+    
+    if (isNaN(snapshotDpr) || !isFinite(snapshotDpr)) {
       return null;
     }
 
-    context.setTransform(snapshotDpr, 0, 0, snapshotDpr, 0, 0);
-    context.imageSmoothingEnabled = true;
-    if ('imageSmoothingQuality' in context) {
-      (context as any).imageSmoothingQuality = 'high';
-    }
+    try {
+      snapshotCanvas.width = Math.max(1, Math.ceil(pageRect.width * snapshotDpr));
+      snapshotCanvas.height = Math.max(1, Math.ceil(pageRect.height * snapshotDpr));
 
-    let successCount = 0;
-    validCanvases.forEach((sourceCanvas: HTMLCanvasElement) => {
-      try {
-        const sourceRect = sourceCanvas.getBoundingClientRect();
-        const destinationX = sourceRect.left - pageRect.left;
-        const destinationY = sourceRect.top - pageRect.top;
-        const destinationWidth = sourceRect.width;
-        const destinationHeight = sourceRect.height;
-        
-        context.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, destinationX, destinationY, destinationWidth, destinationHeight);
-        successCount++;
-      } catch (err) {
-        console.warn('[Mio Score Snapshot] canvas copy failed:', err);
+      const context = snapshotCanvas.getContext('2d');
+      if (!context) {
+        throw new Error('Failed to get 2d context');
       }
-    });
 
-    if (successCount === 0) {
+      context.setTransform(snapshotDpr, 0, 0, snapshotDpr, 0, 0);
+      context.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in context) {
+        (context as any).imageSmoothingQuality = 'high';
+      }
+
+      let successCount = 0;
+      validCanvases.forEach((sourceCanvas: HTMLCanvasElement) => {
+        try {
+          const sourceRect = sourceCanvas.getBoundingClientRect();
+          const destinationX = sourceRect.left - pageRect.left;
+          const destinationY = sourceRect.top - pageRect.top;
+          const destinationWidth = sourceRect.width;
+          const destinationHeight = sourceRect.height;
+          
+          context.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, destinationX, destinationY, destinationWidth, destinationHeight);
+          successCount++;
+        } catch (err) {
+          console.warn('[Mio Score Snapshot] canvas copy failed:', err);
+        }
+      });
+
+      if (successCount === 0) {
+        throw new Error('No canvas successfully copied');
+      }
+
+      overlay.appendChild(snapshotCanvas);
+      document.body.appendChild(overlay);
+
+      pinchSnapshotGenerationRef.current += 1;
+
+      return {
+        overlay,
+        canvas: snapshotCanvas,
+        requestId: null,
+        requestedScale: null,
+        generation: pinchSnapshotGenerationRef.current,
+        pageNumber: currentPageRef.current,
+        fileId: file?.id || '',
+        storagePath: file?.storagePath || ''
+      };
+    } catch (err) {
+      console.warn('[Mio Score Snapshot] failed to create snapshot:', err);
       snapshotCanvas.width = 0;
       snapshotCanvas.height = 0;
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
       return null;
     }
-
-    overlay.appendChild(snapshotCanvas);
-    document.body.appendChild(overlay);
-
-    pinchSnapshotGenerationRef.current += 1;
-
-    return {
-      overlay,
-      canvas: snapshotCanvas,
-      requestId: null,
-      requestedScale: null,
-      generation: pinchSnapshotGenerationRef.current,
-      pageNumber: currentPageRef.current,
-      fileId: file?.id || '',
-      storagePath: file?.storagePath || ''
-    };
   }, [getScorePageSurface, file?.id, file?.storagePath]);
 
   const zoomScaleRef = useRef(zoomScale);
