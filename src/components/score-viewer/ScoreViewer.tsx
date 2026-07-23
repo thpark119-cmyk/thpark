@@ -339,13 +339,9 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
   }, [getScorePageSurface]);
 
   const handlePageGeometryReady = useCallback((renderedZoomScale: number) => {
-    const pendingFinalScale = pendingFinalPinchScaleRef.current;
-    if (pendingFinalScale !== null && Math.abs(renderedZoomScale - pendingFinalScale) < 0.005) {
-      clearPinchPreviewStyle();
-      pendingFinalPinchScaleRef.current = null;
-    }
-
     const anchor = pendingZoomAnchorRef.current;
+    const pendingFinalScale = pendingFinalPinchScaleRef.current;
+    
     if (!anchor) {
       return;
     }
@@ -355,43 +351,62 @@ export default function ScoreViewer({ file, repertoireId, onClose }: ScoreViewer
     }
 
     const expectedRequestId = anchor.requestId;
+    const expectedRequestedScale = anchor.requestedZoomScale;
+
+    const shouldClearPinchPreview = pendingFinalScale !== null && Math.abs(renderedZoomScale - pendingFinalScale) < 0.005;
 
     if (zoomAnchorFrameRef.current !== null) {
       window.cancelAnimationFrame(zoomAnchorFrameRef.current);
     }
 
     zoomAnchorFrameRef.current = window.requestAnimationFrame(() => {
-      zoomAnchorFrameRef.current = null;
+      try {
+        const latestAnchor = pendingZoomAnchorRef.current;
+        if (!latestAnchor || latestAnchor.requestId !== expectedRequestId || latestAnchor.requestedZoomScale !== expectedRequestedScale) {
+          return;
+        }
+        
+        if (shouldClearPinchPreview) {
+          const currentFinalScale = pendingFinalPinchScaleRef.current;
+          if (currentFinalScale === null || Math.abs(renderedZoomScale - currentFinalScale) >= 0.005) {
+            return;
+          }
+        }
 
-      const latestAnchor = pendingZoomAnchorRef.current;
-      if (!latestAnchor || latestAnchor.requestId !== expectedRequestId) {
-        return;
+        const viewport = scoreViewportRef.current;
+        const pageSurface = getScorePageSurface();
+
+        if (!viewport || !pageSurface) {
+          return;
+        }
+
+        if (shouldClearPinchPreview) {
+          clearPinchPreviewStyle();
+        }
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const pageRect = pageSurface.getBoundingClientRect();
+
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+          return;
+        }
+
+        const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
+        const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
+
+        const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
+        const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
+
+        viewport.scrollLeft += renderedAnchorClientX - targetClientX;
+        viewport.scrollTop += renderedAnchorClientY - targetClientY;
+
+        pendingZoomAnchorRef.current = null;
+        if (shouldClearPinchPreview) {
+          pendingFinalPinchScaleRef.current = null;
+        }
+      } finally {
+        zoomAnchorFrameRef.current = null;
       }
-
-      const viewport = scoreViewportRef.current;
-      const pageSurface = getScorePageSurface();
-
-      if (!viewport || !pageSurface) {
-        return;
-      }
-
-      const viewportRect = viewport.getBoundingClientRect();
-      const pageRect = pageSurface.getBoundingClientRect();
-
-      if (pageRect.width <= 0 || pageRect.height <= 0) {
-        return;
-      }
-
-      const targetClientX = viewportRect.left + latestAnchor.viewportOffsetX;
-      const targetClientY = viewportRect.top + latestAnchor.viewportOffsetY;
-
-      const renderedAnchorClientX = pageRect.left + pageRect.width * latestAnchor.pageXRatio;
-      const renderedAnchorClientY = pageRect.top + pageRect.height * latestAnchor.pageYRatio;
-
-      viewport.scrollLeft += renderedAnchorClientX - targetClientX;
-      viewport.scrollTop += renderedAnchorClientY - targetClientY;
-
-      pendingZoomAnchorRef.current = null;
     });
   }, [getScorePageSurface, clearPinchPreviewStyle]);
 
