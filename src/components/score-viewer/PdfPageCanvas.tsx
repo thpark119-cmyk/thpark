@@ -155,6 +155,11 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
 
   const pageWrapperRef = useRef<HTMLDivElement>(null);
   const [pageDisplaySize, setPageDisplaySize] = useState<PageDisplaySize>({ width: 0, height: 0 });
+  const [annotationGeometryRequestId, setAnnotationGeometryRequestId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setAnnotationGeometryRequestId(null);
+  }, [zoomRenderRequestId, pageNumber, storagePath]);
 
   const viewTapCandidateRef = useRef<ViewTapCandidate | null>(null);
 
@@ -596,7 +601,7 @@ export default function PdfPageCanvas(props: PdfPageCanvasProps) {
                     eraserRadius={eraserRadius}
                     isTwoFingerGestureActive={isTwoFingerGestureActive}
                     touchGestureSessionId={touchGestureSessionId}
-                    zoomRenderRequestId={zoomRenderRequestId}
+                    zoomRenderRequestId={annotationGeometryRequestId}
                     onAnnotationRenderReady={onAnnotationRenderReady}
                     renderedZoomScale={zoomScale}
                   />

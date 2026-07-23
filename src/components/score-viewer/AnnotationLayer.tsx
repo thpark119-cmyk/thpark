@@ -269,6 +269,12 @@ export default function AnnotationLayer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentStroke, setCurrentStroke] = useState<ScoreAnnotationStroke | null>(null);
   const activeAnnotationPointerIdRef = useRef<number | null>(null);
+  const lastReportedAnnotationReadyRef = useRef<{
+    requestId: number;
+    scale: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const cancelActiveAnnotationSession = useCallback(() => {
     const pointerId = activeAnnotationPointerIdRef.current;
@@ -438,8 +444,33 @@ export default function AnnotationLayer({
       drawStroke(currentStroke);
     }
 
-    if (zoomRenderRequestId !== undefined && zoomRenderRequestId !== null && document.body.contains(canvas)) {
-      onAnnotationRenderReady?.(zoomRenderRequestId, renderedZoomScale);
+    if (
+      zoomRenderRequestId !== undefined &&
+      zoomRenderRequestId !== null &&
+      document.body.contains(canvas) &&
+      width >= 1 &&
+      height >= 1 &&
+      canvas.width > 0 &&
+      canvas.height > 0 &&
+      canvas.style.width !== '' &&
+      canvas.style.height !== ''
+    ) {
+      const lastReported = lastReportedAnnotationReadyRef.current;
+      if (
+        !lastReported ||
+        lastReported.requestId !== zoomRenderRequestId ||
+        lastReported.scale !== renderedZoomScale ||
+        lastReported.width !== width ||
+        lastReported.height !== height
+      ) {
+        lastReportedAnnotationReadyRef.current = {
+          requestId: zoomRenderRequestId,
+          scale: renderedZoomScale,
+          width,
+          height,
+        };
+        onAnnotationRenderReady?.(zoomRenderRequestId, renderedZoomScale);
+      }
     }
   }, [width, height, strokes, currentStroke, eraserPreviewStrokes, zoomRenderRequestId, renderedZoomScale, onAnnotationRenderReady]);
 
