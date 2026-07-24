@@ -32,6 +32,9 @@ export interface GestureEndEventV2 {
   reason: GestureEndReasonV2;
   previousPhase: GesturePhaseV2;
   hadPinch: boolean;
+  lastPinchViewportX: number | null;
+  lastPinchViewportY: number | null;
+  transformRevision: number;
   transform: GestureTransformV2;
   activePointerCount: number;
   pointerMoveCount: number;
@@ -44,6 +47,10 @@ export interface GestureScaleHandoffSnapshotV2 {
   transformRevision: number;
   originX: number;
   originY: number;
+  anchorViewportX: number;
+  anchorViewportY: number;
+  anchorLocalX: number;
+  anchorLocalY: number;
   transform: GestureTransformV2;
   capturedAt: number;
 }
@@ -80,6 +87,6 @@ export interface GestureViewportV2Handle {
   getTransform(): GestureTransformV2;
   getPhase(): GesturePhaseV2;
   cancelActiveGesture(): void;
-  prepareScaleHandoff(): GestureScaleHandoffSnapshotV2 | null;
+  prepareScaleHandoff(anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null;
   completeScaleHandoff(snapshot: GestureScaleHandoffSnapshotV2, baseScaleRatio: number): GestureScaleHandoffResultV2;
 }

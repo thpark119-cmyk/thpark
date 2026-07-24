@@ -62,9 +62,15 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const appliedFrameCountRef = useRef(0);
     const prevFrameTimeRef = useRef<number>(0);
     const maxFrameGapMsRef = useRef(0);
-        const sessionHadPinchRef = useRef(false);
+    const sessionHadPinchRef = useRef(false);
     const snapshotIdCounterRef = useRef(0);
     const transformRevisionRef = useRef(0);
+    const lastPinchAnchorRef = useRef<{
+      viewportX: number;
+      viewportY: number;
+      sessionId: number;
+      transformRevision: number;
+    } | null>(null);
 
     // Hardening 4B
     const sessionIdRef = useRef(0);
@@ -113,6 +119,14 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       
       console.log(`[Mio V2 4B Hardening] gesture-end-emitted: session ${currentSessionId}, endEventId ${endEventCounterRef.current}, reason ${reason}`);
       
+      let lastPinchViewportX = null;
+      let lastPinchViewportY = null;
+      
+      if (sessionHadPinchRef.current && lastPinchAnchorRef.current && lastPinchAnchorRef.current.sessionId === currentSessionId) {
+        lastPinchViewportX = lastPinchAnchorRef.current.viewportX;
+        lastPinchViewportY = lastPinchAnchorRef.current.viewportY;
+      }
+      
       if (onGestureEnd) {
         onGestureEnd({
           sessionId: currentSessionId,
@@ -120,6 +134,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           reason,
           previousPhase: prevPhase,
           hadPinch: sessionHadPinchRef.current,
+          lastPinchViewportX,
+          lastPinchViewportY,
+          transformRevision: transformRevisionRef.current,
           transform: { ...transformRef.current },
           activePointerCount: pointersRef.current.size,
           pointerMoveCount: pointerMoveCountRef.current,
@@ -203,7 +220,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       emitEvent();
     }, [cancelActiveGesture, updateTransformStyle, emitEvent, clampPreviewScaleV2]);
 
-    const prepareScaleHandoff = useCallback((): GestureScaleHandoffSnapshotV2 | null => {
+    const prepareScaleHandoff = useCallback((anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null => {
       flushPendingTransform();
       const viewportRect = viewportRef.current?.getBoundingClientRect();
       const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
@@ -212,11 +229,27 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       const originX = tLayerRect.left - viewportRect.left - transformRef.current.translateX;
       const originY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
 
+      let effectiveAnchorX = viewportRect.width / 2;
+      let effectiveAnchorY = viewportRect.height / 2;
+      if (anchorViewportX !== undefined && anchorViewportY !== undefined && isFinite(anchorViewportX) && isFinite(anchorViewportY)) {
+        effectiveAnchorX = anchorViewportX;
+        effectiveAnchorY = anchorViewportY;
+      }
+
+      const anchorLocalX = (effectiveAnchorX - originX - transformRef.current.translateX) / transformRef.current.scale;
+      const anchorLocalY = (effectiveAnchorY - originY - transformRef.current.translateY) / transformRef.current.scale;
+
+      if (!isFinite(anchorLocalX) || !isFinite(anchorLocalY)) return null;
+
       return {
         snapshotId: ++snapshotIdCounterRef.current,
         transformRevision: transformRevisionRef.current,
         originX,
         originY,
+        anchorViewportX: effectiveAnchorX,
+        anchorViewportY: effectiveAnchorY,
+        anchorLocalX,
+        anchorLocalY,
         transform: { ...transformRef.current },
         capturedAt: Date.now()
       };
@@ -252,6 +285,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         
         if (dist >= 4) {
           const viewportRect = viewportRef.current?.getBoundingClientRect();
+          const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
           const centerX = (p1.clientX + p2.clientX) / 2;
           const centerY = (p1.clientY + p2.clientY) / 2;
 
@@ -260,14 +294,15 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           
           let focalX = 0;
           let focalY = 0;
-          if (viewportRect) {
+          if (viewportRect && tLayerRect) {
+            newOriginX = tLayerRect.left - viewportRect.left - newTransform.translateX;
+            newOriginY = tLayerRect.top - viewportRect.top - newTransform.translateY;
             focalX = (centerX - viewportRect.left - newOriginX - newTransform.translateX) / newTransform.scale;
             focalY = (centerY - viewportRect.top - newOriginY - newTransform.translateY) / newTransform.scale;
           }
 
           pinchSessionRef.current = {
-            pointerId1: p1.pointerId,
-            pointerId2: p2.pointerId,
+            pointerIds: [p1.pointerId, p2.pointerId],
             startDistance: dist,
             startScale: newTransform.scale,
             startTranslateX: newTransform.translateX,
@@ -329,8 +364,11 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         nextPreviewScale = 1;
       }
 
-      const nextTranslateX = snapshot.originX + transformRef.current.translateX - nextOriginX;
-      const nextTranslateY = snapshot.originY + transformRef.current.translateY - nextOriginY;
+      const nextAnchorLocalX = snapshot.anchorLocalX * baseScaleRatio;
+      const nextAnchorLocalY = snapshot.anchorLocalY * baseScaleRatio;
+
+      const nextTranslateX = snapshot.anchorViewportX - nextOriginX - nextAnchorLocalX * nextPreviewScale;
+      const nextTranslateY = snapshot.anchorViewportY - nextOriginY - nextAnchorLocalY * nextPreviewScale;
 
       const newTransform = {
         scale: nextPreviewScale,
@@ -439,6 +477,16 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
       const startCenterX = (ptr1.clientX + ptr2.clientX) / 2;
       const startCenterY = (ptr1.clientY + ptr2.clientY) / 2;
+      
+      const currentCenterX = startCenterX - viewportRect.left;
+      const currentCenterY = startCenterY - viewportRect.top;
+      
+      lastPinchAnchorRef.current = {
+        viewportX: currentCenterX,
+        viewportY: currentCenterY,
+        sessionId: sessionIdRef.current,
+        transformRevision: transformRevisionRef.current
+      };
 
       const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
       if (!tLayerRect) return;
@@ -544,6 +592,13 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
           const currentCenterX = (ptr1.clientX + ptr2.clientX) / 2 - viewportRect.left;
           const currentCenterY = (ptr1.clientY + ptr2.clientY) / 2 - viewportRect.top;
+          
+          lastPinchAnchorRef.current = {
+            viewportX: currentCenterX,
+            viewportY: currentCenterY,
+            sessionId: sessionIdRef.current,
+            transformRevision: transformRevisionRef.current
+          };
 
           let newScale = pinchSessionRef.current.startScale * dist / pinchSessionRef.current.startDistance;
           if (!isFinite(newScale) || newScale <= 0) return;

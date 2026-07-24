@@ -175,9 +175,12 @@ export default function V2RendererLab() {
   const [recentEvents, setRecentEvents] = useState<LabRenderEvent[]>([]);
   const [gestureEvent, setGestureEvent] = useState<GestureTransformEventV2 | null>(null);
 
-  const MIN_COMMITTED_CSS_SCALE_V2 = 0.5;
+  const MIN_COMMITTED_CSS_SCALE_V2 = 1;
   const MAX_COMMITTED_CSS_SCALE_V2 = 3;
   const lastProcessedSessionIdRef = useRef<number | null>(null);
+  const lastAppliedGestureSessionIdRef = useRef<number | null>(null);
+  const lastGestureEndEventRef = useRef<GestureEndEventV2 | null>(null);
+  const lastAppliedTransformRevisionRef = useRef<number>(0);
 
   // Handoff state
   const pendingHandoffRef = useRef<PendingScaleHandoffV2 | null>(null);
@@ -208,8 +211,8 @@ export default function V2RendererLab() {
     console.log(`[Mio V2 4B Hardening] chain cancelled: ${reason}`);
   }, []);
 
-  const minPreviewScale = 0.5 / visualBaseScale;
-  const maxPreviewScale = 3 / visualBaseScale;
+  const minPreviewScale = MIN_COMMITTED_CSS_SCALE_V2 / visualBaseScale;
+  const maxPreviewScale = MAX_COMMITTED_CSS_SCALE_V2 / visualBaseScale;
 
   // Refs
 
@@ -327,6 +330,7 @@ export default function V2RendererLab() {
   const handleGestureEnd = useCallback((ev: GestureEndEventV2) => {
     if (ev.reason !== 'pointer-up' && ev.reason !== 'imperative-cancel') return;
     
+    lastGestureEndEventRef.current = ev;
     if (lastProcessedSessionIdRef.current === ev.sessionId) {
       console.log(`[Mio V2 4B Hardening] duplicate-commit-blocked for session ${ev.sessionId}`);
       return;
@@ -447,6 +451,10 @@ export default function V2RendererLab() {
                 console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${baseScaleRatio}`);
                 
                 if (result.activeSessionRebase && (result.activeSessionRebase.panRebased || result.activeSessionRebase.pinchRebased)) {
+                    lastAppliedGestureSessionIdRef.current = ph.gestureSessionId;
+                    lastAppliedTransformRevisionRef.current = result.activeSessionRebase.rebaseRevision;
+                    console.log(`[Mio V2 4C1 Anchor] ${result.activeSessionRebase.panRebased ? 'active-pan-rebased' : 'active-pinch-rebased'} (revision ${result.activeSessionRebase.rebaseRevision})`);
+                    
                     const rebaseLog: ScaleHandoffInfoV2 = {
                       id: `chain-${chainIdCounterRef.current}-rebase-${Date.now()}`,
                       gestureSessionId: ph.gestureSessionId,
@@ -928,8 +936,8 @@ export default function V2RendererLab() {
     e.target.value = '';
   };
 
-  const handleZoomOut = () => { cancelScaleHandoffChain('handleZoomOut'); manualIntervention(); setCssScale((p) => Math.max(0.5, p - 0.25)); };
-  const handleZoomIn = () => { cancelScaleHandoffChain('handleZoomIn'); manualIntervention(); setCssScale((p) => Math.min(2.0, p + 0.25)); };
+  const handleZoomOut = () => { cancelScaleHandoffChain('handleZoomOut'); manualIntervention(); setCssScale((p) => Math.max(MIN_COMMITTED_CSS_SCALE_V2, p - 0.25)); };
+  const handleZoomIn = () => { cancelScaleHandoffChain('handleZoomIn'); manualIntervention(); setCssScale((p) => Math.min(MAX_COMMITTED_CSS_SCALE_V2, p + 0.25)); };
   const handleZoomReset = () => { cancelScaleHandoffChain('handleZoomReset'); manualIntervention(); setCssScale(1); };
 
   const handlePrevPage = () => { cancelScaleHandoffChain('handlePrevPage'); manualIntervention(); setPageNumber((p) => Math.max(1, p - 1)); };
