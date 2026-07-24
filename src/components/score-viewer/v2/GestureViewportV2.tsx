@@ -4,7 +4,11 @@ import {
   GesturePointerV2,
   GestureTransformEventV2,
   GestureTransformV2,
-  GestureViewportV2Handle
+  GestureViewportV2Handle,
+  GestureEndEventV2,
+  GestureEndReasonV2,
+  GestureScaleHandoffSnapshotV2,
+  GestureScaleHandoffResultV2
 } from './gestureTypes';
 
 export interface GestureViewportV2Props {
@@ -14,10 +18,11 @@ export interface GestureViewportV2Props {
   minPreviewScale?: number;
   maxPreviewScale?: number;
   onTransformChange?: (event: GestureTransformEventV2) => void;
+  onGestureEnd?: (event: GestureEndEventV2) => void;
 }
 
 export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureViewportV2Props>(
-  ({ children, className = '', ariaLabel, minPreviewScale = 0.5, maxPreviewScale = 4, onTransformChange }, ref) => {
+  ({ children, className = '', ariaLabel, minPreviewScale = 0.5, maxPreviewScale = 4, onTransformChange, onGestureEnd }, ref) => {
     const viewportRef = useRef<HTMLDivElement>(null);
     const transformLayerRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +61,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const appliedFrameCountRef = useRef(0);
     const prevFrameTimeRef = useRef<number>(0);
     const maxFrameGapMsRef = useRef(0);
+    const transformRevisionRef = useRef(0);
+    const sessionHadPinchRef = useRef(false);
+    const snapshotIdCounterRef = useRef(0);
 
     const updateTransformStyle = useCallback((t: GestureTransformV2) => {
       if (!transformLayerRef.current) return;
@@ -73,6 +81,24 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         maxFrameGapMs: maxFrameGapMsRef.current,
       });
     }, [onTransformChange]);
+
+    const emitGestureEnd = useCallback((reason: GestureEndReasonV2, prevPhase: GesturePhaseV2) => {
+      if (onGestureEnd) {
+        onGestureEnd({
+          reason,
+          previousPhase: prevPhase,
+          hadPinch: sessionHadPinchRef.current,
+          transform: { ...transformRef.current },
+          activePointerCount: pointersRef.current.size,
+          pointerMoveCount: pointerMoveCountRef.current,
+          appliedFrameCount: appliedFrameCountRef.current,
+          endedAt: Date.now()
+        });
+      }
+      sessionHadPinchRef.current = false;
+      pointerMoveCountRef.current = 0;
+      appliedFrameCountRef.current = 0;
+    }, [onGestureEnd]);
 
     const flushPendingTransform = useCallback(() => {
       if (pendingRafRef.current !== null) {
@@ -92,6 +118,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         transformRef.current = { ...pendingTransformRef.current };
         pendingTransformRef.current = null;
         updateTransformStyle(transformRef.current);
+        transformRevisionRef.current++;
         appliedFrameCountRef.current++;
         emitEvent();
       }
@@ -107,7 +134,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       }
     }, [flushPendingTransform]);
 
-    const cancelActiveGesture = useCallback(() => {
+    const cancelActiveGesture = useCallback((reason: GestureEndReasonV2 = 'imperative-cancel') => {
       flushPendingTransform();
       pointersRef.current.forEach((ptr, id) => {
         try {
@@ -121,11 +148,13 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       pointersRef.current.clear();
       panSessionRef.current = null;
       pinchSessionRef.current = null;
+      const prevPhase = phaseRef.current;
       if (phaseRef.current !== 'idle') {
         phaseRef.current = 'idle';
         emitEvent();
+        emitGestureEnd(reason, prevPhase);
       }
-    }, [flushPendingTransform, emitEvent]);
+    }, [flushPendingTransform, emitEvent, emitGestureEnd]);
 
     const resetTransform = useCallback(() => {
       cancelActiveGesture();
@@ -137,14 +166,98 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       transformRef.current = { ...t };
       pendingTransformRef.current = null;
       updateTransformStyle(t);
+      transformRevisionRef.current++;
       emitEvent();
     }, [cancelActiveGesture, updateTransformStyle, emitEvent]);
+
+    const prepareScaleHandoff = useCallback((): GestureScaleHandoffSnapshotV2 | null => {
+      flushPendingTransform();
+      const viewportRect = viewportRef.current?.getBoundingClientRect();
+      const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
+      if (!viewportRect || !tLayerRect) return null;
+
+      const originX = tLayerRect.left - viewportRect.left - transformRef.current.translateX;
+      const originY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
+
+      return {
+        snapshotId: ++snapshotIdCounterRef.current,
+        transformRevision: transformRevisionRef.current,
+        originX,
+        originY,
+        transform: { ...transformRef.current },
+        capturedAt: Date.now()
+      };
+    }, [flushPendingTransform]);
+
+    const completeScaleHandoff = useCallback((snapshot: GestureScaleHandoffSnapshotV2, baseScaleRatio: number): GestureScaleHandoffResultV2 => {
+      if (!isFinite(baseScaleRatio) || baseScaleRatio <= 0) {
+        return {
+          status: 'invalid',
+          transform: { ...transformRef.current },
+          baseScaleRatio,
+          previousOriginX: snapshot.originX,
+          previousOriginY: snapshot.originY,
+          nextOriginX: snapshot.originX,
+          nextOriginY: snapshot.originY,
+          completedAt: Date.now()
+        };
+      }
+
+      if (pendingRafRef.current !== null) {
+        cancelAnimationFrame(pendingRafRef.current);
+        pendingRafRef.current = null;
+      }
+      pendingTransformRef.current = null;
+
+      const viewportRect = viewportRef.current?.getBoundingClientRect();
+      const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
+      
+      let nextOriginX = snapshot.originX;
+      let nextOriginY = snapshot.originY;
+
+      if (viewportRect && tLayerRect) {
+        nextOriginX = tLayerRect.left - viewportRect.left - transformRef.current.translateX;
+        nextOriginY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
+      }
+
+      let nextPreviewScale = transformRef.current.scale / baseScaleRatio;
+      if (Math.abs(nextPreviewScale - 1) < 0.0005) {
+        nextPreviewScale = 1;
+      }
+
+      const nextTranslateX = snapshot.originX + transformRef.current.translateX - nextOriginX;
+      const nextTranslateY = snapshot.originY + transformRef.current.translateY - nextOriginY;
+
+      const newTransform = {
+        scale: nextPreviewScale,
+        translateX: nextTranslateX,
+        translateY: nextTranslateY
+      };
+
+      transformRef.current = newTransform;
+      updateTransformStyle(newTransform);
+      transformRevisionRef.current++;
+      emitEvent();
+
+      return {
+        status: 'applied',
+        transform: { ...newTransform },
+        baseScaleRatio,
+        previousOriginX: snapshot.originX,
+        previousOriginY: snapshot.originY,
+        nextOriginX,
+        nextOriginY,
+        completedAt: Date.now()
+      };
+    }, [updateTransformStyle, emitEvent]);
 
     useImperativeHandle(ref, () => ({
       resetTransform,
       getTransform: () => ({ ...transformRef.current }),
       getPhase: () => phaseRef.current,
       cancelActiveGesture,
+      prepareScaleHandoff,
+      completeScaleHandoff
     }));
 
     useEffect(() => {
@@ -163,8 +276,10 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
     useEffect(() => {
       const handleBlurOrHidden = () => {
-        if (document.visibilityState === 'hidden' || document.activeElement !== document.body) {
-           cancelActiveGesture();
+        if (document.visibilityState === 'hidden') {
+           cancelActiveGesture('visibility-hidden');
+        } else if (document.activeElement !== document.body) {
+           cancelActiveGesture('window-blur');
         }
       };
       window.addEventListener('blur', handleBlurOrHidden);
@@ -190,6 +305,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const startPinchSession = useCallback((ptr1: GesturePointerV2, ptr2: GesturePointerV2) => {
       flushPendingTransform();
       panSessionRef.current = null;
+      sessionHadPinchRef.current = true;
 
       const viewportRect = viewportRef.current?.getBoundingClientRect();
       if (!viewportRect) return;
@@ -335,6 +451,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
       const currentPointers = Array.from<GesturePointerV2>(pointersRef.current.values()).filter(p => p.pointerType === 'touch' || p.pointerType === 'mouse');
 
+      const prevPhase = phaseRef.current;
+      let ended = false;
+
       if (phaseRef.current === 'pinching') {
         if (currentPointers.length === 1) {
           flushPendingTransform();
@@ -346,6 +465,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           panSessionRef.current = null;
           phaseRef.current = 'idle';
           emitEvent();
+          ended = true;
         }
       } else if (phaseRef.current === 'panning') {
         if (panSessionRef.current?.pointerId === e.pointerId) {
@@ -356,10 +476,18 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           } else if (currentPointers.length === 0) {
             phaseRef.current = 'idle';
             emitEvent();
+            ended = true;
           }
         }
       }
-    }, [flushPendingTransform, startPanSession, emitEvent]);
+
+      if (ended) {
+         let reason: GestureEndReasonV2 = 'pointer-up';
+         if (e.type === 'pointercancel') reason = 'pointer-cancel';
+         else if (e.type === 'lostpointercapture') reason = 'lost-pointer-capture';
+         emitGestureEnd(reason, prevPhase);
+      }
+    }, [flushPendingTransform, startPanSession, emitEvent, emitGestureEnd]);
 
     return (
       <div

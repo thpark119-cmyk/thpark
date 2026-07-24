@@ -114,6 +114,10 @@ export default function V2RendererLab() {
   const [recentEvents, setRecentEvents] = useState<LabRenderEvent[]>([]);
   const [gestureEvent, setGestureEvent] = useState<GestureTransformEventV2 | null>(null);
 
+  // Handoff state
+  const pendingHandoffRef = useRef<{ snapshot: GestureScaleHandoffSnapshotV2; baseCssScale: number } | null>(null);
+  const [handoffResults, setHandoffResults] = useState<GestureScaleHandoffResultV2[]>([]);
+
   // Refs
   const engineRef = useRef<PdfRenderEngineV2 | null>(null);
   const mountedRef = useRef(true);
@@ -196,10 +200,41 @@ export default function V2RendererLab() {
     }
   }, [engineGeneration]);
 
+  const handleGestureEnd = useCallback((ev: GestureEndEventV2) => {
+    if (ev.reason !== 'pointer-up' && ev.reason !== 'imperative-cancel') return;
+    if (!ev.hadPinch) return;
+    
+    if (Math.abs(ev.transform.scale - 1) < 0.005) {
+      return;
+    }
+
+    const snapshot = gestureRef.current?.prepareScaleHandoff();
+    if (!snapshot) return;
+
+    pendingHandoffRef.current = { snapshot, baseCssScale: cssScale };
+    const targetScale = cssScale * ev.transform.scale;
+    
+    console.info(`[Mio V2 Renderer Lab] gesture-end handoff triggered: cssScale=${cssScale} -> ${targetScale}`);
+    setCssScale(targetScale);
+  }, [cssScale]);
+
   const handleSwap = useCallback((info: PageSurfaceSwapInfoV2) => {
     updateStats('swaps', 1);
     setFrontInfo(info.nextFront);
     statsRef.current.front = info.nextFront;
+    
+    // Complete handoff if pending
+    if (pendingHandoffRef.current) {
+      const { snapshot, baseCssScale } = pendingHandoffRef.current;
+      pendingHandoffRef.current = null;
+      if (gestureRef.current) {
+        const baseScaleRatio = info.nextFront.cssScale / baseCssScale;
+        const result = gestureRef.current.completeScaleHandoff(snapshot, baseScaleRatio);
+        setHandoffResults(prev => [result, ...prev].slice(0, 5));
+        console.info(`[Mio V2 Renderer Lab] handoff completed: status=${result.status} ratio=${baseScaleRatio}`);
+      }
+    }
+    
     checkTestSwap(info.nextFront);
   }, [updateStats, checkTestSwap]);
 
@@ -681,6 +716,7 @@ export default function V2RendererLab() {
               <GestureViewportV2 
                 ref={gestureRef}
                 onTransformChange={setGestureEvent}
+                onGestureEnd={handleGestureEnd}
                 className="w-full h-full"
               >
                 <React.Fragment key={docInstanceId}>
@@ -846,6 +882,30 @@ export default function V2RendererLab() {
               <div className="text-xs text-stone-500 bg-stone-950 p-2 rounded">아직 표시된 Front canvas 없음</div>
             )}
           </div>
+
+          {/* Handoff Log */}
+          {handoffResults.length > 0 && (
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3">
+              <h2 className="text-sm font-bold text-stone-300">Scale Handoff Log</h2>
+              <div className="space-y-1">
+                {handoffResults.map((r, i) => (
+                  <div key={r.completedAt + i} className="text-[10px] bg-stone-950 p-2 rounded border border-white/[0.02]">
+                    <div className="flex justify-between">
+                      <span className={r.status === 'applied' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
+                        [{r.status.toUpperCase()}]
+                      </span>
+                      <span className="text-stone-500">{new Date(r.completedAt).toISOString().split('T')[1].replace('Z', '')}</span>
+                    </div>
+                    <div className="text-stone-400 mt-1">Ratio: {r.baseScaleRatio.toFixed(3)}</div>
+                    <div className="text-stone-500">Norm Scale: {r.transform.scale.toFixed(3)}</div>
+                    <div className="text-stone-500">
+                      Norm Translate: {r.transform.translateX.toFixed(1)}, {r.transform.translateY.toFixed(1)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           
           <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 flex flex-col flex-1 min-h-[300px]">
             <div className="flex items-center justify-between mb-3">
