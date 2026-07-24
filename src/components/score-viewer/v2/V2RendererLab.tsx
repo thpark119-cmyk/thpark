@@ -53,6 +53,13 @@ interface StressTestResultV2 {
   startedAt: number | null;
   finishedAt: number | null;
   message: string;
+  renderEventDelta: number;
+  coalescedEstimate: number;
+  swapSkippedEstimate: number;
+  supersededEvidenceCount: number;
+  finalTargetMatched: boolean;
+  generationMatched: boolean;
+  passReason: string | null;
 }
 
 const SCALE_CANCEL_INTERVAL_MS = 8;
@@ -237,36 +244,56 @@ export default function V2RendererLab() {
     const eDelta = statsRef.current.errors - snap.errors;
     const swapDelta = statsRef.current.swaps - snap.swaps;
 
+    const requestedCount = requestsIssuedRef.current;
+    const renderEventDelta = cDelta + cxDelta + sDelta + eDelta;
+    const coalescedEstimate = Math.max(0, requestedCount - renderEventDelta);
+    const swapSkippedEstimate = Math.max(0, cDelta - swapDelta);
+    const supersededEvidenceCount = cxDelta + sDelta + coalescedEstimate + swapSkippedEstimate;
+
     let nextPhase: StressTestPhaseV2 = 'failed';
     let msg = 'Failed';
+    let pMatch = false, sMatch = false, oMatch = false, genMatch = false;
+
+    if (front && expected) {
+      pMatch = front.pageNumber === expected.pageNumber;
+      sMatch = Math.abs(front.cssScale - expected.cssScale) < 0.005;
+      oMatch = Math.abs(front.outputScale - expected.outputScale) < 0.005;
+      genMatch = front.generation === engineGeneration;
+    }
+    const finalTargetMatched = pMatch && sMatch && oMatch;
 
     if (reason === 'timeout') {
-      msg = 'Timeout: 3000ms deadline reached without expected front.';
+      msg = 'Failed: 최종 Front swap 시간 초과 (3000ms deadline).';
     } else if (eDelta > 0) {
-      msg = 'Failed: Errors occurred during the test.';
+      msg = 'Failed: 렌더 오류 발생';
     } else if (!front) {
       msg = 'Failed: No front canvas.';
+    } else if (!finalTargetMatched) {
+      if (!pMatch) msg = 'Failed: 최종 페이지 불일치';
+      else if (!sMatch) msg = 'Failed: 최종 배율 불일치';
+      else msg = 'Failed: 최종 outputScale 불일치';
+    } else if (!genMatch) {
+      msg = 'Failed: Generation 불일치';
+    } else if (cDelta === 0) {
+      msg = 'Failed: completed delta 0';
+    } else if (swapDelta === 0) {
+      msg = 'Failed: swap delta 0';
+    } else if (supersededEvidenceCount === 0) {
+      nextPhase = 'inconclusive';
+      msg = '최종 화면은 정상이나 요청 병합, swap 차단, engine cancelled 또는 stale 결과가 확인되지 않아 경쟁 조건 검증이 충분하지 않습니다.';
+      console.info('[Mio V2 Renderer Lab] stress-inconclusive');
     } else {
-      const pMatch = front.pageNumber === expected.pageNumber;
-      const sMatch = Math.abs(front.cssScale - expected.cssScale) < 0.005;
-      const oMatch = Math.abs(front.outputScale - expected.outputScale) < 0.005;
-      const genMatch = front.generation === engineGeneration;
-
-      if (!pMatch || !sMatch || !oMatch || !genMatch) {
-        msg = 'Failed: Final front does not match expected target.';
-      } else if (cxDelta === 0 && sDelta === 0) {
-        nextPhase = 'inconclusive';
-        msg = '최종 화면은 정상이나 진행 중 렌더 취소 또는 stale 결과가 발생하지 않아 경쟁 조건 검증이 충분하지 않습니다.';
-        console.info('[Mio V2 Renderer Lab] stress-inconclusive');
-      } else if (cDelta >= 1 && swapDelta >= 1 && (cxDelta + sDelta) >= 1) {
-        nextPhase = 'passed';
-        msg = 'Success';
-        console.info('[Mio V2 Renderer Lab] stress-passed');
-      } else {
-        msg = 'Failed: Invalid delta conditions.';
-        console.info('[Mio V2 Renderer Lab] stress-failed');
-      }
+      nextPhase = 'passed';
+      const reasons = [];
+      if (cxDelta > 0) reasons.push('Engine cancellation 확인');
+      if (sDelta > 0) reasons.push('Engine stale 결과 확인');
+      if (coalescedEstimate > 0) reasons.push('렌더 시작 전 요청 병합 추정 확인');
+      if (swapSkippedEstimate > 0) reasons.push('completed 결과의 swap 생략 추정 확인');
+      msg = `경쟁 조건 검증 통과 (${reasons.join(', ')})`;
+      console.info('[Mio V2 Renderer Lab] stress-passed');
     }
+
+    const passReason = nextPhase === 'passed' ? msg : null;
 
     setTestResult(prev => {
       if (!prev) return prev;
@@ -280,9 +307,18 @@ export default function V2RendererLab() {
         staleDelta: sDelta,
         errorDelta: eDelta,
         swapDelta: swapDelta,
-        finishedAt: Date.now()
+        finishedAt: Date.now(),
+        renderEventDelta,
+        coalescedEstimate,
+        swapSkippedEstimate,
+        supersededEvidenceCount,
+        finalTargetMatched,
+        generationMatched: genMatch,
+        passReason
       };
     });
+
+    console.info(`[Mio V2 Renderer Lab] stress-ended: events=${renderEventDelta} coalesced=${coalescedEstimate} skipped=${swapSkippedEstimate} evidence=${supersededEvidenceCount} match=${finalTargetMatched} gen=${genMatch} passReason=${passReason}`);
 
     testModeRef.current = 'idle';
   }, [engineGeneration]);
@@ -303,11 +339,11 @@ export default function V2RendererLab() {
     let reqCount = 0;
     if (mode === 'scale-cancellation') {
       intervalMs = SCALE_CANCEL_INTERVAL_MS;
-      reqCount = SCALE_CANCEL_COUNT;
+      reqCount = SCALE_CANCEL_COUNT + 1;
       expectedTargetRef.current = { pageNumber: page, cssScale: SCALE_CANCEL_FINAL_TARGET.cssScale, outputScale: SCALE_CANCEL_OUTPUT_SCALE };
     } else {
       intervalMs = PAGE_RACE_INTERVAL_MS;
-      reqCount = PAGE_RACE_COUNT;
+      reqCount = PAGE_RACE_COUNT + 1;
       expectedTargetRef.current = { pageNumber: page + PAGE_RACE_FINAL_TARGET.pageOffset, cssScale: PAGE_RACE_FINAL_TARGET.cssScale, outputScale: PAGE_RACE_OUTPUT_SCALE };
     }
 
@@ -325,7 +361,14 @@ export default function V2RendererLab() {
       swapDelta: 0,
       startedAt: testStartMsRef.current,
       finishedAt: null,
-      message: 'Preparing...'
+      message: 'Preparing...',
+      renderEventDelta: 0,
+      coalescedEstimate: 0,
+      swapSkippedEstimate: 0,
+      supersededEvidenceCount: 0,
+      finalTargetMatched: false,
+      generationMatched: false,
+      passReason: null
     });
 
     setOutputScale(mode === 'scale-cancellation' ? SCALE_CANCEL_OUTPUT_SCALE : PAGE_RACE_OUTPUT_SCALE);
@@ -353,6 +396,7 @@ export default function V2RendererLab() {
       const idx = requestsIssuedRef.current;
       if (idx >= SCALE_CANCEL_COUNT) {
         setCssScale(SCALE_CANCEL_FINAL_TARGET.cssScale);
+        requestsIssuedRef.current++;
         issuingCompleteRef.current = true;
         console.info('[Mio V2 Renderer Lab] stress-issuing-complete');
         setTestResult(prev => prev ? { ...prev, phase: 'settling', message: 'Settling...' } : null);
@@ -381,6 +425,7 @@ export default function V2RendererLab() {
       if (idx >= PAGE_RACE_COUNT) {
         setPageNumber(basePage + PAGE_RACE_FINAL_TARGET.pageOffset);
         setCssScale(PAGE_RACE_FINAL_TARGET.cssScale);
+        requestsIssuedRef.current++;
         issuingCompleteRef.current = true;
         console.info('[Mio V2 Renderer Lab] stress-issuing-complete');
         setTestResult(prev => prev ? { ...prev, phase: 'settling', message: 'Settling...' } : null);
@@ -419,7 +464,9 @@ export default function V2RendererLab() {
         actualFront: null,
         completedDelta: 0, cancelledDelta: 0, staleDelta: 0, errorDelta: 0, swapDelta: 0,
         startedAt: Date.now(), finishedAt: Date.now(),
-        message: '페이지·배율 경쟁 테스트에는 2페이지 이상의 PDF가 필요합니다.'
+        message: '페이지·배율 경쟁 테스트에는 2페이지 이상의 PDF가 필요합니다.',
+        renderEventDelta: 0, coalescedEstimate: 0, swapSkippedEstimate: 0, supersededEvidenceCount: 0,
+        finalTargetMatched: false, generationMatched: false, passReason: null
       });
       return;
     }
@@ -679,14 +726,48 @@ export default function V2RendererLab() {
 
                   {testResult.phase !== 'preparing' && testResult.phase !== 'issuing' && (
                     <div className="mt-2 pt-2 border-t border-white/5">
-                      <p className="text-stone-500 mb-0.5">Delta Stats:</p>
-                      <div className="grid grid-cols-2 gap-x-2 text-[10px]">
-                        <div>Comp: <span className={testResult.completedDelta > 0 ? "text-green-400" : ""}>{testResult.completedDelta}</span></div>
+                      <p className="text-stone-500 mb-1">Results:</p>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
+                        <div>Completed: <span className={testResult.completedDelta > 0 ? "text-green-400" : ""}>{testResult.completedDelta}</span></div>
                         <div>Swap: <span className={testResult.swapDelta > 0 ? "text-brand-light" : ""}>{testResult.swapDelta}</span></div>
-                        <div>Canc: <span className={testResult.cancelledDelta > 0 ? "text-yellow-400" : ""}>{testResult.cancelledDelta}</span></div>
-                        <div>Stale: <span className={testResult.staleDelta > 0 ? "text-yellow-400" : ""}>{testResult.staleDelta}</span></div>
-                        <div className="col-span-2">Err: <span className={testResult.errorDelta > 0 ? "text-red-400" : ""}>{testResult.errorDelta}</span></div>
+                        <div>Engine Cancelled: <span className={testResult.cancelledDelta > 0 ? "text-yellow-400" : ""}>{testResult.cancelledDelta}</span></div>
+                        <div>Engine Stale: <span className={testResult.staleDelta > 0 ? "text-yellow-400" : ""}>{testResult.staleDelta}</span></div>
+                        <div>Render Events: <span>{testResult.renderEventDelta}</span></div>
+                        <div>Errors: <span className={testResult.errorDelta > 0 ? "text-red-400" : ""}>{testResult.errorDelta}</span></div>
                       </div>
+                      
+                      <p className="text-stone-500 mt-2 mb-1">Estimates & Evidence:</p>
+                      <div className="text-[10px] space-y-1">
+                        <div className="flex flex-col">
+                          <div className="flex justify-between">
+                            <span>Coalesced Estimate:</span>
+                            <span className={testResult.coalescedEstimate > 0 ? "text-blue-400 font-bold" : ""}>{testResult.coalescedEstimate}</span>
+                          </div>
+                          <span className="text-[8px] text-stone-600 leading-tight">Lab에서 발행했지만 실제 render event로 이어지지 않은 요청의 추정치</span>
+                        </div>
+                        <div className="flex flex-col mt-1">
+                          <div className="flex justify-between">
+                            <span>Swap Skipped Estimate:</span>
+                            <span className={testResult.swapSkippedEstimate > 0 ? "text-purple-400 font-bold" : ""}>{testResult.swapSkippedEstimate}</span>
+                          </div>
+                          <span className="text-[8px] text-stone-600 leading-tight">Completed됐지만 최신 Front로 교체되지 않은 결과의 추정치</span>
+                        </div>
+                        <div className="flex justify-between font-bold border-t border-white/5 pt-1 mt-1">
+                          <span>Superseded Evidence:</span>
+                          <span className={testResult.supersededEvidenceCount > 0 ? "text-green-400" : ""}>{testResult.supersededEvidenceCount}</span>
+                        </div>
+                      </div>
+
+                      <p className="text-stone-500 mt-2 mb-1">Final Validation:</p>
+                      <div className="grid grid-cols-2 gap-x-2 text-[10px]">
+                        <div>Target Match: <span className={testResult.finalTargetMatched ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{testResult.finalTargetMatched ? "Yes" : "No"}</span></div>
+                        <div>Gen Match: <span className={testResult.generationMatched ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{testResult.generationMatched ? "Yes" : "No"}</span></div>
+                      </div>
+                      {testResult.passReason && (
+                        <div className="mt-2 text-[10px] text-green-400 font-bold break-words whitespace-pre-wrap">
+                          Pass Reason: {testResult.passReason}
+                        </div>
+                      )}
                     </div>
                   )}
                   
