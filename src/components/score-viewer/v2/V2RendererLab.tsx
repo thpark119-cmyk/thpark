@@ -198,6 +198,8 @@ export default function V2RendererLab() {
 
 
   const visualBaseScale = pendingHandoffRef.current ? pendingHandoffRef.current.baseCssScale : cssScale;
+  const currentEffectiveScale = gestureEvent ? visualBaseScale * gestureEvent.transform.scale : visualBaseScale;
+  
   const cancelScaleHandoffChain = useCallback((reason: string) => {
     chainIdCounterRef.current++; // invalidate current chain
     pendingHandoffRef.current = null;
@@ -210,11 +212,6 @@ export default function V2RendererLab() {
     }
     console.log(`[Mio V2 4B Hardening] chain cancelled: ${reason}`);
   }, []);
-
-  const minPreviewScale = MIN_COMMITTED_CSS_SCALE_V2 / visualBaseScale;
-  const maxPreviewScale = MAX_COMMITTED_CSS_SCALE_V2 / visualBaseScale;
-
-  // Refs
 
   const engineRef = useRef<PdfRenderEngineV2 | null>(null);
   const mountedRef = useRef(true);
@@ -344,7 +341,7 @@ export default function V2RendererLab() {
       return;
     }
 
-    const snapshot = gestureRef.current?.prepareScaleHandoff();
+    const snapshot = gestureRef.current?.prepareScaleHandoff(visualBaseScale);
     if (!snapshot) return;
 
     const rawTargetCssScale = cssScale * ev.transform.scale;
@@ -426,10 +423,8 @@ export default function V2RendererLab() {
           ph.targetFrontSwapped = true;
           console.log(`[Mio V2 4B Hardening] target-swap-confirmed`);
           
-          const baseScaleRatio = ph.clampedTargetCssScale / ph.baseCssScale;
-          
           if (gestureRef.current) {
-            const result = gestureRef.current.completeScaleHandoff(ph.snapshot, baseScaleRatio);
+            const result = gestureRef.current.completeScaleHandoff(ph.snapshot, ph.baseCssScale, ph.clampedTargetCssScale);
             setHandoffResults(prev => prev.map(h => {
               if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
                 return {
@@ -448,7 +443,7 @@ export default function V2RendererLab() {
             }));
             
             if (result.status === 'applied') {
-                console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${baseScaleRatio}`);
+                console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${result.baseScaleRatio}`);
                 
                 if (result.activeSessionRebase && (result.activeSessionRebase.panRebased || result.activeSessionRebase.pinchRebased)) {
                     lastAppliedGestureSessionIdRef.current = ph.gestureSessionId;
@@ -520,7 +515,7 @@ export default function V2RendererLab() {
                     };
                     setHandoffResults(prev => [coalescedLog, ...prev].slice(0, 30));
                   } else {
-                    const newSnapshot = gestureRef.current.prepareScaleHandoff();
+                    const newSnapshot = gestureRef.current.prepareScaleHandoff(newSourceScale);
                     if (newSnapshot) {
                       chainCommitIndexRef.current++;
                       
@@ -1032,11 +1027,15 @@ export default function V2RendererLab() {
                 
                 <div className="flex items-center gap-2">
                   <button onClick={handleZoomOut} className="px-3 py-1 bg-stone-800 rounded hover:bg-stone-700 text-sm">-</button>
-                  <span className="text-sm w-14 text-center">{Math.round(cssScale * 100)}%</span>
+                  <span className="text-sm w-16 text-center">{Math.round(cssScale * 100)}%</span>
                   <button onClick={handleZoomIn} className="px-3 py-1 bg-stone-800 rounded hover:bg-stone-700 text-sm">+</button>
                   <button onClick={handleZoomReset} className="px-3 py-1 bg-stone-800 rounded hover:bg-stone-700 text-xs">100%</button>
                 </div>
-                <div className="h-4 w-px bg-stone-800"></div>
+                <div className="flex flex-col ml-2 border-l border-white/10 pl-2">
+                   <div className="text-xs text-stone-400">Actual Front Scale: <span className="font-mono text-stone-200">{Math.round(currentEffectiveScale * 100)}%</span></div>
+                   <div className="text-[10px] text-stone-500 font-mono">React Target: {Math.round(cssScale * 100)}%</div>
+                </div>
+                <div className="h-4 w-px bg-stone-800 ml-2"></div>
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-stone-400">OutputScale:</label>
                   <select 
@@ -1070,12 +1069,13 @@ export default function V2RendererLab() {
             )}
           </div>
           
-          <div className="flex-1 min-h-[500px] bg-stone-950 border border-white/5 rounded-xl overflow-hidden flex items-center justify-center relative">
+          <div className="flex-1 min-h-[500px] bg-stone-950 border border-white/5 rounded-xl overflow-hidden flex flex-col relative">
             {docReady && engineRef.current ? (
               <GestureViewportV2 
                 ref={gestureRef}
-                minPreviewScale={minPreviewScale}
-                maxPreviewScale={maxPreviewScale}
+                visualBaseScale={visualBaseScale}
+                minEffectiveScale={MIN_COMMITTED_CSS_SCALE_V2}
+                maxEffectiveScale={MAX_COMMITTED_CSS_SCALE_V2}
                 onTransformChange={setGestureEvent}
                 onGestureEnd={handleGestureEnd}
                 className="w-full h-full"

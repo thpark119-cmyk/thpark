@@ -1,4 +1,5 @@
-export type GesturePhaseV2 = 'idle' | 'panning' | 'pinching';
+const fs = require('fs');
+const content = `export type GesturePhaseV2 = 'idle' | 'panning' | 'pinching';
 
 export interface GestureTransformV2 {
   scale: number;
@@ -68,7 +69,6 @@ export interface GestureScaleHandoffSnapshotV2 {
 
 export type GestureScaleHandoffStatusV2 = 'applied' | 'invalid';
 
-
 export interface GestureActiveSessionRebaseV2 {
   phase: GesturePhaseV2;
   activePointerCount: number;
@@ -107,3 +107,5 @@ export interface GestureViewportV2Handle {
   prepareScaleHandoff(sourceVisualBaseScale: number, anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null;
   completeScaleHandoff(snapshot: GestureScaleHandoffSnapshotV2, sourceVisualBaseScale: number, targetVisualBaseScale: number): GestureScaleHandoffResultV2;
 }
+`;
+fs.writeFileSync('src/components/score-viewer/v2/gestureTypes.ts', content);

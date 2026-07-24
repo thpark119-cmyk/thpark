@@ -9,6 +9,7 @@ import {
   GestureEndReasonV2,
   GestureScaleHandoffSnapshotV2,
   GestureScaleHandoffResultV2,
+  GestureScaleHandoffStatusV2,
   GestureActiveSessionRebaseV2
 } from './gestureTypes';
 
@@ -16,14 +17,15 @@ export interface GestureViewportV2Props {
   children: React.ReactNode;
   className?: string;
   ariaLabel?: string;
-  minPreviewScale?: number;
-  maxPreviewScale?: number;
+  visualBaseScale: number;
+  minEffectiveScale?: number;
+  maxEffectiveScale?: number;
   onTransformChange?: (event: GestureTransformEventV2) => void;
   onGestureEnd?: (event: GestureEndEventV2) => void;
 }
 
 export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureViewportV2Props>(
-  ({ children, className = '', ariaLabel, minPreviewScale = 0.5, maxPreviewScale = 4, onTransformChange, onGestureEnd }, ref) => {
+  ({ children, className = '', ariaLabel, visualBaseScale, minEffectiveScale = 1, maxEffectiveScale = 3, onTransformChange, onGestureEnd }, ref) => {
     const viewportRef = useRef<HTMLDivElement>(null);
     const transformLayerRef = useRef<HTMLDivElement>(null);
 
@@ -76,17 +78,23 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const sessionIdRef = useRef(0);
     const endEventCounterRef = useRef(0);
     const lastEmittedSessionIdRef = useRef<number | null>(null);
-    const limitsRef = useRef({ min: minPreviewScale, max: maxPreviewScale });
-    limitsRef.current = { min: minPreviewScale, max: maxPreviewScale };
+    const limitsRef = useRef({ minEffective: minEffectiveScale, maxEffective: maxEffectiveScale, visualBase: visualBaseScale });
+    limitsRef.current = { minEffective: minEffectiveScale, maxEffective: maxEffectiveScale, visualBase: visualBaseScale };
 
-    const clampPreviewScaleV2 = useCallback((scale: number, minScale: number, maxScale: number) => {
+    const clampPreviewByEffectiveScaleV2 = useCallback((scale: number, visualBase: number, minEffective: number, maxEffective: number) => {
        if (!isFinite(scale) || scale <= 0) return 1;
-       let min = minScale;
-       let max = maxScale;
-       if (!isFinite(min) || min <= 0) min = 0.5;
-       if (!isFinite(max) || max <= 0) max = 4;
-       if (min > max) { min = 0.5; max = 4; }
-       return Math.min(Math.max(scale, min), max);
+       if (!isFinite(visualBase) || visualBase <= 0) return scale;
+       
+       let minE = minEffective;
+       let maxE = maxEffective;
+       if (!isFinite(minE) || minE <= 0) minE = 1;
+       if (!isFinite(maxE) || maxE <= 0) maxE = 3;
+       if (minE > maxE) { minE = 1; maxE = 3; }
+       
+       const minPreview = minE / visualBase;
+       const maxPreview = maxE / visualBase;
+       
+       return Math.min(Math.max(scale, minPreview), maxPreview);
     }, []);
 
     const updateTransformStyle = useCallback((t: GestureTransformV2) => {
@@ -211,20 +219,31 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         cancelAnimationFrame(pendingRafRef.current);
         pendingRafRef.current = null;
       }
-      const safeScale = clampPreviewScaleV2(1, limitsRef.current.min, limitsRef.current.max);
+      const safeScale = clampPreviewByEffectiveScaleV2(1, limitsRef.current.visualBase, limitsRef.current.minEffective, limitsRef.current.maxEffective);
       const t = { scale: safeScale, translateX: 0, translateY: 0 };
       transformRef.current = { ...t };
       pendingTransformRef.current = null;
       updateTransformStyle(t);
       transformRevisionRef.current++;
       emitEvent();
-    }, [cancelActiveGesture, updateTransformStyle, emitEvent, clampPreviewScaleV2]);
+    }, [cancelActiveGesture, updateTransformStyle, emitEvent, clampPreviewByEffectiveScaleV2]);
 
-    const prepareScaleHandoff = useCallback((anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null => {
+    const prepareScaleHandoff = useCallback((sourceVisualBaseScale: number, anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null => {
       flushPendingTransform();
       const viewportRect = viewportRef.current?.getBoundingClientRect();
       const tLayerRect = transformLayerRef.current?.getBoundingClientRect();
       if (!viewportRect || !tLayerRect) return null;
+
+      const layoutWidth = transformLayerRef.current.offsetWidth;
+      const layoutHeight = transformLayerRef.current.offsetHeight;
+      if (layoutWidth === 0 || layoutHeight === 0) return null;
+
+      const visualRect = {
+        left: tLayerRect.left - viewportRect.left,
+        top: tLayerRect.top - viewportRect.top,
+        width: tLayerRect.width,
+        height: tLayerRect.height
+      };
 
       const originX = tLayerRect.left - viewportRect.left - transformRef.current.translateX;
       const originY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
@@ -250,6 +269,10 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         anchorViewportY: effectiveAnchorY,
         anchorLocalX,
         anchorLocalY,
+        visualRect,
+        sourceLayoutWidth: layoutWidth,
+        sourceLayoutHeight: layoutHeight,
+        sourceVisualBaseScale,
         transform: { ...transformRef.current },
         capturedAt: Date.now()
       };
@@ -319,21 +342,29 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       return result;
     }, []);
 
-    const completeScaleHandoff = useCallback((snapshot: GestureScaleHandoffSnapshotV2, baseScaleRatio: number): GestureScaleHandoffResultV2 => {
-      if (!isFinite(baseScaleRatio) || baseScaleRatio <= 0) {
+    const completeScaleHandoff = useCallback((snapshot: GestureScaleHandoffSnapshotV2, sourceVisualBaseScale: number, targetVisualBaseScale: number): GestureScaleHandoffResultV2 => {
+      const baseScaleRatio = targetVisualBaseScale / sourceVisualBaseScale;
+      if (!isFinite(baseScaleRatio) || baseScaleRatio <= 0 || !isFinite(sourceVisualBaseScale) || sourceVisualBaseScale <= 0 || !isFinite(targetVisualBaseScale) || targetVisualBaseScale <= 0) {
         return {
           status: 'invalid',
           wasScaleClamped: false,
           unclampedPreviewScale: transformRef.current.scale,
           clampedPreviewScale: transformRef.current.scale,
+          effectiveScaleAfter: targetVisualBaseScale * transformRef.current.scale,
           transform: { ...transformRef.current },
           baseScaleRatio,
           previousOriginX: snapshot.originX,
           previousOriginY: snapshot.originY,
           nextOriginX: snapshot.originX,
           nextOriginY: snapshot.originY,
+          previousVisualRect: null,
+          nextVisualRect: null,
+          visualDeltaLeft: 0,
+          visualDeltaTop: 0,
+          visualDeltaWidth: 0,
+          visualDeltaHeight: 0,
           completedAt: Date.now(),
-          activeSessionRebase: { phase: phaseRef.current, activePointerCount: pointersRef.current.size, panRebased: false, pinchRebased: false, rebaseRevision: transformRevisionRef.current }
+          activeSessionRebase: null
         };
       }
 
@@ -354,21 +385,50 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         nextOriginY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
       }
 
-      let unclampedPreviewScale = transformRef.current.scale / baseScaleRatio;
-      let targetMinLimit = limitsRef.current.min / baseScaleRatio;
-      let targetMaxLimit = limitsRef.current.max / baseScaleRatio;
-      let nextPreviewScale = clampPreviewScaleV2(unclampedPreviewScale, targetMinLimit, targetMaxLimit);
-      let wasScaleClamped = unclampedPreviewScale !== nextPreviewScale;
+      const layoutWidth = transformLayerRef.current?.offsetWidth || 0;
+      const layoutHeight = transformLayerRef.current?.offsetHeight || 0;
 
-      if (Math.abs(nextPreviewScale - 1) < 0.0005) {
-        nextPreviewScale = 1;
+      if (layoutWidth === 0 || layoutHeight === 0 || snapshot.visualRect.width === 0 || snapshot.visualRect.height === 0) {
+        return {
+          status: 'invalid',
+          wasScaleClamped: false,
+          unclampedPreviewScale: transformRef.current.scale,
+          clampedPreviewScale: transformRef.current.scale,
+          effectiveScaleAfter: targetVisualBaseScale * transformRef.current.scale,
+          transform: { ...transformRef.current },
+          baseScaleRatio,
+          previousOriginX: snapshot.originX,
+          previousOriginY: snapshot.originY,
+          nextOriginX,
+          nextOriginY,
+          previousVisualRect: null,
+          nextVisualRect: null,
+          visualDeltaLeft: 0,
+          visualDeltaTop: 0,
+          visualDeltaWidth: 0,
+          visualDeltaHeight: 0,
+          completedAt: Date.now(),
+          activeSessionRebase: null
+        };
       }
 
-      const nextAnchorLocalX = snapshot.anchorLocalX * baseScaleRatio;
-      const nextAnchorLocalY = snapshot.anchorLocalY * baseScaleRatio;
+      const scaleFromWidth = snapshot.visualRect.width / layoutWidth;
+      const scaleFromHeight = snapshot.visualRect.height / layoutHeight;
+      let unclampedPreviewScale = scaleFromWidth;
 
-      const nextTranslateX = snapshot.anchorViewportX - nextOriginX - nextAnchorLocalX * nextPreviewScale;
-      const nextTranslateY = snapshot.anchorViewportY - nextOriginY - nextAnchorLocalY * nextPreviewScale;
+      let nextPreviewScale = clampPreviewByEffectiveScaleV2(unclampedPreviewScale, targetVisualBaseScale, limitsRef.current.minEffective, limitsRef.current.maxEffective);
+      
+      // Hard floor reconciliation
+      let effectiveScaleAfter = targetVisualBaseScale * nextPreviewScale;
+      if (effectiveScaleAfter < 1 - 0.0005) {
+         nextPreviewScale = clampPreviewByEffectiveScaleV2(1 / targetVisualBaseScale, targetVisualBaseScale, limitsRef.current.minEffective, limitsRef.current.maxEffective);
+         effectiveScaleAfter = targetVisualBaseScale * nextPreviewScale;
+      }
+
+      let wasScaleClamped = unclampedPreviewScale !== nextPreviewScale;
+
+      const nextTranslateX = snapshot.visualRect.left - nextOriginX;
+      const nextTranslateY = snapshot.visualRect.top - nextOriginY;
 
       const newTransform = {
         scale: nextPreviewScale,
@@ -380,23 +440,50 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       updateTransformStyle(newTransform);
       transformRevisionRef.current++;
       const activeSessionRebase = rebaseActiveGestureSessionV2(transformRef.current);
+      
+      // Measure new visual rect
+      const newTLayerRect = transformLayerRef.current?.getBoundingClientRect();
+      const newVisualRect = newTLayerRect && viewportRect ? {
+        left: newTLayerRect.left - viewportRect.left,
+        top: newTLayerRect.top - viewportRect.top,
+        width: newTLayerRect.width,
+        height: newTLayerRect.height
+      } : { ...snapshot.visualRect };
+      
+      const visualDeltaLeft = newVisualRect.left - snapshot.visualRect.left;
+      const visualDeltaTop = newVisualRect.top - snapshot.visualRect.top;
+      const visualDeltaWidth = newVisualRect.width - snapshot.visualRect.width;
+      const visualDeltaHeight = newVisualRect.height - snapshot.visualRect.height;
+      
+      let status: GestureScaleHandoffStatusV2 = 'applied';
+      if (Math.abs(visualDeltaLeft) > 1.5 || Math.abs(visualDeltaTop) > 1.5 || Math.abs(visualDeltaWidth) > 1.5 || Math.abs(visualDeltaHeight) > 1.5) {
+         status = 'invalid';
+      }
+
       emitEvent();
 
       return {
-        status: 'applied',
+        status,
         wasScaleClamped,
         unclampedPreviewScale,
         clampedPreviewScale: nextPreviewScale,
+        effectiveScaleAfter,
         transform: { ...transformRef.current },
         baseScaleRatio,
         previousOriginX: snapshot.originX,
         previousOriginY: snapshot.originY,
         nextOriginX,
         nextOriginY,
+        previousVisualRect: snapshot.visualRect,
+        nextVisualRect: newVisualRect,
+        visualDeltaLeft,
+        visualDeltaTop,
+        visualDeltaWidth,
+        visualDeltaHeight,
         completedAt: Date.now(),
         activeSessionRebase
       };
-    }, [updateTransformStyle, emitEvent, clampPreviewScaleV2, rebaseActiveGestureSessionV2]);
+    }, [updateTransformStyle, emitEvent, clampPreviewByEffectiveScaleV2, rebaseActiveGestureSessionV2]);
 
     useImperativeHandle(ref, () => ({
       resetTransform,
@@ -408,16 +495,16 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     }));
 
     useEffect(() => {
-      limitsRef.current = { min: minPreviewScale, max: maxPreviewScale };
+      limitsRef.current = { minEffective: minEffectiveScale, maxEffective: maxEffectiveScale, visualBase: visualBaseScale };
       const currentScale = transformRef.current.scale;
-      const clamped = clampPreviewScaleV2(currentScale, minPreviewScale, maxPreviewScale);
+      const clamped = clampPreviewByEffectiveScaleV2(currentScale, visualBaseScale, minEffectiveScale, maxEffectiveScale);
       if (Math.abs(currentScale - clamped) > 0.0005) {
         scheduleTransform({
           ...transformRef.current,
           scale: clamped
         });
       }
-    }, [minPreviewScale, maxPreviewScale, clampPreviewScaleV2, scheduleTransform]);
+    }, [visualBaseScale, minEffectiveScale, maxEffectiveScale, clampPreviewByEffectiveScaleV2, scheduleTransform]);
 
     useEffect(() => {
       mountedRef.current = true;
@@ -602,7 +689,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
           let newScale = pinchSessionRef.current.startScale * dist / pinchSessionRef.current.startDistance;
           if (!isFinite(newScale) || newScale <= 0) return;
-          newScale = clampPreviewScaleV2(newScale, limitsRef.current.min, limitsRef.current.max);
+          newScale = clampPreviewByEffectiveScaleV2(newScale, limitsRef.current.visualBase, limitsRef.current.minEffective, limitsRef.current.maxEffective);
 
           const newTranslateX = currentCenterX - pinchSessionRef.current.originX - pinchSessionRef.current.focalX * newScale;
           const newTranslateY = currentCenterY - pinchSessionRef.current.originY - pinchSessionRef.current.focalY * newScale;
@@ -616,7 +703,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           }
         }
       }
-    }, [scheduleTransform, minPreviewScale, maxPreviewScale]);
+    }, [scheduleTransform, clampPreviewByEffectiveScaleV2]);
 
     const handlePointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === 'pen') return;
@@ -698,8 +785,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
             position: 'absolute',
             inset: 0,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: '12px'
           }}
         >
           <div
