@@ -1,5 +1,7 @@
 export { PdfRenderEngineV2 } from './PdfRenderEngineV2';
 export { PageSurfaceV2 } from './PageSurfaceV2';
+export * from './gestureTypes';
+export { GestureViewportV2 } from './GestureViewportV2';
 export type {
   PageSurfaceCanvasSlotV2,
   PageSurfaceRenderStateV2,
