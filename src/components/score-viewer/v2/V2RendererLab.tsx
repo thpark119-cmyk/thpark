@@ -9,7 +9,51 @@ import {
   PageSurfaceRenderEventV2,
 } from './pageSurfaceTypes';
 import { GestureViewportV2 } from './GestureViewportV2';
-import { GestureViewportV2Handle, GestureTransformEventV2 } from './gestureTypes';
+import { 
+  GestureViewportV2Handle, 
+  GestureTransformEventV2, 
+  GestureScaleHandoffSnapshotV2, 
+  GestureScaleHandoffResultV2, 
+  GestureEndEventV2 
+} from './gestureTypes';
+
+
+
+export interface ScaleHandoffInfoV2 {
+  id: string;
+  gestureSessionId: number;
+  handoffId: number;
+  sourceCssScale: number;
+  previewScaleAtCommit: number;
+  rawTargetCssScale: number;
+  clampedTargetCssScale: number;
+  wasScaleClamped: boolean;
+  targetRenderCompleted: boolean;
+  targetRenderRequestId: number | null;
+  targetFrontSwapped: boolean;
+  completedDelta: number;
+  swapDelta: number;
+  resultPreviewScale: number | null;
+  resultTranslateX: number | null;
+  resultTranslateY: number | null;
+  durationMs: number | null;
+  message: string;
+  timestamp: number;
+  status: 'COMMIT' | 'RENDERED' | 'APPLIED' | 'SKIPPED' | 'CANCELLED' | 'ERROR';
+}
+
+interface PendingScaleHandoffV2 {
+  snapshot: GestureScaleHandoffSnapshotV2;
+  baseCssScale: number;
+  gestureSessionId: number;
+  rawTargetCssScale: number;
+  clampedTargetCssScale: number;
+  statsCompletedAtStart: number;
+  statsSwapsAtStart: number;
+  targetRenderCompleted: boolean;
+  targetRenderRequestId: number | null;
+  targetFrontSwapped: boolean;
+}
 
 interface LabRenderEvent {
   timestamp: number;
@@ -114,11 +158,21 @@ export default function V2RendererLab() {
   const [recentEvents, setRecentEvents] = useState<LabRenderEvent[]>([]);
   const [gestureEvent, setGestureEvent] = useState<GestureTransformEventV2 | null>(null);
 
+  const MIN_COMMITTED_CSS_SCALE_V2 = 0.5;
+  const MAX_COMMITTED_CSS_SCALE_V2 = 3;
+  const lastProcessedSessionIdRef = useRef<number | null>(null);
+
   // Handoff state
-  const pendingHandoffRef = useRef<{ snapshot: GestureScaleHandoffSnapshotV2; baseCssScale: number } | null>(null);
-  const [handoffResults, setHandoffResults] = useState<GestureScaleHandoffResultV2[]>([]);
+  const pendingHandoffRef = useRef<PendingScaleHandoffV2 | null>(null);
+  const [handoffResults, setHandoffResults] = useState<ScaleHandoffInfoV2[]>([]);
+
+
+  const visualBaseScale = pendingHandoffRef.current ? pendingHandoffRef.current.baseCssScale : cssScale;
+  const minPreviewScale = 0.5 / visualBaseScale;
+  const maxPreviewScale = 3 / visualBaseScale;
 
   // Refs
+
   const engineRef = useRef<PdfRenderEngineV2 | null>(null);
   const mountedRef = useRef(true);
   const loadSequenceRef = useRef(0);
@@ -180,10 +234,38 @@ export default function V2RendererLab() {
       generation: ev.result.generation,
     };
     setRecentEvents((prev) => [labEv, ...prev].slice(0, 30));
-    if (ev.result.status === 'completed') updateStats('completed', 1);
+    if (ev.result.status === 'completed') {
+      updateStats('completed', 1);
+      if (pendingHandoffRef.current && !pendingHandoffRef.current.targetRenderCompleted) {
+         const ph = pendingHandoffRef.current;
+         if (
+           ev.result.pageNumber === pageNumber &&
+           Math.abs(ev.result.cssScale - ph.clampedTargetCssScale) < 0.005 &&
+           ev.result.outputScale === outputScale &&
+           ev.result.generation === engineGeneration
+         ) {
+           ph.targetRenderCompleted = true;
+           ph.targetRenderRequestId = ev.surfaceRequestId;
+           console.log(`[Mio V2 4B Hardening] target-render-completed: req ${ev.surfaceRequestId}`);
+           setHandoffResults(prev => prev.map(h => {
+             if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
+               return {
+                 ...h,
+                 targetRenderCompleted: true,
+                 targetRenderRequestId: ev.surfaceRequestId,
+                 completedDelta: statsRef.current.completed - ph.statsCompletedAtStart,
+                 message: '목표 PDF 렌더는 완료됐지만 아직 Front swap이 확인되지 않았습니다.',
+                 status: 'RENDERED'
+               };
+             }
+             return h;
+           }));
+         }
+      }
+    }
     if (ev.result.status === 'cancelled') updateStats('cancelled', 1);
     if (ev.result.status === 'stale') updateStats('stale', 1);
-  }, [updateStats]);
+  }, [updateStats, pageNumber, outputScale, engineGeneration]);
 
   const checkTestSwap = useCallback((nextFront: PageSurfaceFrontInfoV2) => {
     if (!issuingCompleteRef.current || testModeRef.current === 'idle') return;
@@ -202,20 +284,79 @@ export default function V2RendererLab() {
 
   const handleGestureEnd = useCallback((ev: GestureEndEventV2) => {
     if (ev.reason !== 'pointer-up' && ev.reason !== 'imperative-cancel') return;
+    
+    if (lastProcessedSessionIdRef.current === ev.sessionId) {
+      console.log(`[Mio V2 4B Hardening] duplicate-commit-blocked for session ${ev.sessionId}`);
+      return;
+    }
+    lastProcessedSessionIdRef.current = ev.sessionId;
+
     if (!ev.hadPinch) return;
     
     if (Math.abs(ev.transform.scale - 1) < 0.005) {
+      console.log(`[Mio V2 4B Hardening] commit-skipped (scale ~1) for session ${ev.sessionId}`);
       return;
     }
 
     const snapshot = gestureRef.current?.prepareScaleHandoff();
     if (!snapshot) return;
 
-    pendingHandoffRef.current = { snapshot, baseCssScale: cssScale };
-    const targetScale = cssScale * ev.transform.scale;
+    const rawTargetCssScale = cssScale * ev.transform.scale;
+    let clampedTargetCssScale = Math.min(Math.max(rawTargetCssScale, MIN_COMMITTED_CSS_SCALE_V2), MAX_COMMITTED_CSS_SCALE_V2);
     
-    console.info(`[Mio V2 Renderer Lab] gesture-end handoff triggered: cssScale=${cssScale} -> ${targetScale}`);
-    setCssScale(targetScale);
+    if (rawTargetCssScale > 3) {
+       console.warn(`[Mio V2 4B Hardening] effective-scale-clamped: ${rawTargetCssScale} -> ${clampedTargetCssScale}`);
+    }
+
+    if (Math.abs(clampedTargetCssScale - cssScale) < 0.005) {
+      if (cssScale <= MIN_COMMITTED_CSS_SCALE_V2 && rawTargetCssScale < cssScale) {
+        console.log(`[Mio V2 4B Hardening] commit-skipped-at-min for session ${ev.sessionId}`);
+      } else if (cssScale >= MAX_COMMITTED_CSS_SCALE_V2 && rawTargetCssScale > cssScale) {
+        console.log(`[Mio V2 4B Hardening] commit-skipped-at-max for session ${ev.sessionId}`);
+      }
+      return;
+    }
+
+    console.log(`[Mio V2 4B Hardening] commit-start: cssScale=${cssScale} -> ${clampedTargetCssScale} (raw: ${rawTargetCssScale})`);
+
+    pendingHandoffRef.current = {
+      snapshot,
+      baseCssScale: cssScale,
+      gestureSessionId: ev.sessionId,
+      rawTargetCssScale,
+      clampedTargetCssScale,
+      statsCompletedAtStart: statsRef.current.completed,
+      statsSwapsAtStart: statsRef.current.swaps,
+      targetRenderCompleted: false,
+      targetRenderRequestId: null,
+      targetFrontSwapped: false,
+    };
+    
+    console.info(`[Mio V2 Renderer Lab] gesture-end handoff triggered: cssScale=${cssScale} -> ${clampedTargetCssScale}`);
+        const newHandoff: ScaleHandoffInfoV2 = {
+      id: `session-${ev.sessionId}-handoff-${snapshot.snapshotId}`,
+      gestureSessionId: ev.sessionId,
+      handoffId: snapshot.snapshotId,
+      sourceCssScale: cssScale,
+      previewScaleAtCommit: ev.transform.scale,
+      rawTargetCssScale,
+      clampedTargetCssScale,
+      wasScaleClamped: rawTargetCssScale !== clampedTargetCssScale,
+      targetRenderCompleted: false,
+      targetRenderRequestId: null,
+      targetFrontSwapped: false,
+      completedDelta: 0,
+      swapDelta: 0,
+      resultPreviewScale: null,
+      resultTranslateX: null,
+      resultTranslateY: null,
+      durationMs: null,
+      message: 'Pending Target Render',
+      timestamp: Date.now(),
+      status: 'COMMIT'
+    };
+    setHandoffResults(prev => [newHandoff, ...prev].slice(0, 20));
+    setCssScale(clampedTargetCssScale);
   }, [cssScale]);
 
   const handleSwap = useCallback((info: PageSurfaceSwapInfoV2) => {
@@ -223,20 +364,55 @@ export default function V2RendererLab() {
     setFrontInfo(info.nextFront);
     statsRef.current.front = info.nextFront;
     
-    // Complete handoff if pending
     if (pendingHandoffRef.current) {
-      const { snapshot, baseCssScale } = pendingHandoffRef.current;
-      pendingHandoffRef.current = null;
-      if (gestureRef.current) {
-        const baseScaleRatio = info.nextFront.cssScale / baseCssScale;
-        const result = gestureRef.current.completeScaleHandoff(snapshot, baseScaleRatio);
-        setHandoffResults(prev => [result, ...prev].slice(0, 5));
-        console.info(`[Mio V2 Renderer Lab] handoff completed: status=${result.status} ratio=${baseScaleRatio}`);
+      const ph = pendingHandoffRef.current;
+      
+      const pageMatch = info.nextFront.pageNumber === pageNumber;
+      const scaleMatch = Math.abs(info.nextFront.cssScale - ph.clampedTargetCssScale) < 0.005;
+      const outputMatch = Math.abs(info.nextFront.outputScale - outputScale) < 0.005;
+      const genMatch = info.nextFront.generation === engineGeneration;
+      const reqMatch = info.nextFront.requestId === ph.targetRenderRequestId;
+
+      if (pageMatch && scaleMatch && outputMatch && genMatch && reqMatch) {
+         ph.targetFrontSwapped = true;
+         console.log(`[Mio V2 4B Hardening] target-swap-confirmed`);
+         
+         const baseScaleRatio = ph.clampedTargetCssScale / ph.baseCssScale;
+         
+         if (gestureRef.current) {
+           const result = gestureRef.current.completeScaleHandoff(ph.snapshot, baseScaleRatio);
+           setHandoffResults(prev => prev.map(h => {
+             if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
+               return {
+                 ...h,
+                 targetFrontSwapped: true,
+                 swapDelta: statsRef.current.swaps - ph.statsSwapsAtStart,
+                 resultPreviewScale: result.clampedPreviewScale,
+                 resultTranslateX: result.transform.translateX,
+                 resultTranslateY: result.transform.translateY,
+                 durationMs: Date.now() - h.timestamp,
+                 status: result.status === 'applied' ? 'APPLIED' : 'ERROR',
+                 message: result.status === 'applied' ? 'Success' : 'Invalid Base Scale Ratio'
+               };
+             }
+             return h;
+           }));
+           
+           if (result.status === 'applied') {
+              console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${baseScaleRatio}`);
+           } else {
+              console.log(`[Mio V2 4B Hardening] handoff-invalid`);
+           }
+         }
+         
+         pendingHandoffRef.current = null;
+      } else if (!ph.targetRenderCompleted) {
+          console.log(`[Mio V2 4B Hardening] completed-without-swap: waiting for match`);
       }
     }
     
     checkTestSwap(info.nextFront);
-  }, [updateStats, checkTestSwap]);
+  }, [updateStats, checkTestSwap, pageNumber, outputScale, engineGeneration]);
 
   const stopStressTest = useCallback((reason?: string) => {
     stressRunIdRef.current++;
@@ -244,6 +420,9 @@ export default function V2RendererLab() {
       window.clearTimeout(stressTimerRef.current);
       stressTimerRef.current = null;
     }
+    if (gestureRef.current) { gestureRef.current.resetTransform(); }
+    pendingHandoffRef.current = null;
+    setHandoffResults([]);
     if (prepTimerRef.current !== null) {
       window.clearTimeout(prepTimerRef.current);
       prepTimerRef.current = null;
@@ -715,6 +894,8 @@ export default function V2RendererLab() {
             {docReady && engineRef.current ? (
               <GestureViewportV2 
                 ref={gestureRef}
+                minPreviewScale={minPreviewScale}
+                maxPreviewScale={maxPreviewScale}
                 onTransformChange={setGestureEvent}
                 onGestureEnd={handleGestureEnd}
                 className="w-full h-full"
@@ -888,19 +1069,29 @@ export default function V2RendererLab() {
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3">
               <h2 className="text-sm font-bold text-stone-300">Scale Handoff Log</h2>
               <div className="space-y-1">
-                {handoffResults.map((r, i) => (
-                  <div key={r.completedAt + i} className="text-[10px] bg-stone-950 p-2 rounded border border-white/[0.02]">
-                    <div className="flex justify-between">
-                      <span className={r.status === 'applied' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
-                        [{r.status.toUpperCase()}]
+                {handoffResults.map((r) => (
+                  <div key={r.id} className="text-[10px] bg-stone-950 p-2 rounded border border-white/[0.02]">
+                    <div className="flex justify-between mb-1">
+                      <span className={r.status === 'APPLIED' ? 'text-green-400 font-bold' : r.status === 'RENDERED' ? 'text-yellow-400 font-bold' : r.status === 'ERROR' ? 'text-red-400 font-bold' : 'text-stone-400 font-bold'}>
+                        [{r.status}]
                       </span>
-                      <span className="text-stone-500">{new Date(r.completedAt).toISOString().split('T')[1].replace('Z', '')}</span>
+                      <span className="text-stone-500">{new Date(r.timestamp).toISOString().split('T')[1].replace('Z', '')}</span>
                     </div>
-                    <div className="text-stone-400 mt-1">Ratio: {r.baseScaleRatio.toFixed(3)}</div>
-                    <div className="text-stone-500">Norm Scale: {r.transform.scale.toFixed(3)}</div>
-                    <div className="text-stone-500">
-                      Norm Translate: {r.transform.translateX.toFixed(1)}, {r.transform.translateY.toFixed(1)}
+                    <div className="grid grid-cols-2 gap-1 text-stone-400">
+                      <div>Session ID: {r.gestureSessionId}</div>
+                      <div>Handoff ID: {r.handoffId}</div>
+                      <div>Source: {r.sourceCssScale.toFixed(3)}</div>
+                      <div>Preview: {r.previewScaleAtCommit.toFixed(3)}</div>
+                      <div>Target (Raw): {r.rawTargetCssScale.toFixed(3)}</div>
+                      <div>Target (Clamped): {r.clampedTargetCssScale.toFixed(3)} {r.wasScaleClamped && <span className="text-yellow-400">(Clamped)</span>}</div>
+                      {r.targetRenderRequestId && <div>Req ID: {r.targetRenderRequestId}</div>}
+                      {r.resultPreviewScale !== null && <div>Result Scale: {r.resultPreviewScale.toFixed(4)}</div>}
+                      {r.resultTranslateX !== null && <div>Result Tx: {r.resultTranslateX.toFixed(1)}</div>}
+                      {r.resultTranslateY !== null && <div>Result Ty: {r.resultTranslateY.toFixed(1)}</div>}
+                      <div>Completed Δ: {r.completedDelta}</div>
+                      <div>Swap Δ: {r.swapDelta}</div>
                     </div>
+                    <div className="text-stone-500 mt-1">{r.message}</div>
                   </div>
                 ))}
               </div>

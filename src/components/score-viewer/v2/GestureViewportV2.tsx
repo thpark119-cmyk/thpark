@@ -65,6 +65,23 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const sessionHadPinchRef = useRef(false);
     const snapshotIdCounterRef = useRef(0);
 
+    // Hardening 4B
+    const sessionIdRef = useRef(0);
+    const endEventCounterRef = useRef(0);
+    const lastEmittedSessionIdRef = useRef<number | null>(null);
+    const limitsRef = useRef({ min: minPreviewScale, max: maxPreviewScale });
+    limitsRef.current = { min: minPreviewScale, max: maxPreviewScale };
+
+    const clampPreviewScaleV2 = useCallback((scale: number, minScale: number, maxScale: number) => {
+       if (!isFinite(scale) || scale <= 0) return 1;
+       let min = minScale;
+       let max = maxScale;
+       if (!isFinite(min) || min <= 0) min = 0.5;
+       if (!isFinite(max) || max <= 0) max = 4;
+       if (min > max) { min = 0.5; max = 4; }
+       return Math.min(Math.max(scale, min), max);
+    }, []);
+
     const updateTransformStyle = useCallback((t: GestureTransformV2) => {
       if (!transformLayerRef.current) return;
       transformLayerRef.current.style.transform = `translate3d(${t.translateX}px, ${t.translateY}px, 0) scale(${t.scale})`;
@@ -83,8 +100,20 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     }, [onTransformChange]);
 
     const emitGestureEnd = useCallback((reason: GestureEndReasonV2, prevPhase: GesturePhaseV2) => {
+      const currentSessionId = sessionIdRef.current;
+      if (lastEmittedSessionIdRef.current === currentSessionId) {
+        console.log(`[Mio V2 4B Hardening] duplicate-gesture-end-blocked for session ${currentSessionId}`);
+        return;
+      }
+      lastEmittedSessionIdRef.current = currentSessionId;
+      endEventCounterRef.current++;
+      
+      console.log(`[Mio V2 4B Hardening] gesture-end-emitted: session ${currentSessionId}, endEventId ${endEventCounterRef.current}, reason ${reason}`);
+      
       if (onGestureEnd) {
         onGestureEnd({
+          sessionId: currentSessionId,
+          endEventId: endEventCounterRef.current,
           reason,
           previousPhase: prevPhase,
           hadPinch: sessionHadPinchRef.current,
@@ -162,13 +191,14 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         cancelAnimationFrame(pendingRafRef.current);
         pendingRafRef.current = null;
       }
-      const t = { scale: 1, translateX: 0, translateY: 0 };
+      const safeScale = clampPreviewScaleV2(1, limitsRef.current.min, limitsRef.current.max);
+      const t = { scale: safeScale, translateX: 0, translateY: 0 };
       transformRef.current = { ...t };
       pendingTransformRef.current = null;
       updateTransformStyle(t);
       transformRevisionRef.current++;
       emitEvent();
-    }, [cancelActiveGesture, updateTransformStyle, emitEvent]);
+    }, [cancelActiveGesture, updateTransformStyle, emitEvent, clampPreviewScaleV2]);
 
     const prepareScaleHandoff = useCallback((): GestureScaleHandoffSnapshotV2 | null => {
       flushPendingTransform();
@@ -193,6 +223,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       if (!isFinite(baseScaleRatio) || baseScaleRatio <= 0) {
         return {
           status: 'invalid',
+          wasScaleClamped: false,
+          unclampedPreviewScale: transformRef.current.scale,
+          clampedPreviewScale: transformRef.current.scale,
           transform: { ...transformRef.current },
           baseScaleRatio,
           previousOriginX: snapshot.originX,
@@ -220,7 +253,12 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         nextOriginY = tLayerRect.top - viewportRect.top - transformRef.current.translateY;
       }
 
-      let nextPreviewScale = transformRef.current.scale / baseScaleRatio;
+      let unclampedPreviewScale = transformRef.current.scale / baseScaleRatio;
+      let targetMinLimit = limitsRef.current.min / baseScaleRatio;
+      let targetMaxLimit = limitsRef.current.max / baseScaleRatio;
+      let nextPreviewScale = clampPreviewScaleV2(unclampedPreviewScale, targetMinLimit, targetMaxLimit);
+      let wasScaleClamped = unclampedPreviewScale !== nextPreviewScale;
+
       if (Math.abs(nextPreviewScale - 1) < 0.0005) {
         nextPreviewScale = 1;
       }
@@ -241,6 +279,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
       return {
         status: 'applied',
+        wasScaleClamped,
+        unclampedPreviewScale,
+        clampedPreviewScale: nextPreviewScale,
         transform: { ...newTransform },
         baseScaleRatio,
         previousOriginX: snapshot.originX,
@@ -249,7 +290,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         nextOriginY,
         completedAt: Date.now()
       };
-    }, [updateTransformStyle, emitEvent]);
+    }, [updateTransformStyle, emitEvent, clampPreviewScaleV2]);
 
     useImperativeHandle(ref, () => ({
       resetTransform,
@@ -259,6 +300,18 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       prepareScaleHandoff,
       completeScaleHandoff
     }));
+
+    useEffect(() => {
+      limitsRef.current = { min: minPreviewScale, max: maxPreviewScale };
+      const currentScale = transformRef.current.scale;
+      const clamped = clampPreviewScaleV2(currentScale, minPreviewScale, maxPreviewScale);
+      if (Math.abs(currentScale - clamped) > 0.0005) {
+        scheduleTransform({
+          ...transformRef.current,
+          scale: clamped
+        });
+      }
+    }, [minPreviewScale, maxPreviewScale, clampPreviewScaleV2, scheduleTransform]);
 
     useEffect(() => {
       mountedRef.current = true;
@@ -367,6 +420,13 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         const currentPointers = Array.from<GesturePointerV2>(pointersRef.current.values()).filter(p => p.pointerType === 'touch' || p.pointerType === 'mouse');
 
         if (currentPointers.length === 1 && phaseRef.current === 'idle') {
+          sessionIdRef.current++;
+          prevFrameTimeRef.current = 0;
+          maxFrameGapMsRef.current = 0;
+          pointerMoveCountRef.current = 0;
+          appliedFrameCountRef.current = 0;
+          sessionHadPinchRef.current = false;
+          console.log(`[Mio V2 4B Hardening] gesture-session-start: ${sessionIdRef.current}`);
           startPanSession(currentPointers[0]);
         } else if (currentPointers.length === 2 && phaseRef.current !== 'pinching') {
           startPinchSession(currentPointers[0], currentPointers[1]);
@@ -419,7 +479,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
 
           let newScale = pinchSessionRef.current.startScale * dist / pinchSessionRef.current.startDistance;
           if (!isFinite(newScale) || newScale <= 0) return;
-          newScale = Math.min(Math.max(newScale, minPreviewScale), maxPreviewScale);
+          newScale = clampPreviewScaleV2(newScale, limitsRef.current.min, limitsRef.current.max);
 
           const newTranslateX = currentCenterX - pinchSessionRef.current.originX - pinchSessionRef.current.focalX * newScale;
           const newTranslateY = currentCenterY - pinchSessionRef.current.originY - pinchSessionRef.current.focalY * newScale;
