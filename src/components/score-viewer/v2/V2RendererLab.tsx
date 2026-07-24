@@ -19,6 +19,20 @@ import {
 
 
 
+
+export type ScaleHandoffChainPhaseV2 = 'idle' | 'rendering' | 'deferred' | 'applying' | 'chaining' | 'completed' | 'cancelled' | 'error';
+
+export interface DeferredScaleCommitV2 {
+  deferredId: number;
+  gestureSessionId: number;
+  endEventId: number;
+  transformRevisionAtEnd: number;
+  previewScaleAtEnd: number;
+  effectiveScaleAtEnd: number;
+  createdAt: number;
+  replacedCount: number;
+}
+
 export interface ScaleHandoffInfoV2 {
   id: string;
   gestureSessionId: number;
@@ -39,7 +53,7 @@ export interface ScaleHandoffInfoV2 {
   durationMs: number | null;
   message: string;
   timestamp: number;
-  status: 'COMMIT' | 'RENDERED' | 'APPLIED' | 'SKIPPED' | 'CANCELLED' | 'ERROR';
+  status: 'COMMIT' | 'RENDERED' | 'APPLIED' | 'SKIPPED' | 'CANCELLED' | 'ERROR' | 'DEFERRED' | 'DEFERRED_REPLACED' | 'CHAINED_COMMIT' | 'ACTIVE_REBASED' | 'COALESCED' | 'CHAIN_COMPLETED';
 }
 
 interface PendingScaleHandoffV2 {
@@ -53,6 +67,9 @@ interface PendingScaleHandoffV2 {
   targetRenderCompleted: boolean;
   targetRenderRequestId: number | null;
   targetFrontSwapped: boolean;
+  chainId: number;
+  commitIndex: number;
+  sourceTransformRevision: number;
 }
 
 interface LabRenderEvent {
@@ -165,9 +182,32 @@ export default function V2RendererLab() {
   // Handoff state
   const pendingHandoffRef = useRef<PendingScaleHandoffV2 | null>(null);
   const [handoffResults, setHandoffResults] = useState<ScaleHandoffInfoV2[]>([]);
+  
+  const deferredIntentRef = useRef<DeferredScaleCommitV2 | null>(null);
+  const deferredIdCounterRef = useRef(0);
+  const chainIdCounterRef = useRef(0);
+  const chainCommitIndexRef = useRef(0);
+  const deferredReplacementCountRef = useRef(0);
+  
+  // UI state for continuous handoff chain
+  const [chainPhase, setChainPhase] = useState<ScaleHandoffChainPhaseV2>('idle');
+  const [chainInfo, setChainInfo] = useState<{ chainId: number; commitIndex: number; deferred: DeferredScaleCommitV2 | null }>({ chainId: 0, commitIndex: 0, deferred: null });
 
 
   const visualBaseScale = pendingHandoffRef.current ? pendingHandoffRef.current.baseCssScale : cssScale;
+  const cancelScaleHandoffChain = useCallback((reason: string) => {
+    chainIdCounterRef.current++; // invalidate current chain
+    pendingHandoffRef.current = null;
+    deferredIntentRef.current = null;
+    setChainPhase('cancelled');
+    setChainInfo({ chainId: chainIdCounterRef.current, commitIndex: 0, deferred: null });
+    if (gestureRef.current) {
+      gestureRef.current.cancelActiveGesture();
+      gestureRef.current.resetTransform();
+    }
+    console.log(`[Mio V2 4B Hardening] chain cancelled: ${reason}`);
+  }, []);
+
   const minPreviewScale = 0.5 / visualBaseScale;
   const maxPreviewScale = 3 / visualBaseScale;
 
@@ -238,7 +278,9 @@ export default function V2RendererLab() {
       updateStats('completed', 1);
       if (pendingHandoffRef.current && !pendingHandoffRef.current.targetRenderCompleted) {
          const ph = pendingHandoffRef.current;
-         if (
+         if (ph.chainId !== chainIdCounterRef.current) {
+           // ignored completed render from cancelled chain
+         } else if (
            ev.result.pageNumber === pageNumber &&
            Math.abs(ev.result.cssScale - ph.clampedTargetCssScale) < 0.005 &&
            ev.result.outputScale === outputScale &&
@@ -366,48 +408,178 @@ export default function V2RendererLab() {
     
     if (pendingHandoffRef.current) {
       const ph = pendingHandoffRef.current;
-      
-      const pageMatch = info.nextFront.pageNumber === pageNumber;
-      const scaleMatch = Math.abs(info.nextFront.cssScale - ph.clampedTargetCssScale) < 0.005;
-      const outputMatch = Math.abs(info.nextFront.outputScale - outputScale) < 0.005;
-      const genMatch = info.nextFront.generation === engineGeneration;
-      const reqMatch = info.nextFront.requestId === ph.targetRenderRequestId;
 
-      if (pageMatch && scaleMatch && outputMatch && genMatch && reqMatch) {
-         ph.targetFrontSwapped = true;
-         console.log(`[Mio V2 4B Hardening] target-swap-confirmed`);
-         
-         const baseScaleRatio = ph.clampedTargetCssScale / ph.baseCssScale;
-         
-         if (gestureRef.current) {
-           const result = gestureRef.current.completeScaleHandoff(ph.snapshot, baseScaleRatio);
-           setHandoffResults(prev => prev.map(h => {
-             if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
-               return {
-                 ...h,
-                 targetFrontSwapped: true,
-                 swapDelta: statsRef.current.swaps - ph.statsSwapsAtStart,
-                 resultPreviewScale: result.clampedPreviewScale,
-                 resultTranslateX: result.transform.translateX,
-                 resultTranslateY: result.transform.translateY,
-                 durationMs: Date.now() - h.timestamp,
-                 status: result.status === 'applied' ? 'APPLIED' : 'ERROR',
-                 message: result.status === 'applied' ? 'Success' : 'Invalid Base Scale Ratio'
-               };
-             }
-             return h;
-           }));
-           
-           if (result.status === 'applied') {
-              console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${baseScaleRatio}`);
-           } else {
-              console.log(`[Mio V2 4B Hardening] handoff-invalid`);
-           }
-         }
-         
-         pendingHandoffRef.current = null;
-      } else if (!ph.targetRenderCompleted) {
-          console.log(`[Mio V2 4B Hardening] completed-without-swap: waiting for match`);
+      if (ph.chainId !== chainIdCounterRef.current) {
+         console.log(`[Mio V2 4C Hardening] ignored swap from cancelled chain: ${ph.chainId}`);
+      } else {
+        const pageMatch = info.nextFront.pageNumber === pageNumber;
+        const scaleMatch = Math.abs(info.nextFront.cssScale - ph.clampedTargetCssScale) < 0.005;
+        const outputMatch = Math.abs(info.nextFront.outputScale - outputScale) < 0.005;
+        const genMatch = info.nextFront.generation === engineGeneration;
+        const reqMatch = info.nextFront.requestId === ph.targetRenderRequestId;
+
+        if (pageMatch && scaleMatch && outputMatch && genMatch && reqMatch) {
+          ph.targetFrontSwapped = true;
+          console.log(`[Mio V2 4B Hardening] target-swap-confirmed`);
+          
+          const baseScaleRatio = ph.clampedTargetCssScale / ph.baseCssScale;
+          
+          if (gestureRef.current) {
+            const result = gestureRef.current.completeScaleHandoff(ph.snapshot, baseScaleRatio);
+            setHandoffResults(prev => prev.map(h => {
+              if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
+                return {
+                  ...h,
+                  targetFrontSwapped: true,
+                  swapDelta: statsRef.current.swaps - ph.statsSwapsAtStart,
+                  resultPreviewScale: result.clampedPreviewScale,
+                  resultTranslateX: result.transform.translateX,
+                  resultTranslateY: result.transform.translateY,
+                  durationMs: Date.now() - h.timestamp,
+                  status: result.status === 'applied' ? 'APPLIED' : 'ERROR',
+                  message: result.status === 'applied' ? 'Success' : 'Invalid Base Scale Ratio'
+                };
+              }
+              return h;
+            }));
+            
+            if (result.status === 'applied') {
+                console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${baseScaleRatio}`);
+                
+                if (result.activeSessionRebase && (result.activeSessionRebase.panRebased || result.activeSessionRebase.pinchRebased)) {
+                    const rebaseLog: ScaleHandoffInfoV2 = {
+                      id: `chain-${chainIdCounterRef.current}-rebase-${Date.now()}`,
+                      gestureSessionId: ph.gestureSessionId,
+                      handoffId: ph.snapshot.snapshotId,
+                      sourceCssScale: ph.clampedTargetCssScale,
+                      previewScaleAtCommit: 1,
+                      rawTargetCssScale: ph.clampedTargetCssScale,
+                      clampedTargetCssScale: ph.clampedTargetCssScale,
+                      wasScaleClamped: false,
+                      targetRenderCompleted: false,
+                      targetRenderRequestId: null,
+                      targetFrontSwapped: false,
+                      completedDelta: 0,
+                      swapDelta: 0,
+                      resultPreviewScale: null,
+                      resultTranslateX: null,
+                      resultTranslateY: null,
+                      durationMs: null,
+                      message: `Active Session Rebased: ${result.activeSessionRebase.panRebased ? 'Pan' : 'Pinch'}`,
+                      timestamp: Date.now(),
+                      status: 'ACTIVE_REBASED' as any
+                    };
+                    setHandoffResults(prev => [rebaseLog, ...prev].slice(0, 30));
+                }
+                
+                const deferred = deferredIntentRef.current;
+                
+                // Clear pending early before generating a new one
+                pendingHandoffRef.current = null;
+                
+                if (deferred) {
+                  const currentTransform = gestureRef.current.getTransform();
+                  const newSourceScale = ph.clampedTargetCssScale;
+                  const newRawTarget = newSourceScale * currentTransform.scale;
+                  let newClampedTarget = Math.min(Math.max(newRawTarget, MIN_COMMITTED_CSS_SCALE_V2), MAX_COMMITTED_CSS_SCALE_V2);
+
+                  if (Math.abs(newClampedTarget - newSourceScale) < 0.005) {
+                    console.log(`[Mio V2 4C Hardening] chained-commit-skipped (coalesced)`);
+                    deferredIntentRef.current = null;
+                    setChainPhase('completed');
+                    setChainInfo(prev => ({ ...prev, deferred: null }));
+                    const coalescedLog: ScaleHandoffInfoV2 = {
+                      id: `chain-${chainIdCounterRef.current}-${chainCommitIndexRef.current}-coalesced`,
+                      gestureSessionId: deferred.gestureSessionId,
+                      handoffId: ph.snapshot.snapshotId,
+                      sourceCssScale: newSourceScale,
+                      previewScaleAtCommit: currentTransform.scale,
+                      rawTargetCssScale: newRawTarget,
+                      clampedTargetCssScale: newClampedTarget,
+                      wasScaleClamped: false,
+                      targetRenderCompleted: false,
+                      targetRenderRequestId: null,
+                      targetFrontSwapped: false,
+                      completedDelta: 0,
+                      swapDelta: 0,
+                      resultPreviewScale: null,
+                      resultTranslateX: null,
+                      resultTranslateY: null,
+                      durationMs: null,
+                      message: 'Meaningless change, coalesced and completed',
+                      timestamp: Date.now(),
+                      status: 'COALESCED' as any
+                    };
+                    setHandoffResults(prev => [coalescedLog, ...prev].slice(0, 30));
+                  } else {
+                    const newSnapshot = gestureRef.current.prepareScaleHandoff();
+                    if (newSnapshot) {
+                      chainCommitIndexRef.current++;
+                      
+                      pendingHandoffRef.current = {
+                        snapshot: newSnapshot,
+                        baseCssScale: newSourceScale,
+                        gestureSessionId: deferred.gestureSessionId,
+                        rawTargetCssScale: newRawTarget,
+                        clampedTargetCssScale: newClampedTarget,
+                        statsCompletedAtStart: statsRef.current.completed,
+                        statsSwapsAtStart: statsRef.current.swaps,
+                        targetRenderCompleted: false,
+                        targetRenderRequestId: null,
+                        targetFrontSwapped: false,
+                        chainId: chainIdCounterRef.current,
+                        commitIndex: chainCommitIndexRef.current,
+                        sourceTransformRevision: newSnapshot.transformRevision
+                      };
+
+                      const newHandoff: ScaleHandoffInfoV2 = {
+                        id: `chain-${chainIdCounterRef.current}-${chainCommitIndexRef.current}-session-${deferred.gestureSessionId}-handoff-${newSnapshot.snapshotId}`,
+                        gestureSessionId: deferred.gestureSessionId,
+                        handoffId: newSnapshot.snapshotId,
+                        sourceCssScale: newSourceScale,
+                        previewScaleAtCommit: currentTransform.scale,
+                        rawTargetCssScale: newRawTarget,
+                        clampedTargetCssScale: newClampedTarget,
+                        wasScaleClamped: newRawTarget !== newClampedTarget,
+                        targetRenderCompleted: false,
+                        targetRenderRequestId: null,
+                        targetFrontSwapped: false,
+                        completedDelta: 0,
+                        swapDelta: 0,
+                        resultPreviewScale: null,
+                        resultTranslateX: null,
+                        resultTranslateY: null,
+                        durationMs: null,
+                        message: 'Chained Target Render',
+                        timestamp: Date.now(),
+                        status: 'CHAINED_COMMIT' as any
+                      };
+                      setHandoffResults(prev => [newHandoff, ...prev].slice(0, 30));
+                      
+                      deferredIntentRef.current = null;
+                      setChainPhase('chaining');
+                      setChainInfo(prev => ({ ...prev, commitIndex: chainCommitIndexRef.current, deferred: null }));
+                      // IMPORTANT: call setCssScale last to trigger engine update
+                      setCssScale(newClampedTarget);
+                    } else {
+                      setChainPhase('completed');
+                    }
+                  }
+                } else {
+                  setChainPhase('completed');
+                }
+            } else {
+                console.log(`[Mio V2 4B Hardening] handoff-invalid`);
+                pendingHandoffRef.current = null;
+                setChainPhase('error');
+            }
+          } else {
+            pendingHandoffRef.current = null;
+            setChainPhase('error');
+          }
+        } else if (!ph.targetRenderCompleted) {
+            console.log(`[Mio V2 4B Hardening] completed-without-swap: waiting for match`);
+        }
       }
     }
     
@@ -541,7 +713,7 @@ export default function V2RendererLab() {
     testModeRef.current = 'idle';
   }, [engineGeneration]);
 
-  const initStressTest = useCallback((mode: StressTestModeV2, page: number, scale: number) => {
+  const initStressTest = useCallback((mode: StressTestModeV2, page: number, scale: number) => { cancelScaleHandoffChain('initStressTest');
     gestureRef.current?.resetTransform();
     stopStressTest('start_new');
     const runId = ++stressRunIdRef.current;
@@ -756,14 +928,14 @@ export default function V2RendererLab() {
     e.target.value = '';
   };
 
-  const handleZoomOut = () => { gestureRef.current?.resetTransform(); manualIntervention(); setCssScale((p) => Math.max(0.5, p - 0.25)); };
-  const handleZoomIn = () => { gestureRef.current?.resetTransform(); manualIntervention(); setCssScale((p) => Math.min(2.0, p + 0.25)); };
-  const handleZoomReset = () => { gestureRef.current?.resetTransform(); manualIntervention(); setCssScale(1); };
+  const handleZoomOut = () => { cancelScaleHandoffChain('handleZoomOut'); manualIntervention(); setCssScale((p) => Math.max(0.5, p - 0.25)); };
+  const handleZoomIn = () => { cancelScaleHandoffChain('handleZoomIn'); manualIntervention(); setCssScale((p) => Math.min(2.0, p + 0.25)); };
+  const handleZoomReset = () => { cancelScaleHandoffChain('handleZoomReset'); manualIntervention(); setCssScale(1); };
 
-  const handlePrevPage = () => { gestureRef.current?.resetTransform(); manualIntervention(); setPageNumber((p) => Math.max(1, p - 1)); };
-  const handleNextPage = () => { gestureRef.current?.resetTransform(); manualIntervention(); setPageNumber((p) => Math.min(numPages, p + 1)); };
+  const handlePrevPage = () => { cancelScaleHandoffChain('handlePrevPage'); manualIntervention(); setPageNumber((p) => Math.max(1, p - 1)); };
+  const handleNextPage = () => { cancelScaleHandoffChain('handleNextPage'); manualIntervention(); setPageNumber((p) => Math.min(numPages, p + 1)); };
 
-  const handleOutputScaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleOutputScaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => { cancelScaleHandoffChain('handleOutputScaleChange');
     gestureRef.current?.resetTransform();
     manualIntervention();
     const val = parseFloat(e.target.value);
@@ -772,7 +944,7 @@ export default function V2RendererLab() {
     }
   };
 
-  const resetStats = () => {
+  const resetStats = () => { cancelScaleHandoffChain('resetStats');
     stopStressTest('reset-stats');
     setCompletedCount(0);
     setCancelledCount(0);
@@ -1064,6 +1236,27 @@ export default function V2RendererLab() {
             )}
           </div>
 
+
+          {/* Continuous Handoff Chain */}
+          <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-2">
+            <h2 className="text-sm font-bold text-stone-300">Continuous Handoff Chain</h2>
+            <div className="grid grid-cols-2 gap-y-1 text-xs text-stone-400">
+              <div>Phase: <span className="text-stone-300 font-mono">{chainPhase}</span></div>
+              <div>Chain ID: <span className="text-stone-300 font-mono">{chainInfo.chainId}</span></div>
+              <div>Commit Idx: <span className="text-stone-300 font-mono">{chainInfo.commitIndex}</span></div>
+              <div>Pending: {pendingHandoffRef.current ? <span className="text-yellow-400 font-mono">Yes (ID: {pendingHandoffRef.current.snapshot.snapshotId})</span> : <span className="text-stone-500">None</span>}</div>
+              <div className="col-span-2">
+                Deferred: {chainInfo.deferred ? 
+                  <span className="text-purple-400 font-mono">Yes (ID: {chainInfo.deferred.deferredId}, Effective: {chainInfo.deferred.effectiveScaleAtEnd.toFixed(3)}, Replaced: {chainInfo.deferred.replacedCount})</span> : 
+                  <span className="text-stone-500">None</span>}
+              </div>
+            </div>
+            {chainPhase === 'deferred' && <div className="text-[10px] text-purple-400">현재 handoff 완료 후 최신 확대 의도를 이어서 적용합니다.</div>}
+            {chainPhase === 'chaining' && <div className="text-[10px] text-blue-400">이전 Front swap 완료 후 다음 PDF 배율 handoff를 시작했습니다.</div>}
+            {chainPhase === 'completed' && <div className="text-[10px] text-green-400">최신 사용자 배율까지 연속 handoff가 완료됐습니다.</div>}
+            {chainPhase === 'cancelled' && <div className="text-[10px] text-red-400">Manual cancel에 의해 handoff chain이 초기화됐습니다.</div>}
+          </div>
+
           {/* Handoff Log */}
           {handoffResults.length > 0 && (
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3">
@@ -1072,7 +1265,13 @@ export default function V2RendererLab() {
                 {handoffResults.map((r) => (
                   <div key={r.id} className="text-[10px] bg-stone-950 p-2 rounded border border-white/[0.02]">
                     <div className="flex justify-between mb-1">
-                      <span className={r.status === 'APPLIED' ? 'text-green-400 font-bold' : r.status === 'RENDERED' ? 'text-yellow-400 font-bold' : r.status === 'ERROR' ? 'text-red-400 font-bold' : 'text-stone-400 font-bold'}>
+                      <span className={
+                        r.status === 'APPLIED' || r.status === 'CHAIN_COMPLETED' ? 'text-green-400 font-bold' :
+                        r.status === 'RENDERED' || r.status === 'DEFERRED' ? 'text-yellow-400 font-bold' :
+                        r.status === 'CHAINED_COMMIT' || r.status === 'ACTIVE_REBASED' ? 'text-blue-400 font-bold' :
+                        r.status === 'DEFERRED_REPLACED' || r.status === 'COALESCED' ? 'text-purple-400 font-bold' :
+                        r.status === 'ERROR' || r.status === 'CANCELLED' ? 'text-red-400 font-bold' : 'text-stone-400 font-bold'
+                      }>
                         [{r.status}]
                       </span>
                       <span className="text-stone-500">{new Date(r.timestamp).toISOString().split('T')[1].replace('Z', '')}</span>

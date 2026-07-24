@@ -8,7 +8,8 @@ import {
   GestureEndEventV2,
   GestureEndReasonV2,
   GestureScaleHandoffSnapshotV2,
-  GestureScaleHandoffResultV2
+  GestureScaleHandoffResultV2,
+  GestureActiveSessionRebaseV2
 } from './gestureTypes';
 
 export interface GestureViewportV2Props {
@@ -61,9 +62,9 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
     const appliedFrameCountRef = useRef(0);
     const prevFrameTimeRef = useRef<number>(0);
     const maxFrameGapMsRef = useRef(0);
-    const transformRevisionRef = useRef(0);
-    const sessionHadPinchRef = useRef(false);
+        const sessionHadPinchRef = useRef(false);
     const snapshotIdCounterRef = useRef(0);
+    const transformRevisionRef = useRef(0);
 
     // Hardening 4B
     const sessionIdRef = useRef(0);
@@ -96,6 +97,8 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         pointerMoveCount: pointerMoveCountRef.current,
         appliedFrameCount: appliedFrameCountRef.current,
         maxFrameGapMs: maxFrameGapMsRef.current,
+        sessionId: phaseRef.current !== 'idle' ? sessionIdRef.current : null,
+        transformRevision: transformRevisionRef.current,
       });
     }, [onTransformChange]);
 
@@ -219,6 +222,68 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       };
     }, [flushPendingTransform]);
 
+
+    const rebaseActiveGestureSessionV2 = useCallback((newTransform: GestureTransformV2): GestureActiveSessionRebaseV2 => {
+      const result: GestureActiveSessionRebaseV2 = {
+        phase: phaseRef.current,
+        activePointerCount: pointersRef.current.size,
+        panRebased: false,
+        pinchRebased: false,
+        rebaseRevision: transformRevisionRef.current
+      };
+
+      const currentPointers = Array.from<GesturePointerV2>(pointersRef.current.values()).filter(p => p.pointerType === 'touch' || p.pointerType === 'mouse');
+
+      if (phaseRef.current === 'panning' && currentPointers.length === 1) {
+        panSessionRef.current = {
+          pointerId: currentPointers[0].pointerId,
+          startX: currentPointers[0].clientX,
+          startY: currentPointers[0].clientY,
+          startTranslateX: newTransform.translateX,
+          startTranslateY: newTransform.translateY
+        };
+        result.panRebased = true;
+      } else if (phaseRef.current === 'pinching' && currentPointers.length >= 2) {
+        const p1 = currentPointers[0];
+        const p2 = currentPointers[1];
+        const dx = p2.clientX - p1.clientX;
+        const dy = p2.clientY - p1.clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist >= 4) {
+          const viewportRect = viewportRef.current?.getBoundingClientRect();
+          const centerX = (p1.clientX + p2.clientX) / 2;
+          const centerY = (p1.clientY + p2.clientY) / 2;
+
+          let newOriginX = pinchSessionRef.current.originX;
+          let newOriginY = pinchSessionRef.current.originY;
+          
+          let focalX = 0;
+          let focalY = 0;
+          if (viewportRect) {
+            focalX = (centerX - viewportRect.left - newOriginX - newTransform.translateX) / newTransform.scale;
+            focalY = (centerY - viewportRect.top - newOriginY - newTransform.translateY) / newTransform.scale;
+          }
+
+          pinchSessionRef.current = {
+            pointerId1: p1.pointerId,
+            pointerId2: p2.pointerId,
+            startDistance: dist,
+            startScale: newTransform.scale,
+            startTranslateX: newTransform.translateX,
+            startTranslateY: newTransform.translateY,
+            originX: newOriginX,
+            originY: newOriginY,
+            focalX,
+            focalY
+          };
+          result.pinchRebased = true;
+        }
+      }
+
+      return result;
+    }, []);
+
     const completeScaleHandoff = useCallback((snapshot: GestureScaleHandoffSnapshotV2, baseScaleRatio: number): GestureScaleHandoffResultV2 => {
       if (!isFinite(baseScaleRatio) || baseScaleRatio <= 0) {
         return {
@@ -232,7 +297,8 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           previousOriginY: snapshot.originY,
           nextOriginX: snapshot.originX,
           nextOriginY: snapshot.originY,
-          completedAt: Date.now()
+          completedAt: Date.now(),
+          activeSessionRebase: { phase: phaseRef.current, activePointerCount: pointersRef.current.size, panRebased: false, pinchRebased: false, rebaseRevision: transformRevisionRef.current }
         };
       }
 
@@ -275,6 +341,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       transformRef.current = newTransform;
       updateTransformStyle(newTransform);
       transformRevisionRef.current++;
+      const activeSessionRebase = rebaseActiveGestureSessionV2(transformRef.current);
       emitEvent();
 
       return {
@@ -282,15 +349,16 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         wasScaleClamped,
         unclampedPreviewScale,
         clampedPreviewScale: nextPreviewScale,
-        transform: { ...newTransform },
+        transform: { ...transformRef.current },
         baseScaleRatio,
         previousOriginX: snapshot.originX,
         previousOriginY: snapshot.originY,
         nextOriginX,
         nextOriginY,
-        completedAt: Date.now()
+        completedAt: Date.now(),
+        activeSessionRebase
       };
-    }, [updateTransformStyle, emitEvent, clampPreviewScaleV2]);
+    }, [updateTransformStyle, emitEvent, clampPreviewScaleV2, rebaseActiveGestureSessionV2]);
 
     useImperativeHandle(ref, () => ({
       resetTransform,

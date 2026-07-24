@@ -20,6 +20,8 @@ export interface GestureTransformEventV2 {
   pointerMoveCount: number;
   appliedFrameCount: number;
   maxFrameGapMs: number;
+  sessionId: number | null;
+  transformRevision: number;
 }
 
 export type GestureEndReasonV2 = 'pointer-up' | 'pointer-cancel' | 'lost-pointer-capture' | 'window-blur' | 'visibility-hidden' | 'imperative-cancel';
@@ -48,6 +50,15 @@ export interface GestureScaleHandoffSnapshotV2 {
 
 export type GestureScaleHandoffStatusV2 = 'applied' | 'invalid';
 
+
+export interface GestureActiveSessionRebaseV2 {
+  phase: GesturePhaseV2;
+  activePointerCount: number;
+  panRebased: boolean;
+  pinchRebased: boolean;
+  rebaseRevision: number;
+}
+
 export interface GestureScaleHandoffResultV2 {
   status: GestureScaleHandoffStatusV2;
   wasScaleClamped: boolean;
@@ -58,8 +69,10 @@ export interface GestureScaleHandoffResultV2 {
   previousOriginX: number;
   previousOriginY: number;
   nextOriginX: number;
+
   nextOriginY: number;
   completedAt: number;
+  activeSessionRebase: GestureActiveSessionRebaseV2;
 }
 
 export interface GestureViewportV2Handle {
