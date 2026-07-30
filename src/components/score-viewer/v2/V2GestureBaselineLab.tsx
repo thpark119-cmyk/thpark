@@ -6,11 +6,20 @@ import { PageSurfaceV2 } from './PageSurfaceV2';
 import { PageSurfaceSwapInfoV2, PageSurfaceFrontInfoV2, PageSurfaceRenderEventV2 } from './pageSurfaceTypes';
 import { StableGestureViewportV2 } from './StableGestureViewportV2';
 import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
+import {
+  calculateRenderBudgetPreviewV2,
+  V2_MAX_CANVAS_PIXELS,
+  V2_MAX_CANVAS_EDGE
+} from './renderBudgetV2';
 
 const PDF_CSS_SCALE = 1;
 const DEFAULT_OUTPUT_SCALE = 2;
 const DETAIL_OUTPUT_SCALE = 3;
 const DETAIL_PREVIEW_SCALE_THRESHOLD = 1.5;
+
+function formatMiB(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
 
 function resolveOutputScaleForPreviewScale(previewScale: number): number {
   return previewScale >= DETAIL_PREVIEW_SCALE_THRESHOLD
@@ -246,14 +255,29 @@ export default function V2GestureBaselineLab() {
     qualityStatus = 'READY';
   }
 
+  let budgetPreview = null;
+  if (
+    currentBaseline &&
+    currentBaseline.documentInstanceId === documentInstanceIdRef.current &&
+    currentBaseline.pageNumber === pageNumber &&
+    currentBaseline.logicalWidth > 0 &&
+    currentBaseline.logicalHeight > 0
+  ) {
+    budgetPreview = calculateRenderBudgetPreviewV2({
+      cssWidth: currentBaseline.logicalWidth,
+      cssHeight: currentBaseline.logicalHeight,
+      requestedOutputScale: targetOutputScale
+    });
+  }
+
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-C Automatic Handoff Race and Failure Defense]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-D1 Mobile Pixel Budget Preview]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          현재 Front가 목표 page/quality와 이미 같으면 새 render를 생략합니다.<br/>
-          품질 render 실패 시 기존 Front를 유지하며 입력을 차단하지 않습니다.
+          현재 단계는 픽셀 예산을 계산하고 표시만 합니다.<br/>
+          실제 PageSurface outputScale은 아직 2x 또는 3x 요청값을 그대로 사용합니다.
         </div>
       </div>
       
@@ -304,10 +328,40 @@ export default function V2GestureBaselineLab() {
               <div>Render Failed: {renderFailed ? 'YES' : 'NO'}</div>
             </div>
             
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Mobile Pixel Budget Preview</div>
+              <div>Mode: PREVIEW ONLY</div>
+              <div>Max Pixels: {V2_MAX_CANVAS_PIXELS.toLocaleString()}</div>
+              <div>Max Edge: {V2_MAX_CANVAS_EDGE}px</div>
+              <div>Actual Render Limited: NO</div>
+              {budgetPreview ? (
+                <div className="mt-2 space-y-1 pt-2 border-t border-white/5">
+                  <div>CSS Size: {budgetPreview.cssWidth.toFixed(1)} × {budgetPreview.cssHeight.toFixed(1)}</div>
+                  <div>Requested Output Scale: {budgetPreview.requestedOutputScale.toFixed(2)}x</div>
+                  <div>Preview Effective Scale: {budgetPreview.effectiveOutputScale.toFixed(2)}x</div>
+                  <div>Requested Pixel Size: {budgetPreview.requestedPixelWidth} × {budgetPreview.requestedPixelHeight}</div>
+                  <div>Requested Pixel Count: {budgetPreview.requestedPixelCount.toLocaleString()}</div>
+                  <div>Budget Pixel Size: {budgetPreview.effectivePixelWidth} × {budgetPreview.effectivePixelHeight}</div>
+                  <div>Budget Pixel Count: {budgetPreview.effectivePixelCount.toLocaleString()}</div>
+                  <div>Estimated RGBA / Canvas: {formatMiB(budgetPreview.estimatedBytesPerCanvas)} MiB</div>
+                  <div>Estimated Front + Back: {formatMiB(budgetPreview.estimatedDoubleBufferBytes)} MiB</div>
+                  <div>Limited By: {budgetPreview.limitReason}</div>
+                  <div>Budget Satisfied: {budgetPreview.budgetSatisfied ? 'YES' : 'NO'}</div>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-1 pt-2 border-t border-white/5">
+                  <div>Budget Data: WAITING FOR CURRENT PAGE BASELINE</div>
+                </div>
+              )}
+            </div>
+
             {frontInfo && (
               <div className="bg-stone-950 p-3 rounded text-xs space-y-1 font-mono text-stone-400 border border-white/5">
                 <div>Req ID: {frontInfo.requestId}</div>
                 <div>CSS Size: {frontInfo.cssWidth.toFixed(1)} x {frontInfo.cssHeight.toFixed(1)}</div>
+                <div>Front Pixel Size: {frontInfo.pixelWidth} x {frontInfo.pixelHeight}</div>
+                <div>Front Pixel Count: {(frontInfo.pixelWidth * frontInfo.pixelHeight).toLocaleString()}</div>
+                <div>Front RGBA Estimate: {formatMiB(frontInfo.pixelWidth * frontInfo.pixelHeight * 4)} MiB</div>
               </div>
             )}
             
