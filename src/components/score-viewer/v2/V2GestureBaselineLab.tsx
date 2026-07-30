@@ -6,6 +6,7 @@ import { PageSurfaceV2 } from './PageSurfaceV2';
 import { PageSurfaceSwapInfoV2, PageSurfaceFrontInfoV2, PageSurfaceRenderEventV2 } from './pageSurfaceTypes';
 import { StableGestureViewportV2 } from './StableGestureViewportV2';
 import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
+import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
@@ -246,16 +247,7 @@ export default function V2GestureBaselineLab() {
   const isMinScale = currentScale - 1 <= 0.0005;
   const isMaxScale = 3 - currentScale <= 0.0005;
 
-  const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === targetOutputScale;
-
-  let qualityStatus = 'RENDERING';
-  if (renderFailed) {
-    qualityStatus = frontInfo ? 'FAILED_FRONT_PRESERVED' : 'FAILED';
-  } else if (isQualityReady) {
-    qualityStatus = 'READY';
-  }
-
-  let budgetPreview = null;
+  let budgetPreview: RenderBudgetPreviewV2 | null = null;
   if (
     currentBaseline &&
     currentBaseline.documentInstanceId === documentInstanceIdRef.current &&
@@ -270,14 +262,26 @@ export default function V2GestureBaselineLab() {
     });
   }
 
+  const effectiveOutputScale = budgetPreview?.effectiveOutputScale ?? DEFAULT_OUTPUT_SCALE;
+  const isOutputScaleLimited = budgetPreview !== null && budgetPreview.effectiveOutputScale < budgetPreview.requestedOutputScale - 0.0005;
+
+  const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === effectiveOutputScale;
+
+  let qualityStatus = 'RENDERING';
+  if (renderFailed) {
+    qualityStatus = frontInfo ? 'FAILED_FRONT_PRESERVED' : 'FAILED';
+  } else if (isQualityReady) {
+    qualityStatus = 'READY';
+  }
+
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-D1 Mobile Pixel Budget Preview]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-D2A Known-Baseline Pixel Budget Enforcement]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          현재 단계는 픽셀 예산을 계산하고 표시만 합니다.<br/>
-          실제 PageSurface outputScale은 아직 2x 또는 3x 요청값을 그대로 사용합니다.
+          현재 페이지 baseline이 있는 경우에만 픽셀 예산을 실제 렌더에 적용합니다.<br/>
+          baseline이 없는 첫 페이지는 아직 보호되지 않으며 기본 2x로 렌더됩니다.
         </div>
       </div>
       
@@ -319,10 +323,11 @@ export default function V2GestureBaselineLab() {
             
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Render Quality</div>
-              <div>Mode: AUTOMATIC</div>
+              <div>Mode: AUTOMATIC + PIXEL BUDGET</div>
               <div>Rule: &lt; 1.50x → 2x</div>
               <div>Rule: &gt;= 1.50x → 3x</div>
-              <div>Target Output Scale: {targetOutputScale}x</div>
+              <div>Requested Output Scale: {targetOutputScale.toFixed(2)}x</div>
+              <div>Effective Output Scale: {effectiveOutputScale.toFixed(2)}x</div>
               <div>Front Output Scale: {frontInfo?.outputScale ?? '-'}x</div>
               <div>Quality Status: {qualityStatus}</div>
               <div>Render Failed: {renderFailed ? 'YES' : 'NO'}</div>
@@ -330,15 +335,17 @@ export default function V2GestureBaselineLab() {
             
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Mobile Pixel Budget Preview</div>
-              <div>Mode: PREVIEW ONLY</div>
+              <div>Mode: ACTIVE FOR CURRENT PAGE BASELINE</div>
+              <div>Budget Enforcement: {budgetPreview ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
+              <div>Scale Limited: {isOutputScaleLimited ? 'YES' : 'NO'}</div>
+              {!budgetPreview && <div>First Unseen Page: 2x BOOTSTRAP; ENGINE PREFLIGHT NOT YET APPLIED</div>}
               <div>Max Pixels: {V2_MAX_CANVAS_PIXELS.toLocaleString()}</div>
               <div>Max Edge: {V2_MAX_CANVAS_EDGE}px</div>
-              <div>Actual Render Limited: NO</div>
-              {budgetPreview ? (
+              {budgetPreview && (
                 <div className="mt-2 space-y-1 pt-2 border-t border-white/5">
                   <div>CSS Size: {budgetPreview.cssWidth.toFixed(1)} × {budgetPreview.cssHeight.toFixed(1)}</div>
                   <div>Requested Output Scale: {budgetPreview.requestedOutputScale.toFixed(2)}x</div>
-                  <div>Preview Effective Scale: {budgetPreview.effectiveOutputScale.toFixed(2)}x</div>
+                  <div>Applied Effective Scale: {budgetPreview.effectiveOutputScale.toFixed(2)}x</div>
                   <div>Requested Pixel Size: {budgetPreview.requestedPixelWidth} × {budgetPreview.requestedPixelHeight}</div>
                   <div>Requested Pixel Count: {budgetPreview.requestedPixelCount.toLocaleString()}</div>
                   <div>Budget Pixel Size: {budgetPreview.effectivePixelWidth} × {budgetPreview.effectivePixelHeight}</div>
@@ -347,10 +354,6 @@ export default function V2GestureBaselineLab() {
                   <div>Estimated Front + Back: {formatMiB(budgetPreview.estimatedDoubleBufferBytes)} MiB</div>
                   <div>Limited By: {budgetPreview.limitReason}</div>
                   <div>Budget Satisfied: {budgetPreview.budgetSatisfied ? 'YES' : 'NO'}</div>
-                </div>
-              ) : (
-                <div className="mt-2 space-y-1 pt-2 border-t border-white/5">
-                  <div>Budget Data: WAITING FOR CURRENT PAGE BASELINE</div>
                 </div>
               )}
             </div>
@@ -434,7 +437,7 @@ export default function V2GestureBaselineLab() {
                   engine={engineRef.current}
                   pageNumber={pageNumber}
                   cssScale={PDF_CSS_SCALE}
-                  outputScale={targetOutputScale}
+                  outputScale={effectiveOutputScale}
                   onRenderEvent={handleRenderEvent}
                   onSwap={handleSwap}
                   onRenderError={handleRenderError}
