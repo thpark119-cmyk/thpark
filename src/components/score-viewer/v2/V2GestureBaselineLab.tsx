@@ -7,11 +7,17 @@ import { PageSurfaceSwapInfoV2, PageSurfaceFrontInfoV2, PageSurfaceRenderEventV2
 import { StableGestureViewportV2 } from './StableGestureViewportV2';
 import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
 import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
+import { PdfRenderEngineErrorV2 } from './pdfRenderTypes';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
   V2_MAX_CANVAS_EDGE
 } from './renderBudgetV2';
+
+interface RenderErrorDiagnosticV2 {
+  code: string;
+  message: string;
+}
 
 const PDF_CSS_SCALE = 1;
 const DEFAULT_OUTPUT_SCALE = 2;
@@ -46,8 +52,13 @@ export default function V2GestureBaselineLab() {
   const [stats, setStats] = useState({
     completed: 0,
     swaps: 0,
-    errors: 0
+    errors: 0,
+    cancelled: 0,
+    stale: 0
   });
+
+  const [lastRenderResult, setLastRenderResult] = useState<PageSurfaceRenderEventV2['result'] | null>(null);
+  const [lastRenderError, setLastRenderError] = useState<RenderErrorDiagnosticV2 | null>(null);
 
   const [frontInfo, setFrontInfo] = useState<PageSurfaceFrontInfoV2 | null>(null);
   const baselineMapRef = useRef(new Map<string, StablePageBaselineV2>());
@@ -98,7 +109,9 @@ export default function V2GestureBaselineLab() {
     setFrontInfo(null);
     setCurrentBaseline(null);
     setTransformInfo(null);
-    setStats({ completed: 0, swaps: 0, errors: 0 });
+    setStats({ completed: 0, swaps: 0, errors: 0, cancelled: 0, stale: 0 });
+    setLastRenderResult(null);
+    setLastRenderError(null);
     setIsLoading(true);
 
     const currentLoadSeq = ++loadSequenceRef.current;
@@ -154,12 +167,24 @@ export default function V2GestureBaselineLab() {
   }, []);
 
   const handleRenderEvent = useCallback((ev: PageSurfaceRenderEventV2) => {
+    setLastRenderResult(ev.result);
     if (ev.result.status === 'completed') {
       setStats(prev => ({ ...prev, completed: prev.completed + 1 }));
+    } else if (ev.result.status === 'cancelled') {
+      setStats(prev => ({ ...prev, cancelled: prev.cancelled + 1 }));
+    } else if (ev.result.status === 'stale') {
+      setStats(prev => ({ ...prev, stale: prev.stale + 1 }));
     }
   }, []);
 
   const handleRenderError = useCallback((err: unknown) => {
+    if (err instanceof PdfRenderEngineErrorV2) {
+      setLastRenderError({ code: err.code, message: err.message });
+    } else if (err instanceof Error) {
+      setLastRenderError({ code: 'UNKNOWN_ERROR', message: err.message });
+    } else {
+      setLastRenderError({ code: 'UNKNOWN_ERROR', message: String(err) });
+    }
     setStats(prev => ({ ...prev, errors: prev.errors + 1 }));
     setRenderFailed(true);
     
@@ -277,12 +302,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-D2B Engine Pixel Budget Preflight]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-D2C Budget Race and Failure Diagnostics]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          최초 unseen page도 엔진에서 canvas 할당 전에 픽셀 예산이 적용됩니다.<br/>
-          현재 baseline이 있으면 Lab의 effective 배율 계산도 유지됩니다.<br/>
-          실제 렌더 배율은 Front Output Scale에서 확인 가능합니다.
+          엔진 픽셀 예산은 계속 활성화되어 있습니다.<br/>
+          이번 단계는 render result와 failure 진단을 표시합니다.<br/>
+          실제 렌더 동작은 D2B와 동일합니다.
         </div>
       </div>
       
@@ -313,6 +338,8 @@ export default function V2GestureBaselineLab() {
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="bg-stone-950 p-2 rounded">Completed: {stats.completed}</div>
               <div className="bg-stone-950 p-2 rounded">Swaps: {stats.swaps}</div>
+              <div className="bg-stone-950 p-2 rounded">Cancelled: {stats.cancelled}</div>
+              <div className="bg-stone-950 p-2 rounded">Stale: {stats.stale}</div>
               <div className="bg-stone-950 p-2 rounded">Errors: {stats.errors}</div>
             </div>
             
@@ -335,6 +362,49 @@ export default function V2GestureBaselineLab() {
               <div>Render Failed: {renderFailed ? 'YES' : 'NO'}</div>
             </div>
             
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Render Race Diagnostics</div>
+              <div>Target Page: {pageNumber}</div>
+              <div>Front Page: {frontInfo?.pageNumber ?? '-'}</div>
+              <div>Engine Generation: {engineRef.current?.generation ?? '-'}</div>
+              <div>Front Generation: {frontInfo?.generation ?? '-'}</div>
+              <div>Requested Quality Scale: {targetOutputScale.toFixed(2)}x</div>
+              <div>Calculated Effective Scale: {effectiveOutputScale.toFixed(2)}x</div>
+              <div>Front Effective Scale: {frontInfo?.outputScale ?? '-'}x</div>
+              <div>Quality Status: {qualityStatus}</div>
+              <div>Render Failed: {renderFailed ? 'YES' : 'NO'}</div>
+
+              <div className="mt-2 pt-2 border-t border-white/5">
+                {lastRenderResult ? (
+                  <div className="space-y-1">
+                    <div>Last Status: {lastRenderResult.status}</div>
+                    <div>Last Request ID: {lastRenderResult.requestId}</div>
+                    <div>Last Generation: {lastRenderResult.generation}</div>
+                    <div>Last Page: {lastRenderResult.pageNumber}</div>
+                    <div>Last Requested Scale: {lastRenderResult.requestedOutputScale.toFixed(2)}x</div>
+                    <div>Last Effective Scale: {lastRenderResult.outputScale.toFixed(2)}x</div>
+                    <div>Last CSS Size: {lastRenderResult.cssWidth.toFixed(1)} × {lastRenderResult.cssHeight.toFixed(1)}</div>
+                    <div>Last Pixel Size: {lastRenderResult.pixelWidth} × {lastRenderResult.pixelHeight}</div>
+                    <div>Last Pixel Count: {(lastRenderResult.pixelWidth * lastRenderResult.pixelHeight).toLocaleString()}</div>
+                    <div>Last Duration: {lastRenderResult.renderDurationMs.toFixed(1)}ms</div>
+                  </div>
+                ) : (
+                  <div>Last Render Result: NONE</div>
+                )}
+              </div>
+
+              <div className="mt-2 pt-2 border-t border-white/5">
+                {lastRenderError ? (
+                  <div className="space-y-1">
+                    <div>Error Code: {lastRenderError.code}</div>
+                    <div className="break-words">Error Message: {lastRenderError.message}</div>
+                  </div>
+                ) : (
+                  <div>Last Render Error: NONE</div>
+                )}
+              </div>
+            </div>
+
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Mobile Pixel Budget Preview</div>
               <div>Mode: ENGINE PREFLIGHT + CURRENT BASELINE</div>
