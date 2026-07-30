@@ -107,6 +107,31 @@ export function PageSurfaceV2({
     surfaceSequenceRef.current += 1;
     const seq = surfaceSequenceRef.current;
     
+    const currentFront = frontInfoRef.current;
+    const currentFrontMatchesTarget =
+      engine.state === 'ready' &&
+      engine.hasDocument &&
+      currentFront !== null &&
+      currentFront.generation === engine.generation &&
+      currentFront.pageNumber === pageNumber &&
+      currentFront.cssScale === cssScale &&
+      currentFront.outputScale === outputScale;
+
+    if (currentFrontMatchesTarget) {
+      if (import.meta.env.DEV) {
+        console.debug('[Mio PageSurfaceV2] render-skipped-current-front', { 
+          generation: engine.generation, 
+          pageNumber, 
+          cssScale, 
+          outputScale, 
+          requestId: currentFront.requestId 
+        });
+      }
+      activeRequestIdRef.current = null;
+      surfaceStateRef.current = 'ready';
+      return;
+    }
+    
     surfaceRequestCounterRef.current += 1;
     const reqId = surfaceRequestCounterRef.current;
     

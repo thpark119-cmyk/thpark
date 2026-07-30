@@ -47,6 +47,7 @@ export default function V2GestureBaselineLab() {
   const targetPageRef = useRef(1);
   
   const [targetOutputScale, setTargetOutputScale] = useState(DEFAULT_OUTPUT_SCALE);
+  const [renderFailed, setRenderFailed] = useState(false);
   
   const viewportRef = useRef<StableGestureViewportV2Handle>(null);
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
@@ -82,6 +83,7 @@ export default function V2GestureBaselineLab() {
     setPageNumber(1);
     targetPageRef.current = 1;
     setTargetOutputScale(DEFAULT_OUTPUT_SCALE);
+    setRenderFailed(false);
     baselineMapRef.current.clear();
     setFrontInfo(null);
     setCurrentBaseline(null);
@@ -120,6 +122,7 @@ export default function V2GestureBaselineLab() {
   const handleSwap = useCallback((info: PageSurfaceSwapInfoV2) => {
     setStats(prev => ({ ...prev, swaps: prev.swaps + 1 }));
     setFrontInfo(info.nextFront);
+    setRenderFailed(false);
     
     if (
       info.nextFront.cssScale === 1 &&
@@ -148,7 +151,19 @@ export default function V2GestureBaselineLab() {
 
   const handleRenderError = useCallback((err: unknown) => {
     setStats(prev => ({ ...prev, errors: prev.errors + 1 }));
-  }, []);
+    setRenderFailed(true);
+    
+    if (
+      frontInfo &&
+      engineRef.current &&
+      frontInfo.generation === engineRef.current.generation &&
+      frontInfo.pageNumber === targetPageRef.current &&
+      frontInfo.cssScale === PDF_CSS_SCALE &&
+      (frontInfo.outputScale === DEFAULT_OUTPUT_SCALE || frontInfo.outputScale === DETAIL_OUTPUT_SCALE)
+    ) {
+      setTargetOutputScale(frontInfo.outputScale);
+    }
+  }, [frontInfo]);
 
   const handleTransformChange = useCallback((ev: StableGestureTransformEventV2) => {
     setTransformInfo(ev);
@@ -156,8 +171,12 @@ export default function V2GestureBaselineLab() {
 
   const applyResolutionIntent = useCallback((previewScale: number) => {
     const nextOutputScale = resolveOutputScaleForPreviewScale(previewScale);
-    setTargetOutputScale(previous => previous === nextOutputScale ? previous : nextOutputScale);
-  }, []);
+    if (nextOutputScale === targetOutputScale) {
+      return;
+    }
+    setRenderFailed(false);
+    setTargetOutputScale(nextOutputScale);
+  }, [targetOutputScale]);
 
   const handleGestureEnd = useCallback(
     (ev: StableGestureTransformEventV2) => {
@@ -194,6 +213,7 @@ export default function V2GestureBaselineLab() {
       targetPageRef.current = next;
       if (viewportRef.current) viewportRef.current.resetTransform();
       applyResolutionIntent(1);
+      setRenderFailed(false);
       setPageNumber(next);
     }
   };
@@ -204,6 +224,7 @@ export default function V2GestureBaselineLab() {
       targetPageRef.current = next;
       if (viewportRef.current) viewportRef.current.resetTransform();
       applyResolutionIntent(1);
+      setRenderFailed(false);
       setPageNumber(next);
     }
   };
@@ -216,15 +237,23 @@ export default function V2GestureBaselineLab() {
   const isMinScale = currentScale - 1 <= 0.0005;
   const isMaxScale = 3 - currentScale <= 0.0005;
 
+  const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === targetOutputScale;
+
+  let qualityStatus = 'RENDERING';
+  if (renderFailed) {
+    qualityStatus = frontInfo ? 'FAILED_FRONT_PRESERVED' : 'FAILED';
+  } else if (isQualityReady) {
+    qualityStatus = 'READY';
+  }
+
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-B Gesture Release Resolution Intent]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-C Automatic Handoff Race and Failure Defense]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          Gesture 중에는 CSS transform만 적용됩니다.<br/>
-          모든 손가락이 해제된 뒤 최종 Scale이 1.50x 이상이면 3x,<br/>
-          1.50x 미만이면 2x PDF render가 요청됩니다.
+          현재 Front가 목표 page/quality와 이미 같으면 새 render를 생략합니다.<br/>
+          품질 render 실패 시 기존 Front를 유지하며 입력을 차단하지 않습니다.
         </div>
       </div>
       
@@ -271,7 +300,8 @@ export default function V2GestureBaselineLab() {
               <div>Rule: &gt;= 1.50x → 3x</div>
               <div>Target Output Scale: {targetOutputScale}x</div>
               <div>Front Output Scale: {frontInfo?.outputScale ?? '-'}x</div>
-              <div>Quality Status: {frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === targetOutputScale ? 'READY' : 'RENDERING'}</div>
+              <div>Quality Status: {qualityStatus}</div>
+              <div>Render Failed: {renderFailed ? 'YES' : 'NO'}</div>
             </div>
             
             {frontInfo && (
