@@ -12,6 +12,19 @@ export const STABLE_IDENTITY_TRANSFORM_V2: StableGestureTransformV2 = {
   translateY: 0
 };
 
+export interface StableGestureTransformEventV2 {
+  phase: StableGesturePhaseV2;
+  transform: StableGestureTransformV2;
+  activePointerCount: number;
+}
+
+export interface StableGestureViewportV2Handle {
+  getTransform(): StableGestureTransformV2;
+  setScale(scale: number): void;
+  resetTransform(): void;
+  cancelActiveGesture(): void;
+}
+
 export interface StablePageBaselineV2 {
   documentInstanceId: number;
   pageNumber: number;

@@ -3,9 +3,9 @@ import { useAuth } from '../../../context/AuthContext';
 import { isAdminUser } from '../../../utils/admin';
 import { PdfRenderEngineV2 } from './PdfRenderEngineV2';
 import { PageSurfaceV2 } from './PageSurfaceV2';
-import { PageSurfaceSwapInfoV2, PageSurfaceFrontInfoV2 } from './pageSurfaceTypes';
+import { PageSurfaceSwapInfoV2, PageSurfaceFrontInfoV2, PageSurfaceRenderEventV2 } from './pageSurfaceTypes';
 import { StableGestureViewportV2 } from './StableGestureViewportV2';
-import { StablePageBaselineV2 } from './stableGestureTypes';
+import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
 
 const PDF_CSS_SCALE = 1;
 const PDF_OUTPUT_SCALE = 2;
@@ -19,7 +19,10 @@ export default function V2GestureBaselineLab() {
   const [docName, setDocName] = useState('');
   const [numPages, setNumPages] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
+  const mountedRef = useRef(true);
+  const loadSequenceRef = useRef(0);
   const documentInstanceIdRef = useRef(0);
   
   const [stats, setStats] = useState({
@@ -31,11 +34,17 @@ export default function V2GestureBaselineLab() {
   const [frontInfo, setFrontInfo] = useState<PageSurfaceFrontInfoV2 | null>(null);
   const [baseline, setBaseline] = useState<StablePageBaselineV2 | null>(null);
   
+  const viewportRef = useRef<StableGestureViewportV2Handle>(null);
+  const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
+  
   useEffect(() => {
+    mountedRef.current = true;
     if (isAdmin) {
       engineRef.current = new PdfRenderEngineV2();
     }
     return () => {
+      mountedRef.current = false;
+      loadSequenceRef.current += 1;
       if (engineRef.current) {
         engineRef.current.destroy().catch(console.error);
         engineRef.current = null;
@@ -52,18 +61,30 @@ export default function V2GestureBaselineLab() {
     setDocName(file.name);
     setFrontInfo(null);
     setBaseline(null);
+    setTransformInfo(null);
     setStats({ completed: 0, swaps: 0, errors: 0 });
+    setIsLoading(true);
 
     try {
+      const currentLoadSeq = ++loadSequenceRef.current;
       const buffer = await file.arrayBuffer();
+      if (!mountedRef.current || currentLoadSeq !== loadSequenceRef.current) return;
+      
       const bytes = new Uint8Array(buffer);
-      await engineRef.current.loadDocument(bytes);
+      const engine = engineRef.current;
+      const result = await engine.loadDocument(bytes);
+      
+      if (!mountedRef.current || currentLoadSeq !== loadSequenceRef.current) return;
+      if (result.status !== 'loaded') return;
+      
       documentInstanceIdRef.current += 1;
-      setNumPages(engineRef.current.getPageCount());
+      setNumPages(result.numPages);
       setDocReady(true);
     } catch (err) {
       console.error(err);
       setErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
     }
     
     e.target.value = '';
@@ -93,17 +114,36 @@ export default function V2GestureBaselineLab() {
     }
   }, []);
 
-  const handleRenderEvent = useCallback((ev: any) => {
-    if (ev.status === 'completed') {
+  const handleRenderEvent = useCallback((ev: PageSurfaceRenderEventV2) => {
+    if (ev.result.status === 'completed') {
       setStats(prev => ({ ...prev, completed: prev.completed + 1 }));
-    } else if (ev.status === 'error') {
-      setStats(prev => ({ ...prev, errors: prev.errors + 1 }));
     }
   }, []);
 
   const handleRenderError = useCallback((err: unknown) => {
     setStats(prev => ({ ...prev, errors: prev.errors + 1 }));
   }, []);
+
+  const handleTransformChange = useCallback((ev: StableGestureTransformEventV2) => {
+    setTransformInfo(ev);
+  }, []);
+
+  const handleZoomIn = () => {
+    if (!viewportRef.current) return;
+    const current = viewportRef.current.getTransform().scale;
+    viewportRef.current.setScale(current + 0.5);
+  };
+
+  const handleZoomOut = () => {
+    if (!viewportRef.current) return;
+    const current = viewportRef.current.getTransform().scale;
+    viewportRef.current.setScale(current - 0.5);
+  };
+
+  const handleZoomReset = () => {
+    if (!viewportRef.current) return;
+    viewportRef.current.resetTransform();
+  };
 
   if (!isAdmin) {
     return <div className="p-10 text-stone-400">Admin access required</div>;
@@ -112,10 +152,10 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4C-R1A Clean Runtime]</h1>
-        <div className="bg-yellow-900/50 text-yellow-200 p-2 rounded text-xs mt-2 border border-yellow-500/20">
-          <strong>Stable CSS Preview Mode</strong><br/>
-          제스처 및 확대/축소 버튼이 의도적으로 제거된 고정 렌더 격리 랩입니다.
+        <h1 className="text-xl font-bold text-brand-light">[4C-R1B+C Clean CSS Gesture Baseline]</h1>
+        <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
+          <strong>Interactive CSS Preview Mode</strong><br/>
+          제스처 및 확대/축소 버튼이 활성화된 렌더 격리 랩입니다.
         </div>
       </div>
       
@@ -130,6 +170,7 @@ export default function V2GestureBaselineLab() {
                 className="text-sm text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand file:text-brand-light hover:file:bg-brand-dark"
               />
             </div>
+            {isLoading && <div className="text-stone-400 text-sm">Loading...</div>}
             {errorMessage && <div className="text-red-400 text-sm">{errorMessage}</div>}
             
             {docReady && (
@@ -153,6 +194,20 @@ export default function V2GestureBaselineLab() {
                 <div>CSS Size: {frontInfo.cssWidth.toFixed(1)} x {frontInfo.cssHeight.toFixed(1)}</div>
               </div>
             )}
+            
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Gesture State</div>
+              <div>Phase: {transformInfo?.phase || 'idle'}</div>
+              <div>Pointers: {transformInfo?.activePointerCount || 0}</div>
+              <div>Scale: {transformInfo?.transform.scale.toFixed(2) || '1.00'}x</div>
+              <div>Translate: {transformInfo?.transform.translateX.toFixed(1) || '0.0'}, {transformInfo?.transform.translateY.toFixed(1) || '0.0'}</div>
+            </div>
+            
+            <div className="flex gap-2">
+              <button onClick={handleZoomOut} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10">-</button>
+              <button onClick={handleZoomReset} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10 flex-1">100%</button>
+              <button onClick={handleZoomIn} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10">+</button>
+            </div>
           </div>
         </div>
         
@@ -176,7 +231,13 @@ export default function V2GestureBaselineLab() {
             }}
           >
             {docReady && engineRef.current && (
-              <StableGestureViewportV2 key={documentInstanceIdRef.current}>
+              <StableGestureViewportV2 
+                key={documentInstanceIdRef.current} 
+                ref={viewportRef}
+                onTransformChange={handleTransformChange}
+                minScale={1}
+                maxScale={5}
+              >
                 <PageSurfaceV2
                   engine={engineRef.current}
                   pageNumber={1}
