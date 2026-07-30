@@ -10,6 +10,13 @@ import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewp
 const PDF_CSS_SCALE = 1;
 const DEFAULT_OUTPUT_SCALE = 2;
 const DETAIL_OUTPUT_SCALE = 3;
+const DETAIL_PREVIEW_SCALE_THRESHOLD = 1.5;
+
+function resolveOutputScaleForPreviewScale(previewScale: number): number {
+  return previewScale >= DETAIL_PREVIEW_SCALE_THRESHOLD
+    ? DETAIL_OUTPUT_SCALE
+    : DEFAULT_OUTPUT_SCALE;
+}
 
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
@@ -147,21 +154,38 @@ export default function V2GestureBaselineLab() {
     setTransformInfo(ev);
   }, []);
 
+  const applyResolutionIntent = useCallback((previewScale: number) => {
+    const nextOutputScale = resolveOutputScaleForPreviewScale(previewScale);
+    setTargetOutputScale(previous => previous === nextOutputScale ? previous : nextOutputScale);
+  }, []);
+
+  const handleGestureEnd = useCallback(
+    (ev: StableGestureTransformEventV2) => {
+      applyResolutionIntent(ev.transform.scale);
+    },
+    [applyResolutionIntent]
+  );
+
   const handleZoomIn = () => {
     if (!viewportRef.current) return;
     const current = viewportRef.current.getTransform().scale;
     viewportRef.current.setScale(current + 0.25);
+    const finalScale = viewportRef.current.getTransform().scale;
+    applyResolutionIntent(finalScale);
   };
 
   const handleZoomOut = () => {
     if (!viewportRef.current) return;
     const current = viewportRef.current.getTransform().scale;
     viewportRef.current.setScale(current - 0.25);
+    const finalScale = viewportRef.current.getTransform().scale;
+    applyResolutionIntent(finalScale);
   };
 
   const handleZoomReset = () => {
     if (!viewportRef.current) return;
     viewportRef.current.resetTransform();
+    applyResolutionIntent(1);
   };
 
   const handlePrevPage = () => {
@@ -169,6 +193,7 @@ export default function V2GestureBaselineLab() {
       const next = pageNumber - 1;
       targetPageRef.current = next;
       if (viewportRef.current) viewportRef.current.resetTransform();
+      applyResolutionIntent(1);
       setPageNumber(next);
     }
   };
@@ -178,6 +203,7 @@ export default function V2GestureBaselineLab() {
       const next = pageNumber + 1;
       targetPageRef.current = next;
       if (viewportRef.current) viewportRef.current.resetTransform();
+      applyResolutionIntent(1);
       setPageNumber(next);
     }
   };
@@ -193,12 +219,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-A Fixed-layout Manual Resolution Handoff]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-B Gesture Release Resolution Intent]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          CSS Scale은 항상 1로 유지됩니다.<br/>
-          Render Quality 버튼만 PDF canvas 내부 해상도를 변경합니다.<br/>
-          Gesture release와 고화질 render는 아직 자동 연결되지 않았습니다.
+          Gesture 중에는 CSS transform만 적용됩니다.<br/>
+          모든 손가락이 해제된 뒤 최종 Scale이 1.50x 이상이면 3x,<br/>
+          1.50x 미만이면 2x PDF render가 요청됩니다.
         </div>
       </div>
       
@@ -240,25 +266,12 @@ export default function V2GestureBaselineLab() {
             
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Render Quality</div>
+              <div>Mode: AUTOMATIC</div>
+              <div>Rule: &lt; 1.50x → 2x</div>
+              <div>Rule: &gt;= 1.50x → 3x</div>
               <div>Target Output Scale: {targetOutputScale}x</div>
               <div>Front Output Scale: {frontInfo?.outputScale ?? '-'}x</div>
               <div>Quality Status: {frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === targetOutputScale ? 'READY' : 'RENDERING'}</div>
-              <div className="flex gap-2 mt-2">
-                <button 
-                  onClick={() => setTargetOutputScale(DEFAULT_OUTPUT_SCALE)}
-                  disabled={!docReady || isLoading || targetOutputScale === DEFAULT_OUTPUT_SCALE}
-                  className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
-                >
-                  2x 기본
-                </button>
-                <button 
-                  onClick={() => setTargetOutputScale(DETAIL_OUTPUT_SCALE)}
-                  disabled={!docReady || isLoading || targetOutputScale === DETAIL_OUTPUT_SCALE}
-                  className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
-                >
-                  3x 고화질
-                </button>
-              </div>
             </div>
             
             {frontInfo && (
@@ -329,6 +342,7 @@ export default function V2GestureBaselineLab() {
                 key={documentInstanceIdRef.current} 
                 ref={viewportRef}
                 onTransformChange={handleTransformChange}
+                onGestureEnd={handleGestureEnd}
                 minScale={1}
                 maxScale={3}
               >

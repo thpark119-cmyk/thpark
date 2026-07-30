@@ -14,6 +14,7 @@ interface Props {
   minScale?: number;
   maxScale?: number;
   onTransformChange?: (ev: StableGestureTransformEventV2) => void;
+  onGestureEnd?: (ev: StableGestureTransformEventV2) => void;
 }
 
 interface PointerInfo {
@@ -46,7 +47,7 @@ interface PinchSession {
 }
 
 export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2Handle, Props>(
-  ({ children, className = '', ariaLabel, minScale = 1, maxScale = 3, onTransformChange }, ref) => {
+  ({ children, className = '', ariaLabel, minScale = 1, maxScale = 3, onTransformChange, onGestureEnd }, ref) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const transformLayerRef = useRef<HTMLDivElement>(null);
     
@@ -401,6 +402,14 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       }
       
       notifyChange();
+
+      if (onGestureEnd && phaseRef.current === 'idle' && activePointersRef.current.size === 0) {
+        onGestureEnd({
+          phase: 'idle',
+          transform: { ...transformRef.current },
+          activePointerCount: 0
+        });
+      }
     };
 
     const handlePointerCancel = (e: React.PointerEvent) => {
