@@ -104,6 +104,8 @@ export interface GestureViewportV2Handle {
   getTransform(): GestureTransformV2;
   getPhase(): GesturePhaseV2;
   cancelActiveGesture(): void;
+  setPreviewScale(scale: number): void;
+  setPreviewTransform(transform: GestureTransformV2): void;
   prepareScaleHandoff(sourceVisualBaseScale: number, anchorViewportX?: number, anchorViewportY?: number): GestureScaleHandoffSnapshotV2 | null;
   completeScaleHandoff(snapshot: GestureScaleHandoffSnapshotV2, sourceVisualBaseScale: number, targetVisualBaseScale: number): GestureScaleHandoffResultV2;
 }

@@ -33,6 +33,14 @@ export interface DeferredScaleCommitV2 {
   replacedCount: number;
 }
 
+export interface PageViewportBaselineV2 {
+  documentInstanceId: number;
+  pageNumber: number;
+  logicalWidth: number;
+  logicalHeight: number;
+  capturedFromScale: number;
+}
+
 export interface ScaleHandoffInfoV2 {
   id: string;
   gestureSessionId: number;
@@ -169,6 +177,11 @@ export default function V2RendererLab() {
   const [docInstanceId, setDocInstanceId] = useState(0);
   const [engineGeneration, setEngineGeneration] = useState(0);
   const [canvasInspectionVersion, setCanvasInspectionVersion] = useState(0);
+
+  const baselineMapRef = useRef<Map<string, PageViewportBaselineV2>>(new Map());
+  const [currentBaseline, setCurrentBaseline] = useState<PageViewportBaselineV2 | null>(null);
+
+  const testInitialStateRef = useRef({ pageNumber: 1, cssScale: 1 });
 
   // Info
   const [frontInfo, setFrontInfo] = useState<PageSurfaceFrontInfoV2 | null>(null);
@@ -325,269 +338,56 @@ export default function V2RendererLab() {
   }, [engineGeneration]);
 
   const handleGestureEnd = useCallback((ev: GestureEndEventV2) => {
-    if (ev.reason !== 'pointer-up' && ev.reason !== 'imperative-cancel') return;
-    
     lastGestureEndEventRef.current = ev;
     if (lastProcessedSessionIdRef.current === ev.sessionId) {
-      console.log(`[Mio V2 4B Hardening] duplicate-commit-blocked for session ${ev.sessionId}`);
       return;
     }
     lastProcessedSessionIdRef.current = ev.sessionId;
-
-    if (!ev.hadPinch) return;
-    
-    if (Math.abs(ev.transform.scale - 1) < 0.005) {
-      console.log(`[Mio V2 4B Hardening] commit-skipped (scale ~1) for session ${ev.sessionId}`);
-      return;
+    if (gestureRef.current && gestureRef.current.getPhase() === 'idle') {
+      console.log(`[Mio V2 4C-R Baseline] Gesture session ${ev.sessionId} ended.`);
     }
-
-    const snapshot = gestureRef.current?.prepareScaleHandoff(visualBaseScale);
-    if (!snapshot) return;
-
-    const rawTargetCssScale = cssScale * ev.transform.scale;
-    let clampedTargetCssScale = Math.min(Math.max(rawTargetCssScale, MIN_COMMITTED_CSS_SCALE_V2), MAX_COMMITTED_CSS_SCALE_V2);
-    
-    if (rawTargetCssScale > 3) {
-       console.warn(`[Mio V2 4B Hardening] effective-scale-clamped: ${rawTargetCssScale} -> ${clampedTargetCssScale}`);
-    }
-
-    if (Math.abs(clampedTargetCssScale - cssScale) < 0.005) {
-      if (cssScale <= MIN_COMMITTED_CSS_SCALE_V2 && rawTargetCssScale < cssScale) {
-        console.log(`[Mio V2 4B Hardening] commit-skipped-at-min for session ${ev.sessionId}`);
-      } else if (cssScale >= MAX_COMMITTED_CSS_SCALE_V2 && rawTargetCssScale > cssScale) {
-        console.log(`[Mio V2 4B Hardening] commit-skipped-at-max for session ${ev.sessionId}`);
-      }
-      return;
-    }
-
-    console.log(`[Mio V2 4B Hardening] commit-start: cssScale=${cssScale} -> ${clampedTargetCssScale} (raw: ${rawTargetCssScale})`);
-
-    pendingHandoffRef.current = {
-      snapshot,
-      baseCssScale: cssScale,
-      gestureSessionId: ev.sessionId,
-      rawTargetCssScale,
-      clampedTargetCssScale,
-      statsCompletedAtStart: statsRef.current.completed,
-      statsSwapsAtStart: statsRef.current.swaps,
-      targetRenderCompleted: false,
-      targetRenderRequestId: null,
-      targetFrontSwapped: false,
-    };
-    
-    console.info(`[Mio V2 Renderer Lab] gesture-end handoff triggered: cssScale=${cssScale} -> ${clampedTargetCssScale}`);
-        const newHandoff: ScaleHandoffInfoV2 = {
-      id: `session-${ev.sessionId}-handoff-${snapshot.snapshotId}`,
-      gestureSessionId: ev.sessionId,
-      handoffId: snapshot.snapshotId,
-      sourceCssScale: cssScale,
-      previewScaleAtCommit: ev.transform.scale,
-      rawTargetCssScale,
-      clampedTargetCssScale,
-      wasScaleClamped: rawTargetCssScale !== clampedTargetCssScale,
-      targetRenderCompleted: false,
-      targetRenderRequestId: null,
-      targetFrontSwapped: false,
-      completedDelta: 0,
-      swapDelta: 0,
-      resultPreviewScale: null,
-      resultTranslateX: null,
-      resultTranslateY: null,
-      durationMs: null,
-      message: 'Pending Target Render',
-      timestamp: Date.now(),
-      status: 'COMMIT'
-    };
-    setHandoffResults(prev => [newHandoff, ...prev].slice(0, 20));
-    setCssScale(clampedTargetCssScale);
-  }, [cssScale]);
+  }, []);
 
   const handleSwap = useCallback((info: PageSurfaceSwapInfoV2) => {
     updateStats('swaps', 1);
     setFrontInfo(info.nextFront);
     statsRef.current.front = info.nextFront;
     
-    if (pendingHandoffRef.current) {
-      const ph = pendingHandoffRef.current;
-
-      if (ph.chainId !== chainIdCounterRef.current) {
-         console.log(`[Mio V2 4C Hardening] ignored swap from cancelled chain: ${ph.chainId}`);
-      } else {
-        const pageMatch = info.nextFront.pageNumber === pageNumber;
-        const scaleMatch = Math.abs(info.nextFront.cssScale - ph.clampedTargetCssScale) < 0.005;
-        const outputMatch = Math.abs(info.nextFront.outputScale - outputScale) < 0.005;
-        const genMatch = info.nextFront.generation === engineGeneration;
-        const reqMatch = info.nextFront.requestId === ph.targetRenderRequestId;
-
-        if (pageMatch && scaleMatch && outputMatch && genMatch && reqMatch) {
-          ph.targetFrontSwapped = true;
-          console.log(`[Mio V2 4B Hardening] target-swap-confirmed`);
-          
-          if (gestureRef.current) {
-            const result = gestureRef.current.completeScaleHandoff(ph.snapshot, ph.baseCssScale, ph.clampedTargetCssScale);
-            setHandoffResults(prev => prev.map(h => {
-              if (h.gestureSessionId === ph.gestureSessionId && h.handoffId === ph.snapshot.snapshotId) {
-                return {
-                  ...h,
-                  targetFrontSwapped: true,
-                  swapDelta: statsRef.current.swaps - ph.statsSwapsAtStart,
-                  resultPreviewScale: result.clampedPreviewScale,
-                  resultTranslateX: result.transform.translateX,
-                  resultTranslateY: result.transform.translateY,
-                  durationMs: Date.now() - h.timestamp,
-                  status: result.status === 'applied' ? 'APPLIED' : 'ERROR',
-                  message: result.status === 'applied' ? 'Success' : 'Invalid Base Scale Ratio'
-                };
-              }
-              return h;
-            }));
-            
-            if (result.status === 'applied') {
-                console.log(`[Mio V2 4B Hardening] handoff-applied: ratio=${result.baseScaleRatio}`);
-                
-                if (result.activeSessionRebase && (result.activeSessionRebase.panRebased || result.activeSessionRebase.pinchRebased)) {
-                    lastAppliedGestureSessionIdRef.current = ph.gestureSessionId;
-                    lastAppliedTransformRevisionRef.current = result.activeSessionRebase.rebaseRevision;
-                    console.log(`[Mio V2 4C1 Anchor] ${result.activeSessionRebase.panRebased ? 'active-pan-rebased' : 'active-pinch-rebased'} (revision ${result.activeSessionRebase.rebaseRevision})`);
-                    
-                    const rebaseLog: ScaleHandoffInfoV2 = {
-                      id: `chain-${chainIdCounterRef.current}-rebase-${Date.now()}`,
-                      gestureSessionId: ph.gestureSessionId,
-                      handoffId: ph.snapshot.snapshotId,
-                      sourceCssScale: ph.clampedTargetCssScale,
-                      previewScaleAtCommit: 1,
-                      rawTargetCssScale: ph.clampedTargetCssScale,
-                      clampedTargetCssScale: ph.clampedTargetCssScale,
-                      wasScaleClamped: false,
-                      targetRenderCompleted: false,
-                      targetRenderRequestId: null,
-                      targetFrontSwapped: false,
-                      completedDelta: 0,
-                      swapDelta: 0,
-                      resultPreviewScale: null,
-                      resultTranslateX: null,
-                      resultTranslateY: null,
-                      durationMs: null,
-                      message: `Active Session Rebased: ${result.activeSessionRebase.panRebased ? 'Pan' : 'Pinch'}`,
-                      timestamp: Date.now(),
-                      status: 'ACTIVE_REBASED' as any
-                    };
-                    setHandoffResults(prev => [rebaseLog, ...prev].slice(0, 30));
-                }
-                
-                const deferred = deferredIntentRef.current;
-                
-                // Clear pending early before generating a new one
-                pendingHandoffRef.current = null;
-                
-                if (deferred) {
-                  const currentTransform = gestureRef.current.getTransform();
-                  const newSourceScale = ph.clampedTargetCssScale;
-                  const newRawTarget = newSourceScale * currentTransform.scale;
-                  let newClampedTarget = Math.min(Math.max(newRawTarget, MIN_COMMITTED_CSS_SCALE_V2), MAX_COMMITTED_CSS_SCALE_V2);
-
-                  if (Math.abs(newClampedTarget - newSourceScale) < 0.005) {
-                    console.log(`[Mio V2 4C Hardening] chained-commit-skipped (coalesced)`);
-                    deferredIntentRef.current = null;
-                    setChainPhase('completed');
-                    setChainInfo(prev => ({ ...prev, deferred: null }));
-                    const coalescedLog: ScaleHandoffInfoV2 = {
-                      id: `chain-${chainIdCounterRef.current}-${chainCommitIndexRef.current}-coalesced`,
-                      gestureSessionId: deferred.gestureSessionId,
-                      handoffId: ph.snapshot.snapshotId,
-                      sourceCssScale: newSourceScale,
-                      previewScaleAtCommit: currentTransform.scale,
-                      rawTargetCssScale: newRawTarget,
-                      clampedTargetCssScale: newClampedTarget,
-                      wasScaleClamped: false,
-                      targetRenderCompleted: false,
-                      targetRenderRequestId: null,
-                      targetFrontSwapped: false,
-                      completedDelta: 0,
-                      swapDelta: 0,
-                      resultPreviewScale: null,
-                      resultTranslateX: null,
-                      resultTranslateY: null,
-                      durationMs: null,
-                      message: 'Meaningless change, coalesced and completed',
-                      timestamp: Date.now(),
-                      status: 'COALESCED' as any
-                    };
-                    setHandoffResults(prev => [coalescedLog, ...prev].slice(0, 30));
-                  } else {
-                    const newSnapshot = gestureRef.current.prepareScaleHandoff(newSourceScale);
-                    if (newSnapshot) {
-                      chainCommitIndexRef.current++;
-                      
-                      pendingHandoffRef.current = {
-                        snapshot: newSnapshot,
-                        baseCssScale: newSourceScale,
-                        gestureSessionId: deferred.gestureSessionId,
-                        rawTargetCssScale: newRawTarget,
-                        clampedTargetCssScale: newClampedTarget,
-                        statsCompletedAtStart: statsRef.current.completed,
-                        statsSwapsAtStart: statsRef.current.swaps,
-                        targetRenderCompleted: false,
-                        targetRenderRequestId: null,
-                        targetFrontSwapped: false,
-                        chainId: chainIdCounterRef.current,
-                        commitIndex: chainCommitIndexRef.current,
-                        sourceTransformRevision: newSnapshot.transformRevision
-                      };
-
-                      const newHandoff: ScaleHandoffInfoV2 = {
-                        id: `chain-${chainIdCounterRef.current}-${chainCommitIndexRef.current}-session-${deferred.gestureSessionId}-handoff-${newSnapshot.snapshotId}`,
-                        gestureSessionId: deferred.gestureSessionId,
-                        handoffId: newSnapshot.snapshotId,
-                        sourceCssScale: newSourceScale,
-                        previewScaleAtCommit: currentTransform.scale,
-                        rawTargetCssScale: newRawTarget,
-                        clampedTargetCssScale: newClampedTarget,
-                        wasScaleClamped: newRawTarget !== newClampedTarget,
-                        targetRenderCompleted: false,
-                        targetRenderRequestId: null,
-                        targetFrontSwapped: false,
-                        completedDelta: 0,
-                        swapDelta: 0,
-                        resultPreviewScale: null,
-                        resultTranslateX: null,
-                        resultTranslateY: null,
-                        durationMs: null,
-                        message: 'Chained Target Render',
-                        timestamp: Date.now(),
-                        status: 'CHAINED_COMMIT' as any
-                      };
-                      setHandoffResults(prev => [newHandoff, ...prev].slice(0, 30));
-                      
-                      deferredIntentRef.current = null;
-                      setChainPhase('chaining');
-                      setChainInfo(prev => ({ ...prev, commitIndex: chainCommitIndexRef.current, deferred: null }));
-                      // IMPORTANT: call setCssScale last to trigger engine update
-                      setCssScale(newClampedTarget);
-                    } else {
-                      setChainPhase('completed');
-                    }
-                  }
-                } else {
-                  setChainPhase('completed');
-                }
-            } else {
-                console.log(`[Mio V2 4B Hardening] handoff-invalid`);
-                pendingHandoffRef.current = null;
-                setChainPhase('error');
-            }
-          } else {
-            pendingHandoffRef.current = null;
-            setChainPhase('error');
-          }
-        } else if (!ph.targetRenderCompleted) {
-            console.log(`[Mio V2 4B Hardening] completed-without-swap: waiting for match`);
-        }
-      }
+    // Update Operation Viewport Baseline
+    const { documentInstanceId: currentDocId, pageNumber: currentPage, cssWidth, cssHeight, cssScale: currentCssScale } = info.nextFront;
+    const baselineKey = `${currentDocId}:${currentPage}`;
+    
+    if (!baselineMapRef.current.has(baselineKey) && cssWidth > 0 && cssHeight > 0 && currentCssScale > 0) {
+      const logicalWidth = cssWidth / currentCssScale;
+      const logicalHeight = cssHeight / currentCssScale;
+      const newBaseline: PageViewportBaselineV2 = {
+        documentInstanceId: currentDocId,
+        pageNumber: currentPage,
+        logicalWidth,
+        logicalHeight,
+        capturedFromScale: currentCssScale
+      };
+      baselineMapRef.current.set(baselineKey, newBaseline);
+      setCurrentBaseline(newBaseline);
+      console.info(`[Mio V2 4C-R Baseline] Captured for ${baselineKey}: ${logicalWidth.toFixed(1)}x${logicalHeight.toFixed(1)}`);
+    } else if (baselineMapRef.current.has(baselineKey)) {
+      setCurrentBaseline(baselineMapRef.current.get(baselineKey) || null);
     }
     
-    checkTestSwap(info.nextFront);
-  }, [updateStats, checkTestSwap, pageNumber, outputScale, engineGeneration]);
+    // Stress Test Result check
+    if (expectedTargetRef.current && info.nextFront.cssScale === expectedTargetRef.current.targetScale && info.nextFront.pageNumber === expectedTargetRef.current.targetPage) {
+      if (testSnapshotRef.current) {
+         testSnapshotRef.current.swapsAtEnd = statsRef.current.swaps;
+         testSnapshotRef.current.completedAtEnd = statsRef.current.completed;
+      }
+      setTestResult({
+        phase: 'passed',
+        message: 'Successfully rendered and swapped to target',
+        stats: testSnapshotRef.current
+      });
+      stopStressTest('passed');
+    }
+  }, [pageNumber, outputScale, engineGeneration]);
 
   const stopStressTest = useCallback((reason?: string) => {
     stressRunIdRef.current++;
@@ -619,6 +419,14 @@ export default function V2RendererLab() {
         return prev;
       });
       testModeRef.current = 'idle';
+      
+      // 4C-R: Restore normal state
+      setCssScale(1);
+      setPageNumber(testInitialStateRef.current.pageNumber);
+      if (gestureRef.current) {
+         gestureRef.current.resetTransform();
+         gestureRef.current.cancelActiveGesture();
+      }
     }
   }, []);
 
@@ -716,11 +524,14 @@ export default function V2RendererLab() {
     testModeRef.current = 'idle';
   }, [engineGeneration]);
 
-  const initStressTest = useCallback((mode: StressTestModeV2, page: number, scale: number) => { cancelScaleHandoffChain('initStressTest');
+  const initStressTest = useCallback((mode: StressTestModeV2, page: number, scale: number) => { 
+    cancelScaleHandoffChain('initStressTest');
     gestureRef.current?.resetTransform();
     stopStressTest('start_new');
     const runId = ++stressRunIdRef.current;
     
+    testInitialStateRef.current = { pageNumber: page, cssScale: scale };
+
     testSnapshotRef.current = { ...statsRef.current };
     testStartMsRef.current = Date.now();
     requestsIssuedRef.current = 0;
@@ -880,6 +691,8 @@ export default function V2RendererLab() {
 
     gestureRef.current?.resetTransform();
     stopStressTest('new-file');
+    baselineMapRef.current.clear();
+    setCurrentBaseline(null);
 
     const seq = ++loadSequenceRef.current;
     setIsLoading(true);
@@ -931,9 +744,29 @@ export default function V2RendererLab() {
     e.target.value = '';
   };
 
-  const handleZoomOut = () => { cancelScaleHandoffChain('handleZoomOut'); manualIntervention(); setCssScale((p) => Math.max(MIN_COMMITTED_CSS_SCALE_V2, p - 0.25)); };
-  const handleZoomIn = () => { cancelScaleHandoffChain('handleZoomIn'); manualIntervention(); setCssScale((p) => Math.min(MAX_COMMITTED_CSS_SCALE_V2, p + 0.25)); };
-  const handleZoomReset = () => { cancelScaleHandoffChain('handleZoomReset'); manualIntervention(); setCssScale(1); };
+  const handleZoomOut = () => { 
+    cancelScaleHandoffChain('handleZoomOut'); 
+    manualIntervention(); 
+    if (gestureRef.current) {
+      const current = gestureRef.current.getTransform().scale;
+      gestureRef.current.setPreviewScale(Math.max(1, current - 0.25));
+    }
+  };
+  const handleZoomIn = () => { 
+    cancelScaleHandoffChain('handleZoomIn'); 
+    manualIntervention(); 
+    if (gestureRef.current) {
+      const current = gestureRef.current.getTransform().scale;
+      gestureRef.current.setPreviewScale(Math.min(3, current + 0.25));
+    }
+  };
+  const handleZoomReset = () => { 
+    cancelScaleHandoffChain('handleZoomReset'); 
+    manualIntervention(); 
+    if (gestureRef.current) {
+      gestureRef.current.setPreviewTransform({ scale: 1, translateX: 0, translateY: 0 });
+    }
+  };
 
   const handlePrevPage = () => { cancelScaleHandoffChain('handlePrevPage'); manualIntervention(); setPageNumber((p) => Math.max(1, p - 1)); };
   const handleNextPage = () => { cancelScaleHandoffChain('handleNextPage'); manualIntervention(); setPageNumber((p) => Math.min(numPages, p + 1)); };
@@ -983,8 +816,13 @@ export default function V2RendererLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-         <h1 className="text-xl font-bold text-brand-light">V2 Renderer Lab</h1>
-         <p className="text-xs text-brand-light/70 mt-1">
+         <h1 className="text-xl font-bold text-brand-light">V2 Renderer Lab - Stable CSS Preview Mode</h1>
+         <div className="bg-yellow-900/50 text-yellow-200 p-2 rounded text-xs mt-2 border border-yellow-500/20">
+           <strong>[4C-R Stable CSS Mode]</strong><br/>
+           현재 안정성 검증을 위해 핀치 종료 후 PDF 재렌더링 handoff가 비활성화되어 있습니다.<br/>
+           핀치와 이동은 CSS transform만 사용합니다.
+         </div>
+         <p className="text-xs text-brand-light/70 mt-2">
            * 내부 관리자 테스트 도구입니다. 일반 사용자에게는 노출되지 않습니다.
            필기 및 핀치 줌 기능은 포함되어 있지 않으며, 선택한 파일은 서버에 업로드되지 않습니다.
          </p>
@@ -1069,7 +907,26 @@ export default function V2RendererLab() {
             )}
           </div>
           
-          <div className="flex-1 min-h-[500px] bg-stone-950 border border-white/5 rounded-xl overflow-hidden flex flex-col relative">
+
+          {/* 4C-R Stable CSS Mode */}
+          <div 
+            className="bg-stone-950 border border-white/5 rounded-xl flex flex-col mx-auto"
+            style={{
+               position: 'relative',
+               overflow: 'hidden',
+               flex: 'none',
+               width: '100%',
+               ...(currentBaseline ? {
+                 maxWidth: `${currentBaseline.logicalWidth + 24}px`,
+                 height: `min(${currentBaseline.logicalHeight + 24}px, calc(100dvh - 230px))`,
+                 minHeight: '320px'
+               } : {
+                 height: 'calc(100dvh - 230px)',
+                 minHeight: '500px'
+               })
+            }}
+          >
+    
             {docReady && engineRef.current ? (
               <GestureViewportV2 
                 ref={gestureRef}
@@ -1267,8 +1124,8 @@ export default function V2RendererLab() {
 
           {/* Handoff Log */}
           {handoffResults.length > 0 && (
-            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3">
-              <h2 className="text-sm font-bold text-stone-300">Scale Handoff Log</h2>
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-3 opacity-30">
+              <h2 className="text-sm font-bold text-stone-300 line-through">Scale Handoff Log (Disabled for 4C-R)</h2>
               <div className="space-y-1">
                 {handoffResults.map((r) => (
                   <div key={r.id} className="text-[10px] bg-stone-950 p-2 rounded border border-white/[0.02]">

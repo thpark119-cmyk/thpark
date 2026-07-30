@@ -97,6 +97,47 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
        return Math.min(Math.max(scale, minPreview), maxPreview);
     }, []);
 
+    const constrainTransformV2 = useCallback((t: GestureTransformV2): GestureTransformV2 => {
+      const vEl = viewportRef.current;
+      const tEl = transformLayerRef.current;
+      if (!vEl || !tEl) return t;
+
+      const viewportWidth = vEl.offsetWidth;
+      const viewportHeight = vEl.offsetHeight;
+      const layoutWidth = tEl.offsetWidth;
+      const layoutHeight = tEl.offsetHeight;
+
+      let { scale, translateX, translateY } = t;
+      if (!isFinite(scale) || !isFinite(translateX) || !isFinite(translateY)) {
+        return { scale: 1, translateX: 0, translateY: 0 };
+      }
+
+      const visualWidth = layoutWidth * scale;
+      const visualHeight = layoutHeight * scale;
+
+      // When visual size is smaller than or equal to viewport, center it by setting translate to 0 
+      // (assuming flex-start + justify-center in centering layer handles the base alignment)
+      if (visualWidth <= viewportWidth) {
+        translateX = 0;
+      } else {
+        const minX = viewportWidth - visualWidth;
+        const maxX = 0;
+        translateX = Math.min(maxX, Math.max(minX, translateX));
+      }
+
+      if (visualHeight <= viewportHeight) {
+        translateY = 0;
+      } else {
+        // Assume padding-top: 12px exists in centering layer if layout starts there.
+        // Actually centering layer will make tEl's origin relative to its own content box.
+        const minY = viewportHeight - visualHeight;
+        const maxY = 0;
+        translateY = Math.min(maxY, Math.max(minY, translateY));
+      }
+
+      return { scale, translateX, translateY };
+    }, []);
+
     const updateTransformStyle = useCallback((t: GestureTransformV2) => {
       if (!transformLayerRef.current) return;
       transformLayerRef.current.style.transform = `translate3d(${t.translateX}px, ${t.translateY}px, 0) scale(${t.scale})`;
@@ -172,14 +213,15 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
         }
         prevFrameTimeRef.current = now;
         
-        transformRef.current = { ...pendingTransformRef.current };
+        const nextTransform = constrainTransformV2(pendingTransformRef.current);
+        transformRef.current = { ...nextTransform };
         pendingTransformRef.current = null;
         updateTransformStyle(transformRef.current);
         transformRevisionRef.current++;
         appliedFrameCountRef.current++;
         emitEvent();
       }
-    }, [updateTransformStyle, emitEvent]);
+    }, [updateTransformStyle, emitEvent, constrainTransformV2]);
 
     const scheduleTransform = useCallback((t: GestureTransformV2) => {
       pendingTransformRef.current = { ...t };
@@ -485,11 +527,39 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       };
     }, [updateTransformStyle, emitEvent, clampPreviewByEffectiveScaleV2, rebaseActiveGestureSessionV2]);
 
+    const setPreviewScale = useCallback((scale: number) => {
+      flushPendingTransform();
+      const clampedScale = clampPreviewByEffectiveScaleV2(scale, limitsRef.current.visualBase, limitsRef.current.minEffective, limitsRef.current.maxEffective);
+      const nextTransform = constrainTransformV2({
+        ...transformRef.current,
+        scale: clampedScale
+      });
+      transformRef.current = nextTransform;
+      updateTransformStyle(transformRef.current);
+      transformRevisionRef.current++;
+      emitEvent();
+    }, [clampPreviewByEffectiveScaleV2, constrainTransformV2, flushPendingTransform, updateTransformStyle, emitEvent]);
+
+    const setPreviewTransform = useCallback((transform: GestureTransformV2) => {
+      flushPendingTransform();
+      const clampedScale = clampPreviewByEffectiveScaleV2(transform.scale, limitsRef.current.visualBase, limitsRef.current.minEffective, limitsRef.current.maxEffective);
+      const nextTransform = constrainTransformV2({
+        ...transform,
+        scale: clampedScale
+      });
+      transformRef.current = nextTransform;
+      updateTransformStyle(transformRef.current);
+      transformRevisionRef.current++;
+      emitEvent();
+    }, [clampPreviewByEffectiveScaleV2, constrainTransformV2, flushPendingTransform, updateTransformStyle, emitEvent]);
+
     useImperativeHandle(ref, () => ({
       resetTransform,
       getTransform: () => ({ ...transformRef.current }),
       getPhase: () => phaseRef.current,
       cancelActiveGesture,
+      setPreviewScale,
+      setPreviewTransform,
       prepareScaleHandoff,
       completeScaleHandoff
     }));
@@ -604,6 +674,15 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
       if (e.pointerType === 'pen') return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
 
+      // Stale session recovery
+      if (pointersRef.current.size === 0 && phaseRef.current !== 'idle') {
+        console.error(`[Mio V2 4C-R] Recovering from stale pointer session. Phase: ${phaseRef.current}`);
+        panSessionRef.current = null;
+        pinchSessionRef.current = null;
+        phaseRef.current = 'idle';
+        flushPendingTransform();
+      }
+
       pointersRef.current.set(e.pointerId, {
         pointerId: e.pointerId,
         pointerType: e.pointerType,
@@ -616,7 +695,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           viewportRef.current.setPointerCapture(e.pointerId);
         }
       } catch (err) {
-        // ignore
+        console.error(`[Mio V2 4C-R] setPointerCapture error:`, err);
       }
 
       if (e.pointerType === 'touch' || e.pointerType === 'mouse') {
@@ -635,7 +714,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           startPinchSession(currentPointers[0], currentPointers[1]);
         }
       }
-    }, [startPanSession, startPinchSession]);
+    }, [startPanSession, startPinchSession, flushPendingTransform]);
 
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === 'pen') return;
@@ -716,7 +795,7 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           viewportRef.current.releasePointerCapture(e.pointerId);
         }
       } catch (err) {
-        // ignore
+        console.error(`[Mio V2 4C-R] releasePointerCapture error:`, err);
       }
 
       const currentPointers = Array.from<GesturePointerV2>(pointersRef.current.values()).filter(p => p.pointerType === 'touch' || p.pointerType === 'mouse');
@@ -734,7 +813,6 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
           pinchSessionRef.current = null;
           panSessionRef.current = null;
           phaseRef.current = 'idle';
-          emitEvent();
           ended = true;
         }
       } else if (phaseRef.current === 'panning') {
@@ -745,17 +823,29 @@ export const GestureViewportV2 = forwardRef<GestureViewportV2Handle, GestureView
              startPanSession(currentPointers[0]);
           } else if (currentPointers.length === 0) {
             phaseRef.current = 'idle';
-            emitEvent();
             ended = true;
           }
         }
       }
 
-      if (ended) {
-         let reason: GestureEndReasonV2 = 'pointer-up';
-         if (e.type === 'pointercancel') reason = 'pointer-cancel';
-         else if (e.type === 'lostpointercapture') reason = 'lost-pointer-capture';
-         emitGestureEnd(reason, prevPhase);
+      if (currentPointers.length === 0) {
+         pinchSessionRef.current = null;
+         panSessionRef.current = null;
+         phaseRef.current = 'idle';
+      }
+
+      try {
+        if (ended) {
+           let reason: GestureEndReasonV2 = 'pointer-up';
+           if (e.type === 'pointercancel') reason = 'pointer-cancel';
+           else if (e.type === 'lostpointercapture') reason = 'lost-pointer-capture';
+           emitEvent();
+           emitGestureEnd(reason, prevPhase);
+        } else if (phaseRef.current !== prevPhase || currentPointers.length !== (prevPhase === 'pinching' ? 2 : prevPhase === 'panning' ? 1 : 0)) {
+           emitEvent();
+        }
+      } catch (err) {
+         console.error(`[Mio V2 4C-R] handlePointerEnd callback error:`, err);
       }
     }, [flushPendingTransform, startPanSession, emitEvent, emitGestureEnd]);
 
