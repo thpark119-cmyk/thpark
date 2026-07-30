@@ -8,7 +8,8 @@ import { StableGestureViewportV2 } from './StableGestureViewportV2';
 import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
 
 const PDF_CSS_SCALE = 1;
-const PDF_OUTPUT_SCALE = 2;
+const DEFAULT_OUTPUT_SCALE = 2;
+const DETAIL_OUTPUT_SCALE = 3;
 
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
@@ -37,6 +38,8 @@ export default function V2GestureBaselineLab() {
   
   const [pageNumber, setPageNumber] = useState(1);
   const targetPageRef = useRef(1);
+  
+  const [targetOutputScale, setTargetOutputScale] = useState(DEFAULT_OUTPUT_SCALE);
   
   const viewportRef = useRef<StableGestureViewportV2Handle>(null);
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
@@ -71,6 +74,7 @@ export default function V2GestureBaselineLab() {
     setDocName(file.name);
     setPageNumber(1);
     targetPageRef.current = 1;
+    setTargetOutputScale(DEFAULT_OUTPUT_SCALE);
     baselineMapRef.current.clear();
     setFrontInfo(null);
     setCurrentBaseline(null);
@@ -189,11 +193,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4C-R2P Mobile Gesture Performance Baseline]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-A Fixed-layout Manual Resolution Handoff]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          CSS transform은 RAF마다 적용되지만 Gesture State 진단값은<br/>
-          gesture phase 변경, release, 버튼 조작 시점에만 갱신됩니다.
+          CSS Scale은 항상 1로 유지됩니다.<br/>
+          Render Quality 버튼만 PDF canvas 내부 해상도를 변경합니다.<br/>
+          Gesture release와 고화질 render는 아직 자동 연결되지 않았습니다.
         </div>
       </div>
       
@@ -216,7 +221,7 @@ export default function V2GestureBaselineLab() {
                 <div>Document: {docName}</div>
                 <div>Pages: {numPages}</div>
                 <div>PDF Scale: 100%</div>
-                <div>Output Scale: {PDF_OUTPUT_SCALE}x</div>
+                <div>Output Scale: {targetOutputScale}x</div>
               </div>
             )}
             
@@ -231,6 +236,29 @@ export default function V2GestureBaselineLab() {
               <div>Target Page: {pageNumber}</div>
               <div>Front Page: {frontInfo?.pageNumber ?? '-'}</div>
               <div>Baseline Page: {currentBaseline?.pageNumber ?? '-'}</div>
+            </div>
+            
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Render Quality</div>
+              <div>Target Output Scale: {targetOutputScale}x</div>
+              <div>Front Output Scale: {frontInfo?.outputScale ?? '-'}x</div>
+              <div>Quality Status: {frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === targetOutputScale ? 'READY' : 'RENDERING'}</div>
+              <div className="flex gap-2 mt-2">
+                <button 
+                  onClick={() => setTargetOutputScale(DEFAULT_OUTPUT_SCALE)}
+                  disabled={!docReady || isLoading || targetOutputScale === DEFAULT_OUTPUT_SCALE}
+                  className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
+                >
+                  2x 기본
+                </button>
+                <button 
+                  onClick={() => setTargetOutputScale(DETAIL_OUTPUT_SCALE)}
+                  disabled={!docReady || isLoading || targetOutputScale === DETAIL_OUTPUT_SCALE}
+                  className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
+                >
+                  3x 고화질
+                </button>
+              </div>
             </div>
             
             {frontInfo && (
@@ -308,7 +336,7 @@ export default function V2GestureBaselineLab() {
                   engine={engineRef.current}
                   pageNumber={pageNumber}
                   cssScale={PDF_CSS_SCALE}
-                  outputScale={PDF_OUTPUT_SCALE}
+                  outputScale={targetOutputScale}
                   onRenderEvent={handleRenderEvent}
                   onSwap={handleSwap}
                   onRenderError={handleRenderError}
