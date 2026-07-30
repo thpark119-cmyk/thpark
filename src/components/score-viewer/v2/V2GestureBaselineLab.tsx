@@ -189,10 +189,11 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4C-R1B+C Clean CSS Gesture Baseline]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4C-R2P Mobile Gesture Performance Baseline]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          제스처 및 확대/축소 버튼이 활성화된 렌더 격리 랩입니다.
+          CSS transform은 RAF마다 적용되지만 Gesture State 진단값은<br/>
+          gesture phase 변경, release, 버튼 조작 시점에만 갱신됩니다.
         </div>
       </div>
       

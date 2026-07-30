@@ -67,71 +67,6 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       transformLayerRef.current.style.transform = `translate3d(${t.translateX}px, ${t.translateY}px, 0) scale(${t.scale})`;
     }, []);
     
-    const flushPendingTransform = useCallback(() => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-      if (pendingTransformRef.current) {
-        transformRef.current = { ...pendingTransformRef.current };
-        pendingTransformRef.current = null;
-        applyTransform(transformRef.current);
-      }
-    }, [applyTransform]);
-
-    const notifyChange = useCallback(() => {
-      if (!mountedRef.current || !onTransformChange) return;
-      onTransformChange({
-        phase: phaseRef.current,
-        transform: { ...transformRef.current },
-        activePointerCount: activePointersRef.current.size
-      });
-    }, [onTransformChange]);
-
-    const cleanupActiveSessions = useCallback(() => {
-      flushPendingTransform();
-      
-      const pointers = activePointersRef.current;
-      const ptrIds = Array.from(pointers.keys());
-      pointers.clear();
-      panSessionRef.current = null;
-      pinchSessionRef.current = null;
-      phaseRef.current = 'idle';
-      
-      if (rootRef.current) {
-        ptrIds.forEach(id => {
-          try { 
-            if (rootRef.current?.hasPointerCapture(id)) {
-              rootRef.current.releasePointerCapture(id); 
-            }
-          } catch (e) {}
-        });
-      }
-    }, [flushPendingTransform]);
-
-    useEffect(() => {
-      mountedRef.current = true;
-      const handleBlur = () => {
-        cleanupActiveSessions();
-        notifyChange();
-      };
-      const handleVisibilityChange = () => {
-        if (document.hidden) {
-          cleanupActiveSessions();
-          notifyChange();
-        }
-      };
-      window.addEventListener('blur', handleBlur);
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      
-      return () => {
-        mountedRef.current = false;
-        window.removeEventListener('blur', handleBlur);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        cleanupActiveSessions();
-      };
-    }, [cleanupActiveSessions, notifyChange]);
-
     const constrainTransform = useCallback((t: StableGestureTransformV2): StableGestureTransformV2 => {
       if (!rootRef.current || !transformLayerRef.current) return t;
       
@@ -190,20 +125,88 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       };
     }, [minScale, maxScale]);
 
+    const flushPendingTransform = useCallback(() => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (pendingTransformRef.current) {
+        const raw = pendingTransformRef.current;
+        pendingTransformRef.current = null;
+        const constrained = constrainTransform(raw);
+        transformRef.current = constrained;
+        applyTransform(constrained);
+      }
+    }, [applyTransform, constrainTransform]);
+
+    const notifyChange = useCallback(() => {
+      if (!mountedRef.current || !onTransformChange) return;
+      onTransformChange({
+        phase: phaseRef.current,
+        transform: { ...transformRef.current },
+        activePointerCount: activePointersRef.current.size
+      });
+    }, [onTransformChange]);
+
+    const cleanupActiveSessions = useCallback(() => {
+      flushPendingTransform();
+      
+      const pointers = activePointersRef.current;
+      const ptrIds = Array.from(pointers.keys());
+      pointers.clear();
+      panSessionRef.current = null;
+      pinchSessionRef.current = null;
+      phaseRef.current = 'idle';
+      
+      if (rootRef.current) {
+        ptrIds.forEach(id => {
+          try { 
+            if (rootRef.current?.hasPointerCapture(id)) {
+              rootRef.current.releasePointerCapture(id); 
+            }
+          } catch (e) {}
+        });
+      }
+    }, [flushPendingTransform]);
+
+    useEffect(() => {
+      mountedRef.current = true;
+      const handleBlur = () => {
+        cleanupActiveSessions();
+        notifyChange();
+      };
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          cleanupActiveSessions();
+          notifyChange();
+        }
+      };
+      window.addEventListener('blur', handleBlur);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      return () => {
+        mountedRef.current = false;
+        window.removeEventListener('blur', handleBlur);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        cleanupActiveSessions();
+      };
+    }, [cleanupActiveSessions, notifyChange]);
+
     const scheduleTransform = useCallback((t: StableGestureTransformV2) => {
-      pendingTransformRef.current = constrainTransform(t);
+      pendingTransformRef.current = t;
       if (rafIdRef.current === null) {
         rafIdRef.current = requestAnimationFrame(() => {
           rafIdRef.current = null;
           if (pendingTransformRef.current) {
-            transformRef.current = { ...pendingTransformRef.current };
+            const raw = pendingTransformRef.current;
             pendingTransformRef.current = null;
-            applyTransform(transformRef.current);
-            notifyChange();
+            const constrained = constrainTransform(raw);
+            transformRef.current = constrained;
+            applyTransform(constrained);
           }
         });
       }
-    }, [constrainTransform, applyTransform, notifyChange]);
+    }, [constrainTransform, applyTransform]);
 
     useEffect(() => {
       if (!rootRef.current) return;
@@ -510,6 +513,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
               display: 'inline-block',
               position: 'relative',
               flex: 'none',
+              willChange: 'transform',
               transformOrigin: '0 0',
               transform: `translate3d(${STABLE_IDENTITY_TRANSFORM_V2.translateX}px, ${STABLE_IDENTITY_TRANSFORM_V2.translateY}px, 0) scale(${STABLE_IDENTITY_TRANSFORM_V2.scale})`
             }}
