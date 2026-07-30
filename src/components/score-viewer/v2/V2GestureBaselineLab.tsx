@@ -8,6 +8,8 @@ import { StableGestureViewportV2 } from './StableGestureViewportV2';
 import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewportV2Handle } from './stableGestureTypes';
 import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
 import { PdfRenderEngineErrorV2 } from './pdfRenderTypes';
+import { AnnotationSurfaceV2 } from './AnnotationSurfaceV2';
+import type { AnnotationPageSpaceV2 } from './annotationTypesV2';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
@@ -290,6 +292,20 @@ export default function V2GestureBaselineLab() {
   const effectiveOutputScale = budgetPreview?.effectiveOutputScale ?? DEFAULT_OUTPUT_SCALE;
   const isOutputScaleLimited = budgetPreview !== null && budgetPreview.effectiveOutputScale < budgetPreview.requestedOutputScale - 0.0005;
 
+  const annotationPageSpace: AnnotationPageSpaceV2 | null =
+    currentBaseline &&
+    currentBaseline.documentInstanceId === documentInstanceIdRef.current &&
+    currentBaseline.pageNumber === pageNumber &&
+    currentBaseline.logicalWidth > 0 &&
+    currentBaseline.logicalHeight > 0
+      ? {
+          documentInstanceId: currentBaseline.documentInstanceId,
+          pageNumber: currentBaseline.pageNumber,
+          logicalWidth: currentBaseline.logicalWidth,
+          logicalHeight: currentBaseline.logicalHeight
+        }
+      : null;
+
   const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === effectiveOutputScale;
 
   let qualityStatus = 'RENDERING';
@@ -302,12 +318,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-D2D Mobile Viewer Scroll Containment]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-A Annotation V2 Coordinate Baseline]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          engine pixel budget과 진단 기능은 유지됩니다.<br/>
-          viewer 내부 native touch scroll 차단이 활성화되었습니다.<br/>
-          전체 페이지 전역 잠금은 사용하지 않습니다.
+          PDF render 및 mobile scroll guard 유지<br/>
+          Annotation V2는 시각적 좌표 진단만 활성화<br/>
+          필기 입력과 저장은 아직 비활성화
         </div>
       </div>
       
@@ -430,6 +446,21 @@ export default function V2GestureBaselineLab() {
               )}
             </div>
 
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
+              <div>Mode: VISUAL DIAGNOSTIC ONLY</div>
+              <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
+              <div>Document Instance: {documentInstanceIdRef.current}</div>
+              <div>Page: {pageNumber}</div>
+              <div>Coordinate Space: NORMALIZED 0..1</div>
+              <div>Logical CSS Size: {annotationPageSpace ? `${annotationPageSpace.logicalWidth.toFixed(1)} × ${annotationPageSpace.logicalHeight.toFixed(1)}` : '-'}</div>
+              <div>Backing Scale: 1x DIAGNOSTIC</div>
+              <div>Pointer Events: NONE</div>
+              <div>Drawing Input: DISABLED</div>
+              <div>Storage: DISABLED</div>
+              <div>V1 Data Connection: NONE</div>
+            </div>
+
             {frontInfo && (
               <div className="bg-stone-950 p-3 rounded text-xs space-y-1 font-mono text-stone-400 border border-white/5">
                 <div>Req ID: {frontInfo.requestId}</div>
@@ -506,15 +537,20 @@ export default function V2GestureBaselineLab() {
                 minScale={1}
                 maxScale={3}
               >
-                <PageSurfaceV2
-                  engine={engineRef.current}
-                  pageNumber={pageNumber}
-                  cssScale={PDF_CSS_SCALE}
-                  outputScale={effectiveOutputScale}
-                  onRenderEvent={handleRenderEvent}
-                  onSwap={handleSwap}
-                  onRenderError={handleRenderError}
-                />
+                <>
+                  <PageSurfaceV2
+                    engine={engineRef.current}
+                    pageNumber={pageNumber}
+                    cssScale={PDF_CSS_SCALE}
+                    outputScale={effectiveOutputScale}
+                    onRenderEvent={handleRenderEvent}
+                    onSwap={handleSwap}
+                    onRenderError={handleRenderError}
+                  />
+                  {annotationPageSpace && (
+                    <AnnotationSurfaceV2 pageSpace={annotationPageSpace} />
+                  )}
+                </>
               </StableGestureViewportV2>
             )}
           </div>
