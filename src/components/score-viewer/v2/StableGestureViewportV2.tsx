@@ -55,6 +55,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
     const transformRef = useRef<StableGestureTransformV2>({ ...STABLE_IDENTITY_TRANSFORM_V2 });
     const pendingTransformRef = useRef<StableGestureTransformV2 | null>(null);
     const rafIdRef = useRef<number | null>(null);
+    const prevSizeRef = useRef({ width: 0, height: 0 });
     
     const activePointersRef = useRef<Map<number, PointerInfo>>(new Map());
     const phaseRef = useRef<StableGesturePhaseV2>('idle');
@@ -203,6 +204,36 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
         });
       }
     }, [constrainTransform, applyTransform, notifyChange]);
+
+    useEffect(() => {
+      if (!rootRef.current) return;
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect;
+          const { width: prevWidth, height: prevHeight } = prevSizeRef.current;
+          
+          if (Math.abs(width - prevWidth) > 0.5 || Math.abs(height - prevHeight) > 0.5) {
+            prevSizeRef.current = { width, height };
+            
+            cleanupActiveSessions();
+            
+            const currentTx = transformRef.current.translateX;
+            const currentTy = transformRef.current.translateY;
+            const currentScale = transformRef.current.scale;
+            
+            scheduleTransform({
+              scale: currentScale,
+              translateX: currentTx,
+              translateY: currentTy
+            });
+          }
+        }
+      });
+      resizeObserver.observe(rootRef.current);
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, [cleanupActiveSessions, scheduleTransform]);
 
     const handlePointerDown = (e: React.PointerEvent) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;

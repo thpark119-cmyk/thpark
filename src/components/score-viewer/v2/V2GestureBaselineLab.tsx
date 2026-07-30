@@ -32,7 +32,11 @@ export default function V2GestureBaselineLab() {
   });
 
   const [frontInfo, setFrontInfo] = useState<PageSurfaceFrontInfoV2 | null>(null);
-  const [baseline, setBaseline] = useState<StablePageBaselineV2 | null>(null);
+  const baselineMapRef = useRef(new Map<string, StablePageBaselineV2>());
+  const [currentBaseline, setCurrentBaseline] = useState<StablePageBaselineV2 | null>(null);
+  
+  const [pageNumber, setPageNumber] = useState(1);
+  const targetPageRef = useRef(1);
   
   const viewportRef = useRef<StableGestureViewportV2Handle>(null);
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
@@ -58,11 +62,18 @@ export default function V2GestureBaselineLab() {
     
     if (!file || !engineRef.current) return;
 
+    if (viewportRef.current) {
+      viewportRef.current.resetTransform();
+    }
+
     setDocReady(false);
     setErrorMessage('');
     setDocName(file.name);
+    setPageNumber(1);
+    targetPageRef.current = 1;
+    baselineMapRef.current.clear();
     setFrontInfo(null);
-    setBaseline(null);
+    setCurrentBaseline(null);
     setTransformInfo(null);
     setStats({ completed: 0, swaps: 0, errors: 0 });
     setIsLoading(true);
@@ -101,21 +112,20 @@ export default function V2GestureBaselineLab() {
     
     if (
       info.nextFront.cssScale === 1 &&
-      info.nextFront.pageNumber === 1 &&
+      info.nextFront.pageNumber === targetPageRef.current &&
       info.nextFront.cssWidth > 0 &&
       info.nextFront.cssHeight > 0
     ) {
-      setBaseline(prev => {
-        if (prev && prev.documentInstanceId === documentInstanceIdRef.current) {
-          return prev;
-        }
-        return {
+      const key = `${documentInstanceIdRef.current}:${info.nextFront.pageNumber}`;
+      if (!baselineMapRef.current.has(key)) {
+        baselineMapRef.current.set(key, {
           documentInstanceId: documentInstanceIdRef.current,
-          pageNumber: 1,
+          pageNumber: info.nextFront.pageNumber,
           logicalWidth: info.nextFront.cssWidth,
           logicalHeight: info.nextFront.cssHeight
-        };
-      });
+        });
+      }
+      setCurrentBaseline(baselineMapRef.current.get(key) || null);
     }
   }, []);
 
@@ -148,6 +158,24 @@ export default function V2GestureBaselineLab() {
   const handleZoomReset = () => {
     if (!viewportRef.current) return;
     viewportRef.current.resetTransform();
+  };
+
+  const handlePrevPage = () => {
+    if (pageNumber > 1) {
+      const next = pageNumber - 1;
+      targetPageRef.current = next;
+      if (viewportRef.current) viewportRef.current.resetTransform();
+      setPageNumber(next);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (pageNumber < numPages) {
+      const next = pageNumber + 1;
+      targetPageRef.current = next;
+      if (viewportRef.current) viewportRef.current.resetTransform();
+      setPageNumber(next);
+    }
   };
 
   if (!isAdmin) {
@@ -197,6 +225,13 @@ export default function V2GestureBaselineLab() {
               <div className="bg-stone-950 p-2 rounded">Errors: {stats.errors}</div>
             </div>
             
+            <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
+              <div className="font-semibold text-stone-300">Pages</div>
+              <div>Target Page: {pageNumber}</div>
+              <div>Front Page: {frontInfo?.pageNumber ?? '-'}</div>
+              <div>Baseline Page: {currentBaseline?.pageNumber ?? '-'}</div>
+            </div>
+            
             {frontInfo && (
               <div className="bg-stone-950 p-3 rounded text-xs space-y-1 font-mono text-stone-400 border border-white/5">
                 <div>Req ID: {frontInfo.requestId}</div>
@@ -210,6 +245,26 @@ export default function V2GestureBaselineLab() {
               <div>Pointers: {transformInfo?.activePointerCount || 0}</div>
               <div>Scale: {transformInfo?.transform.scale.toFixed(2) || '1.00'}x</div>
               <div>Translate: {transformInfo?.transform.translateX.toFixed(1) || '0.0'}, {transformInfo?.transform.translateY.toFixed(1) || '0.0'}</div>
+            </div>
+            
+            <div className="flex gap-2 items-center">
+              <button 
+                onClick={handlePrevPage} 
+                disabled={!docReady || isLoading || pageNumber <= 1}
+                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
+              >
+                이전
+              </button>
+              <div className="px-2 text-sm font-semibold text-center w-24">
+                {docReady ? `${pageNumber} / ${numPages}` : '- / -'}
+              </div>
+              <button 
+                onClick={handleNextPage} 
+                disabled={!docReady || isLoading || pageNumber >= numPages}
+                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10"
+              >
+                다음
+              </button>
             </div>
             
             <div className="flex gap-2 items-center">
@@ -229,9 +284,9 @@ export default function V2GestureBaselineLab() {
                overflow: 'hidden',
                flex: 'none',
                width: '100%',
-               ...(baseline ? {
-                 maxWidth: `${baseline.logicalWidth + 24}px`,
-                 height: `min(${baseline.logicalHeight + 24}px, calc(100dvh - 230px))`,
+               ...(currentBaseline ? {
+                 maxWidth: `${currentBaseline.logicalWidth + 24}px`,
+                 height: `min(${currentBaseline.logicalHeight + 24}px, calc(100dvh - 230px))`,
                  minHeight: '320px'
                } : {
                  height: 'calc(100dvh - 230px)',
@@ -250,7 +305,7 @@ export default function V2GestureBaselineLab() {
               >
                 <PageSurfaceV2
                   engine={engineRef.current}
-                  pageNumber={1}
+                  pageNumber={pageNumber}
                   cssScale={PDF_CSS_SCALE}
                   outputScale={PDF_OUTPUT_SCALE}
                   onRenderEvent={handleRenderEvent}
