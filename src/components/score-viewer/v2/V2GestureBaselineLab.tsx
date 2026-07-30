@@ -54,6 +54,8 @@ export default function V2GestureBaselineLab() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
+    
     if (!file || !engineRef.current) return;
 
     setDocReady(false);
@@ -65,8 +67,9 @@ export default function V2GestureBaselineLab() {
     setStats({ completed: 0, swaps: 0, errors: 0 });
     setIsLoading(true);
 
+    const currentLoadSeq = ++loadSequenceRef.current;
+
     try {
-      const currentLoadSeq = ++loadSequenceRef.current;
       const buffer = await file.arrayBuffer();
       if (!mountedRef.current || currentLoadSeq !== loadSequenceRef.current) return;
       
@@ -81,13 +84,15 @@ export default function V2GestureBaselineLab() {
       setNumPages(result.numPages);
       setDocReady(true);
     } catch (err) {
-      console.error(err);
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      if (mountedRef.current && currentLoadSeq === loadSequenceRef.current) {
+        console.error(err);
+        setErrorMessage(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current && currentLoadSeq === loadSequenceRef.current) {
+        setIsLoading(false);
+      }
     }
-    
-    e.target.value = '';
   };
 
   const handleSwap = useCallback((info: PageSurfaceSwapInfoV2) => {
@@ -131,13 +136,13 @@ export default function V2GestureBaselineLab() {
   const handleZoomIn = () => {
     if (!viewportRef.current) return;
     const current = viewportRef.current.getTransform().scale;
-    viewportRef.current.setScale(current + 0.5);
+    viewportRef.current.setScale(current + 0.25);
   };
 
   const handleZoomOut = () => {
     if (!viewportRef.current) return;
     const current = viewportRef.current.getTransform().scale;
-    viewportRef.current.setScale(current - 0.5);
+    viewportRef.current.setScale(current - 0.25);
   };
 
   const handleZoomReset = () => {
@@ -148,6 +153,10 @@ export default function V2GestureBaselineLab() {
   if (!isAdmin) {
     return <div className="p-10 text-stone-400">Admin access required</div>;
   }
+
+  const currentScale = transformInfo?.transform.scale ?? 1;
+  const isMinScale = currentScale - 1 <= 0.0005;
+  const isMaxScale = 3 - currentScale <= 0.0005;
 
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
@@ -203,10 +212,11 @@ export default function V2GestureBaselineLab() {
               <div>Translate: {transformInfo?.transform.translateX.toFixed(1) || '0.0'}, {transformInfo?.transform.translateY.toFixed(1) || '0.0'}</div>
             </div>
             
-            <div className="flex gap-2">
-              <button onClick={handleZoomOut} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10">-</button>
-              <button onClick={handleZoomReset} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10 flex-1">100%</button>
-              <button onClick={handleZoomIn} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10">+</button>
+            <div className="flex gap-2 items-center">
+              <button onClick={handleZoomOut} disabled={isMinScale} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10">-</button>
+              <div className="px-2 text-sm font-semibold text-center w-16">{Math.round(currentScale * 100)}%</div>
+              <button onClick={handleZoomIn} disabled={isMaxScale} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800 rounded text-sm font-semibold border border-white/10">+</button>
+              <button onClick={handleZoomReset} className="px-3 py-1 bg-stone-800 hover:bg-stone-700 rounded text-sm font-semibold border border-white/10 ml-auto">100%</button>
             </div>
           </div>
         </div>
@@ -236,7 +246,7 @@ export default function V2GestureBaselineLab() {
                 ref={viewportRef}
                 onTransformChange={handleTransformChange}
                 minScale={1}
-                maxScale={5}
+                maxScale={3}
               >
                 <PageSurfaceV2
                   engine={engineRef.current}

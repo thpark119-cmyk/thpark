@@ -20,6 +20,7 @@ interface PointerInfo {
   id: number;
   clientX: number;
   clientY: number;
+  pointerType: 'touch' | 'mouse';
 }
 
 interface PanSession {
@@ -90,15 +91,21 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       flushPendingTransform();
       
       const pointers = activePointersRef.current;
-      if (rootRef.current) {
-        pointers.forEach((_, id) => {
-          try { rootRef.current!.releasePointerCapture(id); } catch (e) {}
-        });
-      }
+      const ptrIds = Array.from(pointers.keys());
       pointers.clear();
       panSessionRef.current = null;
       pinchSessionRef.current = null;
       phaseRef.current = 'idle';
+      
+      if (rootRef.current) {
+        ptrIds.forEach(id => {
+          try { 
+            if (rootRef.current?.hasPointerCapture(id)) {
+              rootRef.current.releasePointerCapture(id); 
+            }
+          } catch (e) {}
+        });
+      }
     }, [flushPendingTransform]);
 
     useEffect(() => {
@@ -130,7 +137,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       let scale = Number.isFinite(t.scale) ? t.scale : 1;
       scale = Math.max(minScale, Math.min(maxScale, scale));
       
-      if (scale === 1) {
+      if (Math.abs(scale - 1) <= 0.0005) {
         return { scale: 1, translateX: 0, translateY: 0 };
       }
       
@@ -138,21 +145,48 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       const layerWidth = transformLayerRef.current.offsetWidth;
       const layerHeight = transformLayerRef.current.offsetHeight;
       
-      const scaledWidth = layerWidth * scale;
-      const scaledHeight = layerHeight * scale;
+      const currentLayerRect = transformLayerRef.current.getBoundingClientRect();
+      const currentRootRect = rootRef.current.getBoundingClientRect();
       
-      let tx = t.translateX;
-      let ty = t.translateY;
+      const baseLeft = currentLayerRect.left - currentRootRect.left - transformRef.current.translateX;
+      const baseTop = currentLayerRect.top - currentRootRect.top - transformRef.current.translateY;
       
-      const maxX = Math.max(0, (scaledWidth - rootRect.width + 24) / 2);
-      const minX = -maxX;
-      tx = Math.max(minX, Math.min(maxX, tx));
+      const visualWidth = layerWidth * scale;
+      const visualHeight = layerHeight * scale;
       
-      const minY = Math.min(0, rootRect.height - 24 - scaledHeight);
-      const maxY = 0;
-      ty = Math.max(minY, Math.min(maxY, ty));
+      const candidateTranslateX = Number.isFinite(t.translateX) ? t.translateX : 0;
+      const candidateTranslateY = Number.isFinite(t.translateY) ? t.translateY : 0;
       
-      return { scale, translateX: tx, translateY: ty };
+      const candidateLeft = baseLeft + candidateTranslateX;
+      const candidateTop = baseTop + candidateTranslateY;
+      
+      const availableWidth = rootRect.width - 24;
+      let targetLeft = candidateLeft;
+      
+      if (visualWidth <= availableWidth) {
+         targetLeft = 12 + (availableWidth - visualWidth) / 2;
+      } else {
+         const minimumLeft = rootRect.width - 12 - visualWidth;
+         const maximumLeft = 12;
+         targetLeft = Math.max(minimumLeft, Math.min(maximumLeft, candidateLeft));
+      }
+      
+      const availableHeight = rootRect.height - 24;
+      let targetTop = candidateTop;
+      
+      if (visualHeight <= availableHeight) {
+         targetTop = 12;
+      } else {
+         const minimumTop = rootRect.height - 12 - visualHeight;
+         const maximumTop = 12;
+         targetTop = Math.max(minimumTop, Math.min(maximumTop, candidateTop));
+      }
+      
+      return { 
+        scale, 
+        translateX: targetLeft - baseLeft, 
+        translateY: targetTop - baseTop 
+      };
     }, [minScale, maxScale]);
 
     const scheduleTransform = useCallback((t: StableGestureTransformV2) => {
@@ -164,14 +198,17 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
             transformRef.current = { ...pendingTransformRef.current };
             pendingTransformRef.current = null;
             applyTransform(transformRef.current);
+            notifyChange();
           }
         });
       }
-    }, [constrainTransform, applyTransform]);
+    }, [constrainTransform, applyTransform, notifyChange]);
 
     const handlePointerDown = (e: React.PointerEvent) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (e.pointerType === 'pen') return;
+      
+      const pointerType = e.pointerType === 'mouse' ? 'mouse' : 'touch';
       
       if (activePointersRef.current.size === 0 && phaseRef.current !== 'idle') {
         cleanupActiveSessions();
@@ -179,7 +216,14 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       
       if (activePointersRef.current.size >= 2) return;
       
-      activePointersRef.current.set(e.pointerId, { id: e.pointerId, clientX: e.clientX, clientY: e.clientY });
+      if (activePointersRef.current.size === 1) {
+        const firstPtr = Array.from<PointerInfo>(activePointersRef.current.values())[0];
+        if (firstPtr.pointerType !== 'touch' || pointerType !== 'touch') {
+          return;
+        }
+      }
+      
+      activePointersRef.current.set(e.pointerId, { id: e.pointerId, clientX: e.clientX, clientY: e.clientY, pointerType });
       
       if (rootRef.current) {
         try { rootRef.current.setPointerCapture(e.pointerId); } catch (err) {}
@@ -196,14 +240,28 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
           startTranslateX: transformRef.current.translateX,
           startTranslateY: transformRef.current.translateY
         };
+        notifyChange();
       } else if (activePointersRef.current.size === 2) {
-        panSessionRef.current = null;
-        phaseRef.current = 'pinching';
-        
         const pts = Array.from<PointerInfo>(activePointersRef.current.values());
         const dx = pts[1].clientX - pts[0].clientX;
         const dy = pts[1].clientY - pts[0].clientY;
         const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 4) {
+          activePointersRef.current.delete(e.pointerId);
+          if (rootRef.current) {
+            try { 
+              if (rootRef.current.hasPointerCapture(e.pointerId)) {
+                rootRef.current.releasePointerCapture(e.pointerId); 
+              }
+            } catch (err) {}
+          }
+          return;
+        }
+        
+        panSessionRef.current = null;
+        phaseRef.current = 'pinching';
+        
         const midX = (pts[0].clientX + pts[1].clientX) / 2;
         const midY = (pts[0].clientY + pts[1].clientY) / 2;
         
@@ -233,12 +291,14 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
           localFocalX,
           localFocalY
         };
+        notifyChange();
       }
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
       if (!activePointersRef.current.has(e.pointerId)) return;
-      activePointersRef.current.set(e.pointerId, { id: e.pointerId, clientX: e.clientX, clientY: e.clientY });
+      const pointerType = e.pointerType === 'mouse' ? 'mouse' : 'touch';
+      activePointersRef.current.set(e.pointerId, { id: e.pointerId, clientX: e.clientX, clientY: e.clientY, pointerType });
       
       if (phaseRef.current === 'panning' && panSessionRef.current) {
         if (e.pointerId !== panSessionRef.current.pointerId) return;
@@ -276,9 +336,6 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       flushPendingTransform();
       
       activePointersRef.current.delete(e.pointerId);
-      if (rootRef.current) {
-        try { rootRef.current.releasePointerCapture(e.pointerId); } catch (err) {}
-      }
       
       if (phaseRef.current === 'pinching') {
         pinchSessionRef.current = null;
@@ -301,16 +358,34 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
         panSessionRef.current = null;
       }
       
+      if (rootRef.current) {
+        try { 
+          if (rootRef.current.hasPointerCapture(e.pointerId)) {
+            rootRef.current.releasePointerCapture(e.pointerId); 
+          }
+        } catch (err) {}
+      }
+      
       notifyChange();
     };
 
     const handlePointerCancel = (e: React.PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
+      cleanupActiveSessions();
+      notifyChange();
+    };
+
+    const handleLostPointerCapture = (e: React.PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
       cleanupActiveSessions();
       notifyChange();
     };
 
     useImperativeHandle(ref, () => ({
-      getTransform: () => ({ ...transformRef.current }),
+      getTransform: () => {
+        flushPendingTransform();
+        return { ...transformRef.current };
+      },
       setScale: (newScale: number) => {
         flushPendingTransform();
         cleanupActiveSessions();
@@ -318,7 +393,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
         let sc = Number.isFinite(newScale) ? newScale : 1;
         sc = Math.max(minScale, Math.min(maxScale, sc));
         
-        if (sc === 1) {
+        if (Math.abs(sc - 1) <= 0.0005) {
           transformRef.current = { scale: 1, translateX: 0, translateY: 0 };
         } else {
           const viewportWidth = rootRef.current ? rootRef.current.clientWidth : 0;
@@ -376,7 +451,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onLostPointerCapture={handlePointerCancel}
+        onLostPointerCapture={handleLostPointerCapture}
         style={{
           position: 'relative',
           width: '100%',
