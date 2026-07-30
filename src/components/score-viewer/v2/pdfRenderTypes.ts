@@ -23,6 +23,7 @@ export interface PdfRenderResultV2 {
   requestId: number;
   pageNumber: number;
   cssScale: number;
+  requestedOutputScale: number;
   outputScale: number;
   cssWidth: number;
   cssHeight: number;
@@ -42,7 +43,8 @@ export type PdfRenderEngineErrorCodeV2 =
   | 'CANVAS_CONTEXT_UNAVAILABLE'
   | 'DOCUMENT_LOAD_FAILED'
   | 'PAGE_LOAD_FAILED'
-  | 'PAGE_RENDER_FAILED';
+  | 'PAGE_RENDER_FAILED'
+  | 'RENDER_BUDGET_EXCEEDED';
 
 export class PdfRenderEngineErrorV2 extends Error {
   code: PdfRenderEngineErrorCodeV2;

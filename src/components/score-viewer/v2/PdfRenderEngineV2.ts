@@ -13,6 +13,7 @@ import {
   RenderTask,
   RenderingCancelledException
 } from './pdfJsV2';
+import { calculateRenderBudgetPreviewV2 } from './renderBudgetV2';
 
 export class PdfRenderEngineV2 {
   private _state: PdfRenderEngineStateV2 = 'idle';
@@ -225,7 +226,7 @@ export class PdfRenderEngineV2 {
 
   public async renderPage(request: PdfRenderRequestV2): Promise<PdfRenderResultV2> {
     const startTime = performance.now();
-    const { requestId, pageNumber, cssScale, outputScale, canvas } = request;
+    const { requestId, pageNumber, cssScale, outputScale: requestedOutputScale, canvas } = request;
 
     if (this._isDestroyed) {
       throw new PdfRenderEngineErrorV2('Engine is destroyed', 'ENGINE_DESTROYED');
@@ -242,8 +243,8 @@ export class PdfRenderEngineV2 {
     if (!Number.isFinite(cssScale) || cssScale <= 0) {
       throw new PdfRenderEngineErrorV2('Invalid cssScale: ' + cssScale, 'INVALID_SCALE');
     }
-    if (!Number.isFinite(outputScale) || outputScale <= 0) {
-      throw new PdfRenderEngineErrorV2('Invalid outputScale: ' + outputScale, 'INVALID_SCALE');
+    if (!Number.isFinite(requestedOutputScale) || requestedOutputScale <= 0) {
+      throw new PdfRenderEngineErrorV2('Invalid outputScale: ' + requestedOutputScale, 'INVALID_SCALE');
     }
     if (!(canvas instanceof HTMLCanvasElement)) {
       throw new PdfRenderEngineErrorV2('canvas must be an HTMLCanvasElement', 'PAGE_RENDER_FAILED');
@@ -262,7 +263,8 @@ export class PdfRenderEngineV2 {
       requestId,
       pageNumber,
       cssScale,
-      outputScale,
+      requestedOutputScale,
+      outputScale: requestedOutputScale,
       cssWidth: 0,
       cssHeight: 0,
       pixelWidth: 0,
@@ -288,8 +290,49 @@ export class PdfRenderEngineV2 {
     const cssWidth = viewport.width;
     const cssHeight = viewport.height;
     
-    const pixelWidth = Math.max(1, Math.floor(cssWidth * outputScale));
-    const pixelHeight = Math.max(1, Math.floor(cssHeight * outputScale));
+    const renderBudget = calculateRenderBudgetPreviewV2({
+      cssWidth,
+      cssHeight,
+      requestedOutputScale
+    });
+
+    if (!renderBudget) {
+      if (this._activeRenderRequestId === requestId) {
+        this._activeRenderRequestId = null;
+      }
+      throw new PdfRenderEngineErrorV2('Failed to calculate render budget', 'PAGE_RENDER_FAILED');
+    }
+
+    if (!renderBudget.budgetSatisfied) {
+      if (this._activeRenderRequestId === requestId) {
+        this._activeRenderRequestId = null;
+      }
+      throw new PdfRenderEngineErrorV2(
+        `Render budget exceeded. pageNumber: ${pageNumber}, cssWidth: ${cssWidth}, cssHeight: ${cssHeight}, requestedOutputScale: ${requestedOutputScale}, effectiveOutputScale: ${renderBudget.effectiveOutputScale}, limitReason: ${renderBudget.limitReason}`,
+        'RENDER_BUDGET_EXCEEDED'
+      );
+    }
+
+    if (import.meta.env.DEV) {
+      console.debug('[Mio PdfRenderEngineV2] render-budget', {
+        generation: expectedGeneration,
+        requestId,
+        pageNumber,
+        cssWidth,
+        cssHeight,
+        requestedOutputScale,
+        effectiveOutputScale: renderBudget.effectiveOutputScale,
+        pixelWidth: renderBudget.effectivePixelWidth,
+        pixelHeight: renderBudget.effectivePixelHeight,
+        pixelCount: renderBudget.effectivePixelCount,
+        limitReason: renderBudget.limitReason,
+        budgetSatisfied: renderBudget.budgetSatisfied
+      });
+    }
+
+    const effectiveOutputScale = renderBudget.effectiveOutputScale;
+    const pixelWidth = renderBudget.effectivePixelWidth;
+    const pixelHeight = renderBudget.effectivePixelHeight;
 
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
@@ -306,7 +349,7 @@ export class PdfRenderEngineV2 {
     }
 
     const transform: [number, number, number, number, number, number] | undefined = 
-      outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
+      effectiveOutputScale !== 1 ? [effectiveOutputScale, 0, 0, effectiveOutputScale, 0, 0] : undefined;
 
     const renderTask = page.render({
       canvasContext: ctx,
@@ -327,7 +370,7 @@ export class PdfRenderEngineV2 {
         this._activeRenderTask !== renderTask
       ) {
         this.logDebug('render-stale (gen: ' + expectedGeneration + ', req: ' + requestId + ')');
-        return { ...makeStaleResult(), cssWidth, cssHeight, pixelWidth, pixelHeight };
+        return { ...makeStaleResult(), outputScale: effectiveOutputScale, cssWidth, cssHeight, pixelWidth, pixelHeight };
       }
 
       this.logDebug('render-complete (gen: ' + expectedGeneration + ', req: ' + requestId + ', duration: ' + (performance.now() - startTime) + 'ms)');
@@ -337,7 +380,8 @@ export class PdfRenderEngineV2 {
         requestId,
         pageNumber,
         cssScale,
-        outputScale,
+        requestedOutputScale,
+        outputScale: effectiveOutputScale,
         cssWidth,
         cssHeight,
         pixelWidth,
@@ -353,7 +397,8 @@ export class PdfRenderEngineV2 {
           requestId,
           pageNumber,
           cssScale,
-          outputScale,
+          requestedOutputScale,
+          outputScale: effectiveOutputScale,
           cssWidth,
           cssHeight,
           pixelWidth,

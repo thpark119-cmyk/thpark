@@ -277,11 +277,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-D2A Known-Baseline Pixel Budget Enforcement]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-D2B Engine Pixel Budget Preflight]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          현재 페이지 baseline이 있는 경우에만 픽셀 예산을 실제 렌더에 적용합니다.<br/>
-          baseline이 없는 첫 페이지는 아직 보호되지 않으며 기본 2x로 렌더됩니다.
+          최초 unseen page도 엔진에서 canvas 할당 전에 픽셀 예산이 적용됩니다.<br/>
+          현재 baseline이 있으면 Lab의 effective 배율 계산도 유지됩니다.<br/>
+          실제 렌더 배율은 Front Output Scale에서 확인 가능합니다.
         </div>
       </div>
       
@@ -304,7 +305,8 @@ export default function V2GestureBaselineLab() {
                 <div>Document: {docName}</div>
                 <div>Pages: {numPages}</div>
                 <div>PDF Scale: 100%</div>
-                <div>Output Scale: {targetOutputScale}x</div>
+                <div>Requested Output Scale: {targetOutputScale.toFixed(2)}x</div>
+                <div>Effective Output Scale: {effectiveOutputScale.toFixed(2)}x</div>
               </div>
             )}
             
@@ -335,10 +337,10 @@ export default function V2GestureBaselineLab() {
             
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Mobile Pixel Budget Preview</div>
-              <div>Mode: ACTIVE FOR CURRENT PAGE BASELINE</div>
-              <div>Budget Enforcement: {budgetPreview ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
+              <div>Mode: ENGINE PREFLIGHT + CURRENT BASELINE</div>
+              <div>Budget Enforcement: ACTIVE</div>
+              <div>First Unseen Page Preflight: ACTIVE</div>
               <div>Scale Limited: {isOutputScaleLimited ? 'YES' : 'NO'}</div>
-              {!budgetPreview && <div>First Unseen Page: 2x BOOTSTRAP; ENGINE PREFLIGHT NOT YET APPLIED</div>}
               <div>Max Pixels: {V2_MAX_CANVAS_PIXELS.toLocaleString()}</div>
               <div>Max Edge: {V2_MAX_CANVAS_EDGE}px</div>
               {budgetPreview && (

@@ -231,7 +231,7 @@ export function PageSurfaceV2({
             backSlot === (frontSlotRef.current === 'first' ? 'second' : 'first') &&
             pageNumber === result.pageNumber &&
             cssScale === result.cssScale &&
-            outputScale === result.outputScale
+            outputScale === result.requestedOutputScale
           ) {
             if (swapFrameRef.current !== null) {
               cancelAnimationFrame(swapFrameRef.current);
