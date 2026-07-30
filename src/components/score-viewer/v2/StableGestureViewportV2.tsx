@@ -424,6 +424,28 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       notifyChange();
     };
 
+    useEffect(() => {
+      const root = rootRef.current;
+      if (!root) return;
+
+      const preventViewerTouchScroll = (event: TouchEvent) => {
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+      };
+
+      root.addEventListener('touchmove', preventViewerTouchScroll, {
+        passive: false
+      });
+
+      return () => {
+        root.removeEventListener(
+          'touchmove',
+          preventViewerTouchScroll
+        );
+      };
+    }, []);
+
     useImperativeHandle(ref, () => ({
       getTransform: () => {
         flushPendingTransform();
@@ -502,7 +524,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
           overflow: 'hidden',
           touchAction: 'none',
           userSelect: 'none',
-          overscrollBehavior: 'contain'
+          overscrollBehavior: 'none'
         }}
       >
         <div

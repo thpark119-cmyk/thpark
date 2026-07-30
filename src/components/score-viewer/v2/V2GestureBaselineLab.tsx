@@ -302,12 +302,12 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4D-D2C Budget Race and Failure Diagnostics]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4D-D2D Mobile Viewer Scroll Containment]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          엔진 픽셀 예산은 계속 활성화되어 있습니다.<br/>
-          이번 단계는 render result와 failure 진단을 표시합니다.<br/>
-          실제 렌더 동작은 D2B와 동일합니다.
+          engine pixel budget과 진단 기능은 유지됩니다.<br/>
+          viewer 내부 native touch scroll 차단이 활성화되었습니다.<br/>
+          전체 페이지 전역 잠금은 사용하지 않습니다.
         </div>
       </div>
       
@@ -442,6 +442,7 @@ export default function V2GestureBaselineLab() {
             
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Gesture State</div>
+              <div>Viewer Touch Scroll Guard: ACTIVE</div>
               <div>Phase: {transformInfo?.phase || 'idle'}</div>
               <div>Pointers: {transformInfo?.activePointerCount || 0}</div>
               <div>Scale: {transformInfo?.transform.scale.toFixed(2) || '1.00'}x</div>
