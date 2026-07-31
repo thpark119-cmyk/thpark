@@ -374,7 +374,7 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-B1 Annotation V2 Mouse/Pen Input Isolation]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-B2A Deferred Single-Touch Gesture Foundation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           PDF render 및 mobile scroll guard 유지<br/>
@@ -516,7 +516,12 @@ export default function V2GestureBaselineLab() {
               <div>Mouse Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Stylus Pen Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Touch Drawing: DISABLED</div>
-              <div>Touch Gesture Passthrough: ACTIVE</div>
+              <div>Navigate Single Touch: PAN</div>
+              <div>Pen Single Touch: DEFERRED</div>
+              <div>Pen Two Touch: PINCH</div>
+              <div>After Pinch One Touch: PAN</div>
+              <div>Deferred Touch Capture Owner: VIEWPORT</div>
+              <div>Next Touch Stage: B2B DRAWING CONNECTION</div>
               <div>Storage: MEMORY ONLY</div>
               <div>V1 Data Connection: NONE</div>
             </div>
@@ -611,6 +616,7 @@ export default function V2GestureBaselineLab() {
                 onGestureEnd={handleGestureEnd}
                 minScale={1}
                 maxScale={3}
+                deferSingleTouchPan={interactionMode === 'pen'}
               >
                 <>
                   <PageSurfaceV2

@@ -15,6 +15,7 @@ interface Props {
   maxScale?: number;
   onTransformChange?: (ev: StableGestureTransformEventV2) => void;
   onGestureEnd?: (ev: StableGestureTransformEventV2) => void;
+  deferSingleTouchPan?: boolean;
 }
 
 interface PointerInfo {
@@ -47,7 +48,7 @@ interface PinchSession {
 }
 
 export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2Handle, Props>(
-  ({ children, className = '', ariaLabel, minScale = 1, maxScale = 3, onTransformChange, onGestureEnd }, ref) => {
+  ({ children, className = '', ariaLabel, minScale = 1, maxScale = 3, onTransformChange, onGestureEnd, deferSingleTouchPan = false }, ref) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const transformLayerRef = useRef<HTMLDivElement>(null);
     
@@ -267,15 +268,22 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       flushPendingTransform();
       
       if (activePointersRef.current.size === 1) {
-        phaseRef.current = 'panning';
-        panSessionRef.current = {
-          pointerId: e.pointerId,
-          startX: e.clientX,
-          startY: e.clientY,
-          startTranslateX: transformRef.current.translateX,
-          startTranslateY: transformRef.current.translateY
-        };
-        notifyChange();
+        if (deferSingleTouchPan && pointerType === 'touch') {
+          phaseRef.current = 'idle';
+          panSessionRef.current = null;
+          pinchSessionRef.current = null;
+          notifyChange();
+        } else {
+          phaseRef.current = 'panning';
+          panSessionRef.current = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            startTranslateX: transformRef.current.translateX,
+            startTranslateY: transformRef.current.translateY
+          };
+          notifyChange();
+        }
       } else if (activePointersRef.current.size === 2) {
         const pts = Array.from<PointerInfo>(activePointersRef.current.values());
         const dx = pts[1].clientX - pts[0].clientX;
@@ -292,6 +300,14 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
             } catch (err) {}
           }
           return;
+        }
+        
+        if (rootRef.current) {
+          try {
+            if (!rootRef.current.hasPointerCapture(pts[0].id)) {
+              rootRef.current.setPointerCapture(pts[0].id);
+            }
+          } catch (err) {}
         }
         
         panSessionRef.current = null;
