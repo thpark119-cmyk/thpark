@@ -15,6 +15,14 @@ import {
   V2_MAX_CANVAS_PIXELS,
   V2_MAX_CANVAS_EDGE
 } from './renderBudgetV2';
+import {
+  AnnotationHistoryStateV2,
+  createEmptyHistoryV2,
+  addStrokeToHistoryV2,
+  undoPageHistoryV2,
+  redoPageHistoryV2,
+  getPageHistoryDepthV2
+} from './annotationHistoryV2';
 
 interface RenderErrorDiagnosticV2 {
   code: string;
@@ -76,7 +84,7 @@ export default function V2GestureBaselineLab() {
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
 
   const [interactionMode, setInteractionMode] = useState<AnnotationInteractionModeV2>('navigate');
-  const [completedStrokes, setCompletedStrokes] = useState<AnnotationCompletedStrokeV2[]>([]);
+  const [annotationHistory, setAnnotationHistory] = useState<AnnotationHistoryStateV2>(createEmptyHistoryV2);
   const strokeIdCounterRef = useRef(1);
   const [inputStatus, setInputStatus] = useState<AnnotationInputStatusV2>({
     phase: 'idle',
@@ -123,7 +131,7 @@ export default function V2GestureBaselineLab() {
     setCurrentBaseline(null);
     setTransformInfo(null);
     setInteractionMode('navigate');
-    setCompletedStrokes([]);
+    setAnnotationHistory(createEmptyHistoryV2());
     strokeIdCounterRef.current = 1;
     setInputStatus({ phase: 'idle', activePointerId: null, activePointerType: null, currentPointCount: 0, touchSuppressedUntilRelease: false });
     setStats({ completed: 0, swaps: 0, errors: 0, cancelled: 0, stale: 0 });
@@ -228,22 +236,37 @@ export default function V2GestureBaselineLab() {
     if (draft.points.length === 0) return;
 
     const strokeId = `stroke-${strokeIdCounterRef.current++}`;
-    setCompletedStrokes(prev => [
-      ...prev,
-      {
-        id: strokeId,
-        documentInstanceId: draft.documentInstanceId,
-        pageNumber: draft.pageNumber,
-        tool: 'pen',
-        pointerType: draft.pointerType,
-        points: draft.points
-      }
-    ]);
+    setAnnotationHistory(prev => addStrokeToHistoryV2(prev, {
+      id: strokeId,
+      documentInstanceId: draft.documentInstanceId,
+      pageNumber: draft.pageNumber,
+      tool: 'pen',
+      pointerType: draft.pointerType,
+      points: draft.points
+    }));
   }, []);
 
   const handleInputStatusChange = useCallback((status: AnnotationInputStatusV2) => {
     setInputStatus(status);
   }, []);
+
+  const handleUndo = useCallback(() => {
+    const activeGesture = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
+    if (!docReady || !currentBaseline || activeGesture || inputStatus.phase !== 'idle') return;
+    
+    setAnnotationHistory(prev => 
+      undoPageHistoryV2(prev, documentInstanceIdRef.current, pageNumber)
+    );
+  }, [docReady, currentBaseline, transformInfo, inputStatus.phase, pageNumber]);
+
+  const handleRedo = useCallback(() => {
+    const activeGesture = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
+    if (!docReady || !currentBaseline || activeGesture || inputStatus.phase !== 'idle') return;
+    
+    setAnnotationHistory(prev => 
+      redoPageHistoryV2(prev, documentInstanceIdRef.current, pageNumber)
+    );
+  }, [docReady, currentBaseline, transformInfo, inputStatus.phase, pageNumber]);
 
   const setNavigateMode = () => {
     if (viewportRef.current) viewportRef.current.cancelActiveGesture();
@@ -360,9 +383,11 @@ export default function V2GestureBaselineLab() {
   const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
   
   const currentPageStrokes = React.useMemo(() => {
-    return completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current && s.pageNumber === pageNumber);
-  }, [completedStrokes, pageNumber]);
-  
+    return annotationHistory.completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current && s.pageNumber === pageNumber);
+  }, [annotationHistory.completedStrokes, pageNumber]);
+
+  const { undoDepth, redoDepth } = getPageHistoryDepthV2(annotationHistory, documentInstanceIdRef.current, pageNumber);
+
   const totalPoints = currentPageStrokes.reduce((acc, s) => acc + s.points.length, 0);
 
   let qualityStatus = 'RENDERING';
@@ -375,12 +400,11 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-B2B Mobile Touch Drawing Connection]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C1 Annotation V2 Stroke History Baseline]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          PDF render 및 mobile scroll guard 유지<br/>
-          Annotation V2는 시각적 좌표 진단만 활성화<br/>
-          필기 입력과 저장은 아직 비활성화
+          Annotation V2 memory drawing + page-scoped history active<br/>
+          Persistent storage disabled
         </div>
       </div>
       
@@ -514,6 +538,11 @@ export default function V2GestureBaselineLab() {
               <div>Active Point Count: {inputStatus.currentPointCount}</div>
               <div>Current Page Stroke Count: {currentPageStrokes.length}</div>
               <div>Current Page Total Point Count: {totalPoints}</div>
+              <div>History Mode: MEMORY ONLY</div>
+              <div>History Scope: CURRENT PAGE</div>
+              <div>Undo Depth: {undoDepth}</div>
+              <div>Redo Depth: {redoDepth}</div>
+              <div>History Action Blocked: {(!docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle') ? 'YES' : 'NO'}</div>
               <div>Mouse Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Stylus Pen Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Touch Drawing: {interactionMode === 'pen' ? 'PEN MODE ENABLED' : 'DISABLED'}</div>
@@ -559,6 +588,23 @@ export default function V2GestureBaselineLab() {
                 className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'pen' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
               >
                 펜 모드
+              </button>
+            </div>
+            
+            <div className="flex gap-2 items-center mt-2">
+              <button 
+                onClick={handleUndo}
+                disabled={undoDepth === 0 || !docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle'}
+                className="flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800"
+              >
+                Undo
+              </button>
+              <button 
+                onClick={handleRedo}
+                disabled={redoDepth === 0 || !docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle'}
+                className="flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800"
+              >
+                Redo
               </button>
             </div>
 
