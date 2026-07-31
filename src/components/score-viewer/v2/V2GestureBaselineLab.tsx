@@ -16,7 +16,8 @@ import type {
   AnnotationStrokeDraftV2, 
   AnnotationInputStatusV2, 
   AnnotationEraseRequestV2,
-  AnnotationStrokeToolV2
+  AnnotationStrokeToolV2,
+  AnnotationStrokeStyleV2
 } from './annotationTypesV2';
 import { ANNOTATION_DEFAULT_PEN_STYLE_V2 } from './annotationTypesV2';
 import {
@@ -53,6 +54,29 @@ function resolveOutputScaleForPreviewScale(previewScale: number): number {
     ? DETAIL_OUTPUT_SCALE
     : DEFAULT_OUTPUT_SCALE;
 }
+
+interface PenColorPresetV2 {
+  label: string;
+  color: string;
+}
+
+const PEN_COLOR_PRESETS_V2: readonly PenColorPresetV2[] = [
+  { label: '검정', color: '#111827' },
+  { label: '빨강', color: '#ef4444' },
+  { label: '파랑', color: '#2563eb' },
+  { label: '초록', color: '#16a34a' }
+];
+
+interface PenWidthPresetV2 {
+  label: string;
+  width: number;
+}
+
+const PEN_WIDTH_PRESETS_V2: readonly PenWidthPresetV2[] = [
+  { label: '얇게', width: 2 },
+  { label: '보통', width: 3 },
+  { label: '굵게', width: 5 }
+];
 
 const ACTIVE_ANNOTATION_TOOL_V2: AnnotationStrokeToolV2 = 'pen';
 
@@ -96,6 +120,11 @@ export default function V2GestureBaselineLab() {
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
 
   const [interactionMode, setInteractionMode] = useState<AnnotationInteractionModeV2>('navigate');
+  const [activePenStyle, setActivePenStyle] = useState<AnnotationStrokeStyleV2>(() => ({
+    color: ANNOTATION_DEFAULT_PEN_STYLE_V2.color,
+    width: ANNOTATION_DEFAULT_PEN_STYLE_V2.width,
+    opacity: ANNOTATION_DEFAULT_PEN_STYLE_V2.opacity
+  }));
   const [annotationHistory, setAnnotationHistory] = useState<AnnotationHistoryStateV2>(createEmptyHistoryV2);
   const strokeIdCounterRef = useRef(1);
   const [inputStatus, setInputStatus] = useState<AnnotationInputStatusV2>({
@@ -446,15 +475,20 @@ export default function V2GestureBaselineLab() {
     qualityStatus = 'READY';
   }
 
+  const styleControlsDisabled = !docReady || !annotationPageSpace || Boolean(isGestureActive) || inputStatus.phase !== 'idle';
+
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C2A Reversible Erase History Foundation]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C3B Pen Style Controls]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Annotation V2 memory drawing + add/erase action history active<br/>
-          Spatial eraser input disabled<br/>
-          Persistent storage disabled
+          Typed per-stroke pen style active<br/>
+          Preset pen color and width controls active<br/>
+          Spatial eraser active<br/>
+          Persistent storage disabled<br/>
+          Highlighter input disabled
         </div>
       </div>
       
@@ -579,14 +613,15 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C3A</div>
+              <div>Annotation Stage: 4E-C3B</div>
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
               <div>Active Tool: PEN</div>
-              <div>Active Color: #ef4444</div>
-              <div>Active Width: 3 LOGICAL PX</div>
-              <div>Active Opacity: 1</div>
-              <div>Style Controls: NOT CONNECTED</div>
+              <div>Active Color: {activePenStyle.color}</div>
+              <div>Active Width: {activePenStyle.width} LOGICAL PX</div>
+              <div>Active Opacity: {activePenStyle.opacity}</div>
+              <div>Style Controls: CONNECTED</div>
+              <div>Style Persistence: MEMORY ONLY</div>
               <div>Highlighter Input: NOT ENABLED</div>
               <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
               <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
@@ -660,6 +695,38 @@ export default function V2GestureBaselineLab() {
               >
                 지우개
               </button>
+            </div>
+            
+            <div className="bg-stone-950 p-3 rounded border border-white/5 space-y-3">
+              <div className="text-xs font-semibold text-stone-400">Pen Style</div>
+              <div className="flex gap-2">
+                {PEN_COLOR_PRESETS_V2.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    aria-label={preset.label}
+                    aria-pressed={activePenStyle.color === preset.color}
+                    disabled={styleControlsDisabled}
+                    onClick={() => setActivePenStyle(prev => ({ ...prev, color: preset.color }))}
+                    className={`w-8 h-8 rounded-full border-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-stone-900 focus:ring-blue-500 disabled:opacity-50 ${activePenStyle.color === preset.color ? 'border-white' : 'border-transparent'}`}
+                    style={{ backgroundColor: preset.color }}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {PEN_WIDTH_PRESETS_V2.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    aria-pressed={activePenStyle.width === preset.width}
+                    disabled={styleControlsDisabled}
+                    onClick={() => setActivePenStyle(prev => ({ ...prev, width: preset.width }))}
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium border ${activePenStyle.width === preset.width ? 'bg-blue-600 border-blue-500 text-white' : 'bg-stone-800 border-white/10 text-stone-300 hover:bg-stone-700'} disabled:opacity-50`}
+                  >
+                    {preset.label} {preset.width}
+                  </button>
+                ))}
+              </div>
             </div>
             
             <div className="flex gap-2 items-center mt-2">
@@ -763,7 +830,7 @@ export default function V2GestureBaselineLab() {
                       interactionMode={interactionMode}
                       completedStrokes={currentPageStrokes}
                       activeTool={ACTIVE_ANNOTATION_TOOL_V2}
-                      activeStyle={ANNOTATION_DEFAULT_PEN_STYLE_V2}
+                      activeStyle={activePenStyle}
                       onStrokeComplete={handleStrokeComplete}
                       onEraseRequest={handleEraseRequest}
                       onInputStatusChange={handleInputStatusChange}
