@@ -316,7 +316,6 @@ export function AnnotationSurfaceV2({
     if (interactionMode === 'navigate') return;
 
     if (e.pointerType === 'touch') {
-      if (interactionMode === 'eraser') return;
       if (suppressTouchUntilReleaseRef.current) {
         return;
       }

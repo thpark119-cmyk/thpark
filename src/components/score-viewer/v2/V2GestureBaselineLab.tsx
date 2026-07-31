@@ -563,6 +563,7 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
+              <div>Annotation Stage: 4E-C2B2</div>
               <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
               <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
               <div>Coordinate Space: NORMALIZED 0..1</div>
@@ -582,14 +583,17 @@ export default function V2GestureBaselineLab() {
               <div>History Action Blocked: {(!docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle') ? 'YES' : 'NO'}</div>
               <div>Mouse Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Stylus Pen Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
-              <div>Touch Drawing: {interactionMode === 'pen' ? 'PEN MODE ENABLED' : 'DISABLED'}</div>
-              <div>First Touch: DRAW + VIEWPORT DEFER</div>
-              <div>Second Touch: CANCEL DRAFT + PINCH</div>
+              <div>Touch Eraser: ENABLED</div>
+              <div>Erase Model: WHOLE STROKE</div>
+              <div>Erase Commit: POINTERUP ONLY</div>
+              <div>First Touch in Eraser: PENDING ERASE + VIEWPORT DEFER</div>
+              <div>Second Touch: DISCARD PENDING ERASE + PINCH HANDOFF</div>
               <div>Touch Suppressed Until Release: {inputStatus.touchSuppressedUntilRelease ? 'YES' : 'NO'}</div>
               <div>First Touch Capture Owner: ANNOTATION</div>
               <div>Pinch Capture Owner: VIEWPORT</div>
               <div>After Pinch One Touch: PAN ONLY</div>
-              <div>New Touch Drawing After Pointers 0: ENABLED</div>
+              <div>New Touch Erase After Pointers 0: ENABLED</div>
+              <div>Eraser Radius: 12 LOGICAL PX</div>
               <div>Storage: MEMORY ONLY</div>
               <div>V1 Data Connection: NONE</div>
             </div>
@@ -717,7 +721,7 @@ export default function V2GestureBaselineLab() {
                 onGestureEnd={handleGestureEnd}
                 minScale={1}
                 maxScale={3}
-                deferSingleTouchPan={interactionMode === 'pen'}
+                deferSingleTouchPan={interactionMode === 'pen' || interactionMode === 'eraser'}
               >
                 <>
                   <PageSurfaceV2
