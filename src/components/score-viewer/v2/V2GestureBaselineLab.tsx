@@ -9,7 +9,7 @@ import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewp
 import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
 import { PdfRenderEngineErrorV2 } from './pdfRenderTypes';
 import { AnnotationSurfaceV2 } from './AnnotationSurfaceV2';
-import type { AnnotationPageSpaceV2 } from './annotationTypesV2';
+import type { AnnotationPageSpaceV2, AnnotationInteractionModeV2, AnnotationCompletedStrokeV2, AnnotationStrokeDraftV2, AnnotationInputStatusV2 } from './annotationTypesV2';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
@@ -74,6 +74,16 @@ export default function V2GestureBaselineLab() {
   
   const viewportRef = useRef<StableGestureViewportV2Handle>(null);
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
+
+  const [interactionMode, setInteractionMode] = useState<AnnotationInteractionModeV2>('navigate');
+  const [completedStrokes, setCompletedStrokes] = useState<AnnotationCompletedStrokeV2[]>([]);
+  const strokeIdCounterRef = useRef(1);
+  const [inputStatus, setInputStatus] = useState<AnnotationInputStatusV2>({
+    phase: 'idle',
+    activePointerId: null,
+    activePointerType: null,
+    currentPointCount: 0
+  });
   
   useEffect(() => {
     mountedRef.current = true;
@@ -111,6 +121,10 @@ export default function V2GestureBaselineLab() {
     setFrontInfo(null);
     setCurrentBaseline(null);
     setTransformInfo(null);
+    setInteractionMode('navigate');
+    setCompletedStrokes([]);
+    strokeIdCounterRef.current = 1;
+    setInputStatus({ phase: 'idle', activePointerId: null, activePointerType: null, currentPointCount: 0 });
     setStats({ completed: 0, swaps: 0, errors: 0, cancelled: 0, stale: 0 });
     setLastRenderResult(null);
     setLastRenderError(null);
@@ -205,6 +219,40 @@ export default function V2GestureBaselineLab() {
   const handleTransformChange = useCallback((ev: StableGestureTransformEventV2) => {
     setTransformInfo(ev);
   }, []);
+
+  const handleStrokeComplete = useCallback((draft: AnnotationStrokeDraftV2) => {
+    if (draft.documentInstanceId !== documentInstanceIdRef.current || draft.pageNumber !== targetPageRef.current) {
+      return;
+    }
+    if (draft.points.length === 0) return;
+
+    const strokeId = `stroke-${strokeIdCounterRef.current++}`;
+    setCompletedStrokes(prev => [
+      ...prev,
+      {
+        id: strokeId,
+        documentInstanceId: draft.documentInstanceId,
+        pageNumber: draft.pageNumber,
+        tool: 'pen',
+        pointerType: draft.pointerType,
+        points: draft.points
+      }
+    ]);
+  }, []);
+
+  const handleInputStatusChange = useCallback((status: AnnotationInputStatusV2) => {
+    setInputStatus(status);
+  }, []);
+
+  const setNavigateMode = () => {
+    if (viewportRef.current) viewportRef.current.cancelActiveGesture();
+    setInteractionMode('navigate');
+  };
+
+  const setPenMode = () => {
+    if (viewportRef.current) viewportRef.current.cancelActiveGesture();
+    setInteractionMode('pen');
+  };
 
   const applyResolutionIntent = useCallback((previewScale: number) => {
     const nextOutputScale = resolveOutputScaleForPreviewScale(previewScale);
@@ -308,6 +356,14 @@ export default function V2GestureBaselineLab() {
 
   const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === effectiveOutputScale;
 
+  const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
+  
+  const currentPageStrokes = React.useMemo(() => {
+    return completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current && s.pageNumber === pageNumber);
+  }, [completedStrokes, pageNumber]);
+  
+  const totalPoints = currentPageStrokes.reduce((acc, s) => acc + s.points.length, 0);
+
   let qualityStatus = 'RENDERING';
   if (renderFailed) {
     qualityStatus = frontInfo ? 'FAILED_FRONT_PRESERVED' : 'FAILED';
@@ -318,7 +374,7 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-A Annotation V2 Coordinate Baseline]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-B1 Annotation V2 Mouse/Pen Input Isolation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           PDF render 및 mobile scroll guard 유지<br/>
@@ -448,16 +504,20 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Mode: VISUAL DIAGNOSTIC ONLY</div>
+              <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
               <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
-              <div>Document Instance: {documentInstanceIdRef.current}</div>
-              <div>Page: {pageNumber}</div>
               <div>Coordinate Space: NORMALIZED 0..1</div>
-              <div>Logical CSS Size: {annotationPageSpace ? `${annotationPageSpace.logicalWidth.toFixed(1)} × ${annotationPageSpace.logicalHeight.toFixed(1)}` : '-'}</div>
-              <div>Backing Scale: 1x DIAGNOSTIC</div>
-              <div>Pointer Events: NONE</div>
-              <div>Drawing Input: DISABLED</div>
-              <div>Storage: DISABLED</div>
+              <div>Input Phase: {inputStatus.phase.toUpperCase()}</div>
+              <div>Active Pointer ID: {inputStatus.activePointerId !== null ? inputStatus.activePointerId : 'NONE'}</div>
+              <div>Active Pointer Type: {inputStatus.activePointerType ? inputStatus.activePointerType.toUpperCase() : 'NONE'}</div>
+              <div>Active Point Count: {inputStatus.currentPointCount}</div>
+              <div>Current Page Stroke Count: {currentPageStrokes.length}</div>
+              <div>Current Page Total Point Count: {totalPoints}</div>
+              <div>Mouse Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
+              <div>Stylus Pen Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
+              <div>Touch Drawing: DISABLED</div>
+              <div>Touch Gesture Passthrough: ACTIVE</div>
+              <div>Storage: MEMORY ONLY</div>
               <div>V1 Data Connection: NONE</div>
             </div>
 
@@ -480,6 +540,21 @@ export default function V2GestureBaselineLab() {
               <div>Translate: {transformInfo?.transform.translateX.toFixed(1) || '0.0'}, {transformInfo?.transform.translateY.toFixed(1) || '0.0'}</div>
             </div>
             
+            <div className="flex gap-2 items-center">
+              <button 
+                onClick={setNavigateMode} 
+                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'navigate' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+              >
+                이동 모드
+              </button>
+              <button 
+                onClick={setPenMode} 
+                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'pen' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+              >
+                펜 모드
+              </button>
+            </div>
+
             <div className="flex gap-2 items-center">
               <button 
                 onClick={handlePrevPage} 
@@ -548,7 +623,14 @@ export default function V2GestureBaselineLab() {
                     onRenderError={handleRenderError}
                   />
                   {annotationPageSpace && (
-                    <AnnotationSurfaceV2 pageSpace={annotationPageSpace} />
+                    <AnnotationSurfaceV2 
+                      pageSpace={annotationPageSpace} 
+                      interactionMode={interactionMode}
+                      completedStrokes={currentPageStrokes}
+                      onStrokeComplete={handleStrokeComplete}
+                      onInputStatusChange={handleInputStatusChange}
+                      isGestureActive={isGestureActive}
+                    />
                   )}
                 </>
               </StableGestureViewportV2>
