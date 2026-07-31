@@ -187,6 +187,24 @@ export function AnnotationSurfaceV2({
     onStrokeComplete(draft);
   }, [onInputStatusChange, onStrokeComplete, safeReleaseCapture]);
 
+  const handoffToViewport = useCallback((pointerId: number) => {
+    suppressTouchUntilReleaseRef.current = true;
+    
+    if (canvasRef.current) {
+      expectedLostCaptureIdsRef.current.add(pointerId);
+    }
+    
+    activePointerRef.current = null;
+    
+    onInputStatusChange({
+      phase: 'idle',
+      activePointerId: null,
+      activePointerType: null,
+      currentPointCount: 0,
+      touchSuppressedUntilRelease: true
+    });
+  }, [onInputStatusChange]);
+
   const discardPointer = useCallback(() => {
     const active = activePointerRef.current;
     if (!active) return;
@@ -257,15 +275,19 @@ export function AnnotationSurfaceV2({
     if (interactionMode !== 'pen') return;
 
     if (e.pointerType === 'touch') {
-      if (suppressTouchUntilReleaseRef.current || isGestureActive) {
+      if (suppressTouchUntilReleaseRef.current) {
         return;
       }
       
-      if (activePointerRef.current) {
-        suppressTouchUntilReleaseRef.current = true;
-        discardPointer();
+      const active = activePointerRef.current;
+      if (active) {
+        if (active.pointerType === 'touch') {
+          handoffToViewport(active.pointerId);
+        }
         return;
       }
+      
+      if (isGestureActive) return;
     } else {
       if (isGestureActive) return;
       if (activePointerRef.current) return;

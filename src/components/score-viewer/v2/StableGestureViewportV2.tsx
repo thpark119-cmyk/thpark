@@ -310,6 +310,11 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
               rootRef.current.setPointerCapture(pts[0].id);
             }
           } catch (err) {}
+          try {
+            if (!rootRef.current.hasPointerCapture(pts[1].id)) {
+              rootRef.current.setPointerCapture(pts[1].id);
+            }
+          } catch (err) {}
         }
         
         panSessionRef.current = null;
@@ -437,6 +442,7 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
     };
 
     const handleLostPointerCapture = (e: React.PointerEvent) => {
+      if (e.target !== e.currentTarget) return;
       if (!activePointersRef.current.has(e.pointerId)) return;
       cleanupActiveSessions();
       notifyChange();
