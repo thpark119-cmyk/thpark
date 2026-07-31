@@ -6,19 +6,22 @@ import type {
   AnnotationStrokeDraftV2,
   AnnotationInputStatusV2,
   AnnotationNormalizedPointV2,
-  AnnotationDrawingPointerTypeV2
+  AnnotationDrawingPointerTypeV2,
+  AnnotationEraseRequestV2
 } from './annotationTypesV2';
 import {
   isValidAnnotationPageSpaceV2,
   annotationNormalizedToLogicalV2,
   annotationClientToNormalizedV2
 } from './annotationCoordinatesV2';
+import { hitTestStrokesV2 } from './annotationHitTestV2';
 
 interface AnnotationSurfaceV2Props {
   pageSpace: AnnotationPageSpaceV2;
   interactionMode: AnnotationInteractionModeV2;
   completedStrokes: AnnotationCompletedStrokeV2[];
   onStrokeComplete: (stroke: AnnotationStrokeDraftV2) => void;
+  onEraseRequest?: (request: AnnotationEraseRequestV2) => void;
   onInputStatusChange: (status: AnnotationInputStatusV2) => void;
   isGestureActive: boolean;
 }
@@ -27,7 +30,8 @@ export function AnnotationSurfaceV2({
   pageSpace, 
   interactionMode, 
   completedStrokes, 
-  onStrokeComplete, 
+  onStrokeComplete,
+  onEraseRequest,
   onInputStatusChange, 
   isGestureActive 
 }: AnnotationSurfaceV2Props) {
@@ -154,38 +158,74 @@ export function AnnotationSurfaceV2({
     }
   }, []);
 
-  const activePointerRef = useRef<{
+  type ActiveSession = {
+    kind: 'pen';
     pointerId: number;
     pointerType: AnnotationDrawingPointerTypeV2;
     documentInstanceId: number;
     pageNumber: number;
     points: AnnotationNormalizedPointV2[];
-  } | null>(null);
+  } | {
+    kind: 'eraser';
+    pointerId: number;
+    pointerType: AnnotationDrawingPointerTypeV2;
+    documentInstanceId: number;
+    pageNumber: number;
+    hitStrokeIds: Set<string>;
+    sampleCount: number;
+  };
+
+  const activePointerRef = useRef<ActiveSession | null>(null);
 
   const cleanupPointer = useCallback(() => {
     const active = activePointerRef.current;
     if (!active) return;
     
-    const draft: AnnotationStrokeDraftV2 = {
-      documentInstanceId: active.documentInstanceId,
-      pageNumber: active.pageNumber,
-      pointerType: active.pointerType,
-      points: [...active.points]
-    };
-    
-    activePointerRef.current = null;
-    safeReleaseCapture(active.pointerId);
+    if (active.kind === 'pen') {
+      const draft: AnnotationStrokeDraftV2 = {
+        documentInstanceId: active.documentInstanceId,
+        pageNumber: active.pageNumber,
+        pointerType: active.pointerType,
+        points: [...active.points]
+      };
+      
+      activePointerRef.current = null;
+      safeReleaseCapture(active.pointerId);
 
-    onInputStatusChange({
-      phase: 'idle',
-      activePointerId: null,
-      activePointerType: null,
-      currentPointCount: 0,
-      touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
-    });
-    
-    onStrokeComplete(draft);
-  }, [onInputStatusChange, onStrokeComplete, safeReleaseCapture]);
+      onInputStatusChange({
+        phase: 'idle',
+        activePointerId: null,
+        activePointerType: null,
+        currentPointCount: 0,
+        touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
+      });
+
+      onStrokeComplete(draft);
+    } else if (active.kind === 'eraser') {
+      const hitIds = Array.from<string>(active.hitStrokeIds);
+      const req: AnnotationEraseRequestV2 = {
+        documentInstanceId: active.documentInstanceId,
+        pageNumber: active.pageNumber,
+        pointerType: active.pointerType,
+        strokeIds: hitIds
+      };
+      
+      activePointerRef.current = null;
+      safeReleaseCapture(active.pointerId);
+
+      onInputStatusChange({
+        phase: 'idle',
+        activePointerId: null,
+        activePointerType: null,
+        currentPointCount: 0,
+        touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
+      });
+
+      if (hitIds.length > 0 && onEraseRequest) {
+        onEraseRequest(req);
+      }
+    }
+  }, [onInputStatusChange, onStrokeComplete, onEraseRequest, safeReleaseCapture]);
 
   const handoffToViewport = useCallback((pointerId: number) => {
     suppressTouchUntilReleaseRef.current = true;
@@ -258,13 +298,14 @@ export function AnnotationSurfaceV2({
        const active = activePointerRef.current;
        if (active.documentInstanceId !== pageSpace.documentInstanceId || 
            active.pageNumber !== pageSpace.pageNumber || 
-           interactionMode !== 'pen') {
+           (active.kind === 'pen' && interactionMode !== 'pen') ||
+           (active.kind === 'eraser' && interactionMode !== 'eraser')) {
           suppressTouchUntilReleaseRef.current = false;
           expectedLostCaptureIdsRef.current.clear();
           discardPointer();
        }
     } else {
-       if (interactionMode !== 'pen') {
+       if (interactionMode !== 'pen' && interactionMode !== 'eraser') {
           suppressTouchUntilReleaseRef.current = false;
           expectedLostCaptureIdsRef.current.clear();
        }
@@ -272,9 +313,10 @@ export function AnnotationSurfaceV2({
   }, [pageSpace.documentInstanceId, pageSpace.pageNumber, interactionMode, discardPointer]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (interactionMode !== 'pen') return;
+    if (interactionMode === 'navigate') return;
 
     if (e.pointerType === 'touch') {
+      if (interactionMode === 'eraser') return;
       if (suppressTouchUntilReleaseRef.current) {
         return;
       }
@@ -325,7 +367,30 @@ export function AnnotationSurfaceV2({
       return;
     }
 
+    if (interactionMode === 'eraser') {
+      const hitIds = hitTestStrokesV2(completedStrokes, normalized, pageSpace);
+      activePointerRef.current = {
+        kind: 'eraser',
+        pointerId: e.pointerId,
+        pointerType: drawingPointerType,
+        documentInstanceId: pageSpace.documentInstanceId,
+        pageNumber: pageSpace.pageNumber,
+        hitStrokeIds: new Set(hitIds),
+        sampleCount: 1
+      };
+      
+      onInputStatusChange({
+        phase: 'erasing',
+        activePointerId: e.pointerId,
+        activePointerType: drawingPointerType,
+        currentPointCount: hitIds.length,
+        touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
+      });
+      return;
+    }
+
     activePointerRef.current = {
+      kind: 'pen',
       pointerId: e.pointerId,
       pointerType: drawingPointerType,
       documentInstanceId: pageSpace.documentInstanceId,
@@ -383,6 +448,21 @@ export function AnnotationSurfaceV2({
     const normalized = annotationClientToNormalizedV2({ x: e.clientX, y: e.clientY }, rect);
     if (!normalized) return;
 
+    if (active.kind === 'eraser') {
+      const hitIds = hitTestStrokesV2(completedStrokes, normalized, pageSpace);
+      hitIds.forEach(id => active.hitStrokeIds.add(id));
+      active.sampleCount++;
+      
+      onInputStatusChange({
+        phase: 'erasing',
+        activePointerId: e.pointerId,
+        activePointerType: active.pointerType,
+        currentPointCount: active.hitStrokeIds.size,
+        touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
+      });
+      return;
+    }
+
     const prevNormalized = active.points[active.points.length - 1];
     active.points.push(normalized);
 
@@ -425,7 +505,12 @@ export function AnnotationSurfaceV2({
       const rect = canvas.getBoundingClientRect();
       const normalized = annotationClientToNormalizedV2({ x: e.clientX, y: e.clientY }, rect);
       if (normalized) {
-        active.points.push(normalized);
+        if (active.kind === 'eraser') {
+          const hitIds = hitTestStrokesV2(completedStrokes, normalized, pageSpace);
+          hitIds.forEach(id => active.hitStrokeIds.add(id));
+        } else {
+          active.points.push(normalized);
+        }
       }
     }
     
@@ -473,7 +558,7 @@ export function AnnotationSurfaceV2({
         left: 0,
         top: 0,
         display: 'block',
-        pointerEvents: interactionMode === 'pen' ? 'auto' : 'none',
+        pointerEvents: interactionMode !== 'navigate' ? 'auto' : 'none',
         touchAction: 'none',
         zIndex: 20,
         width: `${pageSpace.logicalWidth}px`,

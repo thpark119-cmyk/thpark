@@ -9,7 +9,7 @@ import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewp
 import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
 import { PdfRenderEngineErrorV2 } from './pdfRenderTypes';
 import { AnnotationSurfaceV2 } from './AnnotationSurfaceV2';
-import type { AnnotationPageSpaceV2, AnnotationInteractionModeV2, AnnotationCompletedStrokeV2, AnnotationStrokeDraftV2, AnnotationInputStatusV2 } from './annotationTypesV2';
+import type { AnnotationPageSpaceV2, AnnotationInteractionModeV2, AnnotationCompletedStrokeV2, AnnotationStrokeDraftV2, AnnotationInputStatusV2, AnnotationEraseRequestV2 } from './annotationTypesV2';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
@@ -247,6 +247,21 @@ export default function V2GestureBaselineLab() {
     }));
   }, []);
 
+  const handleEraseRequest = useCallback((request: AnnotationEraseRequestV2) => {
+    if (request.documentInstanceId !== documentInstanceIdRef.current || request.pageNumber !== targetPageRef.current) {
+      return;
+    }
+    if (request.strokeIds.length === 0) return;
+
+    setAnnotationHistory(prev => {
+      let next = prev;
+      for (const id of request.strokeIds) {
+        next = eraseStrokeFromHistoryV2(next, id);
+      }
+      return next;
+    });
+  }, []);
+
   const handleInputStatusChange = useCallback((status: AnnotationInputStatusV2) => {
     setInputStatus(status);
   }, []);
@@ -289,6 +304,11 @@ export default function V2GestureBaselineLab() {
   const setPenMode = () => {
     if (viewportRef.current) viewportRef.current.cancelActiveGesture();
     setInteractionMode('pen');
+  };
+
+  const setEraserMode = () => {
+    if (viewportRef.current) viewportRef.current.cancelActiveGesture();
+    setInteractionMode('eraser');
   };
 
   const applyResolutionIntent = useCallback((previewScale: number) => {
@@ -598,13 +618,19 @@ export default function V2GestureBaselineLab() {
                 onClick={setNavigateMode} 
                 className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'navigate' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
               >
-                이동 모드
+                이동
               </button>
               <button 
                 onClick={setPenMode} 
                 className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'pen' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
               >
-                펜 모드
+                펜
+              </button>
+              <button 
+                onClick={setEraserMode} 
+                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'eraser' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+              >
+                지우개
               </button>
             </div>
             
@@ -709,6 +735,7 @@ export default function V2GestureBaselineLab() {
                       interactionMode={interactionMode}
                       completedStrokes={currentPageStrokes}
                       onStrokeComplete={handleStrokeComplete}
+                      onEraseRequest={handleEraseRequest}
                       onInputStatusChange={handleInputStatusChange}
                       isGestureActive={isGestureActive}
                     />

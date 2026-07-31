@@ -22,7 +22,7 @@ export interface AnnotationClientRectV2 {
   height: number;
 }
 
-export type AnnotationInteractionModeV2 = 'navigate' | 'pen';
+export type AnnotationInteractionModeV2 = 'navigate' | 'pen' | 'eraser';
 export type AnnotationDrawingPointerTypeV2 = 'mouse' | 'pen' | 'touch';
 
 export interface AnnotationStrokeDraftV2 {
@@ -41,8 +41,15 @@ export interface AnnotationCompletedStrokeV2 {
   points: AnnotationNormalizedPointV2[];
 }
 
+export interface AnnotationEraseRequestV2 {
+  documentInstanceId: number;
+  pageNumber: number;
+  pointerType: AnnotationDrawingPointerTypeV2;
+  strokeIds: string[];
+}
+
 export interface AnnotationInputStatusV2 {
-  phase: 'idle' | 'drawing';
+  phase: 'idle' | 'drawing' | 'erasing';
   activePointerId: number | null;
   activePointerType: AnnotationDrawingPointerTypeV2 | null;
   currentPointCount: number;
