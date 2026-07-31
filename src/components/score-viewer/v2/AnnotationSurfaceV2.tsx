@@ -132,6 +132,28 @@ export function AnnotationSurfaceV2({
 
   }, [pageSpace, completedStrokes]);
 
+  const suppressTouchUntilReleaseRef = useRef(false);
+  const expectedLostCaptureIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      expectedLostCaptureIdsRef.current.clear();
+    };
+  }, []);
+
+  const safeReleaseCapture = useCallback((pointerId: number) => {
+    if (canvasRef.current) {
+      try {
+        if (canvasRef.current.hasPointerCapture(pointerId)) {
+          expectedLostCaptureIdsRef.current.add(pointerId);
+          canvasRef.current.releasePointerCapture(pointerId);
+        }
+      } catch {
+        expectedLostCaptureIdsRef.current.delete(pointerId);
+      }
+    }
+  }, []);
+
   const activePointerRef = useRef<{
     pointerId: number;
     pointerType: AnnotationDrawingPointerTypeV2;
@@ -152,50 +174,34 @@ export function AnnotationSurfaceV2({
     };
     
     activePointerRef.current = null;
-    
-    if (canvasRef.current) {
-      try {
-        if (canvasRef.current.hasPointerCapture(active.pointerId)) {
-          canvasRef.current.releasePointerCapture(active.pointerId);
-        }
-      } catch {
-        // Pointer capture may already be released.
-      }
-    }
+    safeReleaseCapture(active.pointerId);
 
     onInputStatusChange({
       phase: 'idle',
       activePointerId: null,
       activePointerType: null,
-      currentPointCount: 0
+      currentPointCount: 0,
+      touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
     });
     
     onStrokeComplete(draft);
-  }, [onInputStatusChange, onStrokeComplete]);
+  }, [onInputStatusChange, onStrokeComplete, safeReleaseCapture]);
 
   const discardPointer = useCallback(() => {
     const active = activePointerRef.current;
     if (!active) return;
     
     activePointerRef.current = null;
-    
-    if (canvasRef.current) {
-      try {
-        if (canvasRef.current.hasPointerCapture(active.pointerId)) {
-          canvasRef.current.releasePointerCapture(active.pointerId);
-        }
-      } catch {
-        // Pointer capture may already be released.
-      }
-    }
+    safeReleaseCapture(active.pointerId);
 
     onInputStatusChange({
       phase: 'idle',
       activePointerId: null,
       activePointerType: null,
-      currentPointCount: 0
+      currentPointCount: 0,
+      touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
     });
-  }, [onInputStatusChange]);
+  }, [onInputStatusChange, safeReleaseCapture]);
 
   useEffect(() => {
     return () => {
@@ -216,31 +222,62 @@ export function AnnotationSurfaceV2({
   }, []);
 
   useEffect(() => {
+    if (!isGestureActive && suppressTouchUntilReleaseRef.current) {
+      suppressTouchUntilReleaseRef.current = false;
+      expectedLostCaptureIdsRef.current.clear();
+      onInputStatusChange({
+        phase: 'idle',
+        activePointerId: null,
+        activePointerType: null,
+        currentPointCount: 0,
+        touchSuppressedUntilRelease: false
+      });
+    }
+  }, [isGestureActive, onInputStatusChange]);
+
+  useEffect(() => {
     if (activePointerRef.current) {
        const active = activePointerRef.current;
        if (active.documentInstanceId !== pageSpace.documentInstanceId || 
            active.pageNumber !== pageSpace.pageNumber || 
            interactionMode !== 'pen') {
+          suppressTouchUntilReleaseRef.current = false;
+          expectedLostCaptureIdsRef.current.clear();
           discardPointer();
+       }
+    } else {
+       if (interactionMode !== 'pen') {
+          suppressTouchUntilReleaseRef.current = false;
+          expectedLostCaptureIdsRef.current.clear();
        }
     }
   }, [pageSpace.documentInstanceId, pageSpace.pageNumber, interactionMode, discardPointer]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'touch') {
-      discardPointer();
-      return; 
-    }
-    
     if (interactionMode !== 'pen') return;
-    if (isGestureActive) return;
-    if (activePointerRef.current) return;
+
+    if (e.pointerType === 'touch') {
+      if (suppressTouchUntilReleaseRef.current || isGestureActive) {
+        return;
+      }
+      
+      if (activePointerRef.current) {
+        suppressTouchUntilReleaseRef.current = true;
+        discardPointer();
+        return;
+      }
+    } else {
+      if (isGestureActive) return;
+      if (activePointerRef.current) return;
+    }
 
     let drawingPointerType: AnnotationDrawingPointerTypeV2;
     if (e.pointerType === 'mouse' && e.button === 0) {
       drawingPointerType = 'mouse';
     } else if (e.pointerType === 'pen' && e.button === 0) {
       drawingPointerType = 'pen';
+    } else if (e.pointerType === 'touch') {
+      drawingPointerType = 'touch';
     } else {
       return;
     }
@@ -253,7 +290,10 @@ export function AnnotationSurfaceV2({
     
     if (!normalized) return;
 
-    e.stopPropagation();
+    if (e.pointerType !== 'touch') {
+      e.stopPropagation();
+    }
+    
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
       if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -275,7 +315,8 @@ export function AnnotationSurfaceV2({
       phase: 'drawing',
       activePointerId: e.pointerId,
       activePointerType: drawingPointerType,
-      currentPointCount: 1
+      currentPointCount: 1,
+      touchSuppressedUntilRelease: suppressTouchUntilReleaseRef.current
     });
 
     const ctx = canvas.getContext('2d');
@@ -303,11 +344,12 @@ export function AnnotationSurfaceV2({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'touch') return;
     const active = activePointerRef.current;
     if (!active || active.pointerId !== e.pointerId) return;
 
-    e.stopPropagation();
+    if (e.pointerType !== 'touch') {
+      e.stopPropagation();
+    }
 
     if (active.documentInstanceId !== pageSpace.documentInstanceId || active.pageNumber !== pageSpace.pageNumber) {
       return;
@@ -349,10 +391,12 @@ export function AnnotationSurfaceV2({
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'touch') return;
     const active = activePointerRef.current;
     if (!active || active.pointerId !== e.pointerId) return;
-    e.stopPropagation();
+    
+    if (e.pointerType !== 'touch') {
+      e.stopPropagation();
+    }
     
     const canvas = canvasRef.current;
     if (canvas) {
@@ -367,12 +411,27 @@ export function AnnotationSurfaceV2({
   };
 
   const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'touch') return;
     const active = activePointerRef.current;
     if (!active || active.pointerId !== e.pointerId) return;
-    e.stopPropagation();
+    
+    if (e.pointerType !== 'touch') {
+      e.stopPropagation();
+    }
     
     discardPointer();
+  };
+
+  const handleLostPointerCapture = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (expectedLostCaptureIdsRef.current.has(e.pointerId)) {
+      expectedLostCaptureIdsRef.current.delete(e.pointerId);
+      e.stopPropagation();
+      return;
+    }
+    
+    const active = activePointerRef.current;
+    if (active && active.pointerId === e.pointerId) {
+      discardPointer();
+    }
   };
 
   if (!isValidAnnotationPageSpaceV2(pageSpace)) {
@@ -404,7 +463,7 @@ export function AnnotationSurfaceV2({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onLostPointerCapture={handlePointerCancel}
+      onLostPointerCapture={handleLostPointerCapture}
     />
   );
 }

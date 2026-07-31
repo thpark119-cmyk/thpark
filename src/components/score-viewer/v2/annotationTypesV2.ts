@@ -23,7 +23,7 @@ export interface AnnotationClientRectV2 {
 }
 
 export type AnnotationInteractionModeV2 = 'navigate' | 'pen';
-export type AnnotationDrawingPointerTypeV2 = 'mouse' | 'pen';
+export type AnnotationDrawingPointerTypeV2 = 'mouse' | 'pen' | 'touch';
 
 export interface AnnotationStrokeDraftV2 {
   documentInstanceId: number;
@@ -44,6 +44,7 @@ export interface AnnotationCompletedStrokeV2 {
 export interface AnnotationInputStatusV2 {
   phase: 'idle' | 'drawing';
   activePointerId: number | null;
-  activePointerType: string | null;
+  activePointerType: AnnotationDrawingPointerTypeV2 | null;
   currentPointCount: number;
+  touchSuppressedUntilRelease: boolean;
 }

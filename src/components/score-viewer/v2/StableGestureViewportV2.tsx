@@ -261,7 +261,9 @@ export const StableGestureViewportV2 = React.forwardRef<StableGestureViewportV2H
       
       activePointersRef.current.set(e.pointerId, { id: e.pointerId, clientX: e.clientX, clientY: e.clientY, pointerType });
       
-      if (rootRef.current) {
+      const shouldDeferCapture = deferSingleTouchPan && pointerType === 'touch' && activePointersRef.current.size === 1;
+      
+      if (rootRef.current && !shouldDeferCapture) {
         try { rootRef.current.setPointerCapture(e.pointerId); } catch (err) {}
       }
       

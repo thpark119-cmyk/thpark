@@ -82,7 +82,8 @@ export default function V2GestureBaselineLab() {
     phase: 'idle',
     activePointerId: null,
     activePointerType: null,
-    currentPointCount: 0
+    currentPointCount: 0,
+    touchSuppressedUntilRelease: false
   });
   
   useEffect(() => {
@@ -124,7 +125,7 @@ export default function V2GestureBaselineLab() {
     setInteractionMode('navigate');
     setCompletedStrokes([]);
     strokeIdCounterRef.current = 1;
-    setInputStatus({ phase: 'idle', activePointerId: null, activePointerType: null, currentPointCount: 0 });
+    setInputStatus({ phase: 'idle', activePointerId: null, activePointerType: null, currentPointCount: 0, touchSuppressedUntilRelease: false });
     setStats({ completed: 0, swaps: 0, errors: 0, cancelled: 0, stale: 0 });
     setLastRenderResult(null);
     setLastRenderError(null);
@@ -374,7 +375,7 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-B2A Deferred Single-Touch Gesture Foundation]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-B2B Mobile Touch Drawing Connection]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           PDF render 및 mobile scroll guard 유지<br/>
@@ -515,13 +516,14 @@ export default function V2GestureBaselineLab() {
               <div>Current Page Total Point Count: {totalPoints}</div>
               <div>Mouse Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
               <div>Stylus Pen Drawing: {interactionMode === 'pen' ? 'ENABLED' : 'DISABLED'}</div>
-              <div>Touch Drawing: DISABLED</div>
-              <div>Navigate Single Touch: PAN</div>
-              <div>Pen Single Touch: DEFERRED</div>
-              <div>Pen Two Touch: PINCH</div>
-              <div>After Pinch One Touch: PAN</div>
-              <div>Deferred Touch Capture Owner: VIEWPORT</div>
-              <div>Next Touch Stage: B2B DRAWING CONNECTION</div>
+              <div>Touch Drawing: {interactionMode === 'pen' ? 'PEN MODE ENABLED' : 'DISABLED'}</div>
+              <div>First Touch: DRAW + VIEWPORT DEFER</div>
+              <div>Second Touch: CANCEL DRAFT + PINCH</div>
+              <div>Touch Suppressed Until Release: {inputStatus.touchSuppressedUntilRelease ? 'YES' : 'NO'}</div>
+              <div>First Touch Capture Owner: ANNOTATION</div>
+              <div>Pinch Capture Owner: VIEWPORT</div>
+              <div>After Pinch One Touch: PAN ONLY</div>
+              <div>New Touch Drawing After Pointers 0: ENABLED</div>
               <div>Storage: MEMORY ONLY</div>
               <div>V1 Data Connection: NONE</div>
             </div>
