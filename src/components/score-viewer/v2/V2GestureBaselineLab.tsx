@@ -19,6 +19,7 @@ import {
   AnnotationHistoryStateV2,
   createEmptyHistoryV2,
   addStrokeToHistoryV2,
+  eraseStrokeFromHistoryV2,
   undoPageHistoryV2,
   redoPageHistoryV2,
   getPageHistoryDepthV2
@@ -268,6 +269,18 @@ export default function V2GestureBaselineLab() {
     );
   }, [docReady, currentBaseline, transformInfo, inputStatus.phase, pageNumber]);
 
+  const handleEraseLatest = useCallback(() => {
+    const activeGesture = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
+    if (!docReady || !currentBaseline || activeGesture || inputStatus.phase !== 'idle') return;
+
+    setAnnotationHistory(prev => {
+      const pageStrokes = prev.completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current && s.pageNumber === pageNumber);
+      if (pageStrokes.length === 0) return prev;
+      const lastStroke = pageStrokes[pageStrokes.length - 1];
+      return eraseStrokeFromHistoryV2(prev, lastStroke.id);
+    });
+  }, [docReady, currentBaseline, transformInfo, inputStatus.phase, pageNumber]);
+
   const setNavigateMode = () => {
     if (viewportRef.current) viewportRef.current.cancelActiveGesture();
     setInteractionMode('navigate');
@@ -400,10 +413,11 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C1 Annotation V2 Stroke History Baseline]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C2A Reversible Erase History Foundation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          Annotation V2 memory drawing + page-scoped history active<br/>
+          Annotation V2 memory drawing + add/erase action history active<br/>
+          Spatial eraser input disabled<br/>
           Persistent storage disabled
         </div>
       </div>
@@ -539,6 +553,9 @@ export default function V2GestureBaselineLab() {
               <div>Current Page Stroke Count: {currentPageStrokes.length}</div>
               <div>Current Page Total Point Count: {totalPoints}</div>
               <div>History Mode: MEMORY ONLY</div>
+              <div>History Actions: ADD + ERASE</div>
+              <div>Eraser Input: NOT CONNECTED</div>
+              <div>Erase Latest Available: {currentPageStrokes.length > 0 && docReady && annotationPageSpace && !isGestureActive && inputStatus.phase === 'idle' ? 'YES' : 'NO'}</div>
               <div>History Scope: CURRENT PAGE</div>
               <div>Undo Depth: {undoDepth}</div>
               <div>Redo Depth: {redoDepth}</div>
@@ -605,6 +622,16 @@ export default function V2GestureBaselineLab() {
                 className="flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800"
               >
                 Redo
+              </button>
+            </div>
+            
+            <div className="flex gap-2 items-center mt-2">
+              <button 
+                onClick={handleEraseLatest}
+                disabled={currentPageStrokes.length === 0 || !docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle'}
+                className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 disabled:hover:bg-stone-800"
+              >
+                Erase Latest
               </button>
             </div>
 
