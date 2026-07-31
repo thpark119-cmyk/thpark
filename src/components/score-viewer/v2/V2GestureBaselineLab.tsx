@@ -9,7 +9,16 @@ import { StablePageBaselineV2, StableGestureTransformEventV2, StableGestureViewp
 import type { RenderBudgetPreviewV2 } from './renderBudgetV2';
 import { PdfRenderEngineErrorV2 } from './pdfRenderTypes';
 import { AnnotationSurfaceV2 } from './AnnotationSurfaceV2';
-import type { AnnotationPageSpaceV2, AnnotationInteractionModeV2, AnnotationCompletedStrokeV2, AnnotationStrokeDraftV2, AnnotationInputStatusV2, AnnotationEraseRequestV2 } from './annotationTypesV2';
+import type { 
+  AnnotationPageSpaceV2, 
+  AnnotationInteractionModeV2, 
+  AnnotationCompletedStrokeV2, 
+  AnnotationStrokeDraftV2, 
+  AnnotationInputStatusV2, 
+  AnnotationEraseRequestV2,
+  AnnotationStrokeToolV2
+} from './annotationTypesV2';
+import { ANNOTATION_DEFAULT_PEN_STYLE_V2 } from './annotationTypesV2';
 import {
   calculateRenderBudgetPreviewV2,
   V2_MAX_CANVAS_PIXELS,
@@ -44,6 +53,8 @@ function resolveOutputScaleForPreviewScale(previewScale: number): number {
     ? DETAIL_OUTPUT_SCALE
     : DEFAULT_OUTPUT_SCALE;
 }
+
+const ACTIVE_ANNOTATION_TOOL_V2: AnnotationStrokeToolV2 = 'pen';
 
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
@@ -241,7 +252,12 @@ export default function V2GestureBaselineLab() {
       id: strokeId,
       documentInstanceId: draft.documentInstanceId,
       pageNumber: draft.pageNumber,
-      tool: 'pen',
+      tool: draft.tool,
+      style: {
+        color: draft.style.color,
+        width: draft.style.width,
+        opacity: draft.style.opacity
+      },
       pointerType: draft.pointerType,
       points: draft.points
     }));
@@ -563,7 +579,15 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C2B2</div>
+              <div>Annotation Stage: 4E-C3A</div>
+              <div>Stroke Tool Model: TYPED</div>
+              <div>Stroke Style Storage: PER STROKE</div>
+              <div>Active Tool: PEN</div>
+              <div>Active Color: #ef4444</div>
+              <div>Active Width: 3 LOGICAL PX</div>
+              <div>Active Opacity: 1</div>
+              <div>Style Controls: NOT CONNECTED</div>
+              <div>Highlighter Input: NOT ENABLED</div>
               <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
               <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
               <div>Coordinate Space: NORMALIZED 0..1</div>
@@ -575,7 +599,7 @@ export default function V2GestureBaselineLab() {
               <div>Current Page Total Point Count: {totalPoints}</div>
               <div>History Mode: MEMORY ONLY</div>
               <div>History Actions: ADD + ERASE</div>
-              <div>Eraser Input: NOT CONNECTED</div>
+              <div>Eraser Input: CONNECTED</div>
               <div>Erase Latest Available: {currentPageStrokes.length > 0 && docReady && annotationPageSpace && !isGestureActive && inputStatus.phase === 'idle' ? 'YES' : 'NO'}</div>
               <div>History Scope: CURRENT PAGE</div>
               <div>Undo Depth: {undoDepth}</div>
@@ -738,6 +762,8 @@ export default function V2GestureBaselineLab() {
                       pageSpace={annotationPageSpace} 
                       interactionMode={interactionMode}
                       completedStrokes={currentPageStrokes}
+                      activeTool={ACTIVE_ANNOTATION_TOOL_V2}
+                      activeStyle={ANNOTATION_DEFAULT_PEN_STYLE_V2}
                       onStrokeComplete={handleStrokeComplete}
                       onEraseRequest={handleEraseRequest}
                       onInputStatusChange={handleInputStatusChange}

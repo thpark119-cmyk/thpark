@@ -7,7 +7,9 @@ import type {
   AnnotationInputStatusV2,
   AnnotationNormalizedPointV2,
   AnnotationDrawingPointerTypeV2,
-  AnnotationEraseRequestV2
+  AnnotationEraseRequestV2,
+  AnnotationStrokeToolV2,
+  AnnotationStrokeStyleV2
 } from './annotationTypesV2';
 import {
   isValidAnnotationPageSpaceV2,
@@ -20,6 +22,8 @@ interface AnnotationSurfaceV2Props {
   pageSpace: AnnotationPageSpaceV2;
   interactionMode: AnnotationInteractionModeV2;
   completedStrokes: AnnotationCompletedStrokeV2[];
+  activeTool: AnnotationStrokeToolV2;
+  activeStyle: AnnotationStrokeStyleV2;
   onStrokeComplete: (stroke: AnnotationStrokeDraftV2) => void;
   onEraseRequest?: (request: AnnotationEraseRequestV2) => void;
   onInputStatusChange: (status: AnnotationInputStatusV2) => void;
@@ -30,6 +34,8 @@ export function AnnotationSurfaceV2({
   pageSpace, 
   interactionMode, 
   completedStrokes, 
+  activeTool,
+  activeStyle,
   onStrokeComplete,
   onEraseRequest,
   onInputStatusChange, 
@@ -101,10 +107,8 @@ export function AnnotationSurfaceV2({
 
     // Draw completed strokes for current page
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#ef4444'; // Red
 
     completedStrokes.forEach(stroke => {
       if (stroke.documentInstanceId !== pageSpace.documentInstanceId || stroke.pageNumber !== pageSpace.pageNumber) {
@@ -112,6 +116,10 @@ export function AnnotationSurfaceV2({
       }
       const points = stroke.points;
       if (points.length === 0) return;
+
+      ctx.lineWidth = stroke.style.width;
+      ctx.strokeStyle = stroke.style.color;
+      ctx.globalAlpha = stroke.style.opacity;
 
       ctx.beginPath();
       const firstLogical = annotationNormalizedToLogicalV2(points[0], pageSpace);
@@ -129,6 +137,7 @@ export function AnnotationSurfaceV2({
         }
         ctx.stroke();
       }
+      ctx.globalAlpha = 1;
     });
 
     // Reset transform again just in case
@@ -164,6 +173,8 @@ export function AnnotationSurfaceV2({
     pointerType: AnnotationDrawingPointerTypeV2;
     documentInstanceId: number;
     pageNumber: number;
+    tool: AnnotationStrokeToolV2;
+    style: AnnotationStrokeStyleV2;
     points: AnnotationNormalizedPointV2[];
   } | {
     kind: 'eraser';
@@ -185,6 +196,12 @@ export function AnnotationSurfaceV2({
       const draft: AnnotationStrokeDraftV2 = {
         documentInstanceId: active.documentInstanceId,
         pageNumber: active.pageNumber,
+        tool: active.tool,
+        style: {
+          color: active.style.color,
+          width: active.style.width,
+          opacity: active.style.opacity
+        },
         pointerType: active.pointerType,
         points: [...active.points]
       };
@@ -394,6 +411,12 @@ export function AnnotationSurfaceV2({
       pointerType: drawingPointerType,
       documentInstanceId: pageSpace.documentInstanceId,
       pageNumber: pageSpace.pageNumber,
+      tool: activeTool,
+      style: {
+        color: activeStyle.color,
+        width: activeStyle.width,
+        opacity: activeStyle.opacity
+      },
       points: [normalized]
     };
 
@@ -415,15 +438,22 @@ export function AnnotationSurfaceV2({
         const scaleY = backingHeight / pageSpace.logicalHeight;
         
         ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-        ctx.lineWidth = 3;
+        
+        const active = activePointerRef.current;
+        if (active && active.kind === 'pen') {
+          ctx.lineWidth = active.style.width;
+          ctx.strokeStyle = active.style.color;
+          ctx.globalAlpha = active.style.opacity;
+        }
+
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.strokeStyle = '#ef4444';
         
         ctx.beginPath();
         ctx.moveTo(logical.x, logical.y);
         ctx.lineTo(logical.x, logical.y);
         ctx.stroke();
+        ctx.globalAlpha = 1;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
     }
@@ -477,15 +507,17 @@ export function AnnotationSurfaceV2({
         const scaleY = backingHeight / pageSpace.logicalHeight;
         
         ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-        ctx.lineWidth = 3;
+        ctx.lineWidth = active.style.width;
+        ctx.strokeStyle = active.style.color;
+        ctx.globalAlpha = active.style.opacity;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.strokeStyle = '#ef4444';
         
         ctx.beginPath();
         ctx.moveTo(prevLogical.x, prevLogical.y);
         ctx.lineTo(currLogical.x, currLogical.y);
         ctx.stroke();
+        ctx.globalAlpha = 1;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
     }
