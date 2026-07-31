@@ -151,14 +151,18 @@ export function AnnotationSurfaceV2({
       points: [...active.points]
     };
     
-    if (canvasRef.current) {
-      try {
-        canvasRef.current.releasePointerCapture(active.pointerId);
-      } catch (e) {}
-    }
-
     activePointerRef.current = null;
     
+    if (canvasRef.current) {
+      try {
+        if (canvasRef.current.hasPointerCapture(active.pointerId)) {
+          canvasRef.current.releasePointerCapture(active.pointerId);
+        }
+      } catch {
+        // Pointer capture may already be released.
+      }
+    }
+
     onInputStatusChange({
       phase: 'idle',
       activePointerId: null,
@@ -173,14 +177,18 @@ export function AnnotationSurfaceV2({
     const active = activePointerRef.current;
     if (!active) return;
     
-    if (canvasRef.current) {
-      try {
-        canvasRef.current.releasePointerCapture(active.pointerId);
-      } catch (e) {}
-    }
-
     activePointerRef.current = null;
     
+    if (canvasRef.current) {
+      try {
+        if (canvasRef.current.hasPointerCapture(active.pointerId)) {
+          canvasRef.current.releasePointerCapture(active.pointerId);
+        }
+      } catch {
+        // Pointer capture may already be released.
+      }
+    }
+
     onInputStatusChange({
       phase: 'idle',
       activePointerId: null,
@@ -191,11 +199,21 @@ export function AnnotationSurfaceV2({
 
   useEffect(() => {
     return () => {
-      if (activePointerRef.current) {
-        cleanupPointer();
+      const active = activePointerRef.current;
+      if (active) {
+        activePointerRef.current = null;
+        if (canvasRef.current) {
+          try {
+            if (canvasRef.current.hasPointerCapture(active.pointerId)) {
+              canvasRef.current.releasePointerCapture(active.pointerId);
+            }
+          } catch {
+            // Pointer capture may already be released.
+          }
+        }
       }
     };
-  }, [cleanupPointer]);
+  }, []);
 
   useEffect(() => {
     if (activePointerRef.current) {
@@ -230,13 +248,20 @@ export function AnnotationSurfaceV2({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.stopPropagation();
-
     const rect = canvas.getBoundingClientRect();
     const normalized = annotationClientToNormalizedV2({ x: e.clientX, y: e.clientY }, rect);
     
     if (!normalized) return;
+
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+        return;
+      }
+    } catch {
+      return;
+    }
 
     activePointerRef.current = {
       pointerId: e.pointerId,
