@@ -260,7 +260,23 @@ export default function TeachingStudio() {
 
   const handleSaveLesson = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeStudent || !lessonForm.date || !lessonForm.content) return;
+
+    const hasLessonText = [
+      lessonForm.content,
+      lessonForm.homework,
+      lessonForm.nextGoal,
+      lessonForm.memo
+    ].some(value => value.trim().length > 0);
+
+    const hasLessonPhoto = totalPhotos > 0;
+
+    if (
+      !activeStudent ||
+      !lessonForm.date ||
+      (!hasLessonText && !hasLessonPhoto)
+    ) {
+      return;
+    }
 
     setIsUploadingPhoto(true);
     setUploadStage('uploading');
@@ -756,7 +772,7 @@ export default function TeachingStudio() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.lessonContent') || 'Content'}</label>
-                    <textarea required rows={4} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm resize-none" value={lessonForm.content} onChange={e => setLessonForm({...lessonForm, content: e.target.value})} />
+                    <textarea rows={4} className="w-full bg-stone-800/50 border border-white/5 rounded-2xl py-3.5 px-5 text-white outline-none focus:border-brand/40 text-sm resize-none" value={lessonForm.content} onChange={e => setLessonForm({...lessonForm, content: e.target.value})} />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-stone-600 uppercase tracking-widest pl-2">{t('students.homework') || 'Homework'}</label>
