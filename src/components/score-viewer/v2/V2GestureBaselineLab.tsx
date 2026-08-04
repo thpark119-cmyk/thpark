@@ -78,7 +78,11 @@ const PEN_WIDTH_PRESETS_V2: readonly PenWidthPresetV2[] = [
   { label: '굵게', width: 5 }
 ];
 
-const ACTIVE_ANNOTATION_TOOL_V2: AnnotationStrokeToolV2 = 'pen';
+const FIXED_HIGHLIGHTER_STYLE_V2: AnnotationStrokeStyleV2 = {
+  color: '#fde047',
+  width: 14,
+  opacity: 0.35
+};
 
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
@@ -120,6 +124,7 @@ export default function V2GestureBaselineLab() {
   const [transformInfo, setTransformInfo] = useState<StableGestureTransformEventV2 | null>(null);
 
   const [interactionMode, setInteractionMode] = useState<AnnotationInteractionModeV2>('navigate');
+  const [activeDrawingTool, setActiveDrawingTool] = useState<AnnotationStrokeToolV2>('pen');
   const [activePenStyle, setActivePenStyle] = useState<AnnotationStrokeStyleV2>(() => ({
     color: ANNOTATION_DEFAULT_PEN_STYLE_V2.color,
     width: ANNOTATION_DEFAULT_PEN_STYLE_V2.width,
@@ -135,6 +140,8 @@ export default function V2GestureBaselineLab() {
     touchSuppressedUntilRelease: false
   });
   
+  const activeDrawingStyle = activeDrawingTool === 'highlighter' ? FIXED_HIGHLIGHTER_STYLE_V2 : activePenStyle;
+
   useEffect(() => {
     mountedRef.current = true;
     if (isAdmin) {
@@ -348,6 +355,13 @@ export default function V2GestureBaselineLab() {
 
   const setPenMode = () => {
     if (viewportRef.current) viewportRef.current.cancelActiveGesture();
+    setActiveDrawingTool('pen');
+    setInteractionMode('pen');
+  };
+
+  const setHighlighterMode = () => {
+    if (viewportRef.current) viewportRef.current.cancelActiveGesture();
+    setActiveDrawingTool('highlighter');
     setInteractionMode('pen');
   };
 
@@ -475,20 +489,22 @@ export default function V2GestureBaselineLab() {
     qualityStatus = 'READY';
   }
 
-  const styleControlsDisabled = !docReady || !annotationPageSpace || Boolean(isGestureActive) || inputStatus.phase !== 'idle';
+  const modeControlsDisabled = !docReady || !annotationPageSpace || Boolean(isGestureActive) || inputStatus.phase !== 'idle';
+  const penStyleControlsDisabled = modeControlsDisabled || activeDrawingTool !== 'pen';
 
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C3B Pen Style Controls]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C3C Highlighter Input Baseline]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Annotation V2 memory drawing + add/erase action history active<br/>
-          Typed per-stroke pen style active<br/>
+          Typed per-stroke pen and highlighter tools active<br/>
           Preset pen color and width controls active<br/>
+          Fixed translucent highlighter input active<br/>
+          Pen/highlighter share the verified drawing pointer lifecycle<br/>
           Spatial eraser active<br/>
-          Persistent storage disabled<br/>
-          Highlighter input disabled
+          Persistent storage disabled
         </div>
       </div>
       
@@ -613,16 +629,18 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C3B</div>
+              <div>Annotation Stage: 4E-C3C</div>
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
-              <div>Active Tool: PEN</div>
-              <div>Active Color: {activePenStyle.color}</div>
-              <div>Active Width: {activePenStyle.width} LOGICAL PX</div>
-              <div>Active Opacity: {activePenStyle.opacity}</div>
-              <div>Style Controls: CONNECTED</div>
+              <div>Active Tool: {activeDrawingTool.toUpperCase()}</div>
+              <div>Active Color: {activeDrawingStyle.color}</div>
+              <div>Active Width: {activeDrawingStyle.width} LOGICAL PX</div>
+              <div>Active Opacity: {activeDrawingStyle.opacity}</div>
+              <div>Pen Style Controls: CONNECTED</div>
+              <div>Highlighter Input: CONNECTED</div>
+              <div>Highlighter Style: FIXED</div>
+              <div>Highlighter Blend: SOURCE-OVER</div>
               <div>Style Persistence: MEMORY ONLY</div>
-              <div>Highlighter Input: NOT ENABLED</div>
               <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
               <div>Surface: {annotationPageSpace ? 'ACTIVE' : 'WAITING FOR CURRENT PAGE BASELINE'}</div>
               <div>Coordinate Space: NORMALIZED 0..1</div>
@@ -676,29 +694,43 @@ export default function V2GestureBaselineLab() {
               <div>Translate: {transformInfo?.transform.translateX.toFixed(1) || '0.0'}, {transformInfo?.transform.translateY.toFixed(1) || '0.0'}</div>
             </div>
             
-            <div className="flex gap-2 items-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
               <button 
                 onClick={setNavigateMode} 
-                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'navigate' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+                disabled={modeControlsDisabled}
+                className={`px-3 py-2 rounded text-sm font-semibold border border-white/10 disabled:opacity-50 ${interactionMode === 'navigate' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700 text-stone-300'}`}
+                aria-pressed={interactionMode === 'navigate'}
               >
                 이동
               </button>
               <button 
                 onClick={setPenMode} 
-                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'pen' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+                disabled={modeControlsDisabled}
+                className={`px-3 py-2 rounded text-sm font-semibold border border-white/10 disabled:opacity-50 ${interactionMode === 'pen' && activeDrawingTool === 'pen' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700 text-stone-300'}`}
+                aria-pressed={interactionMode === 'pen' && activeDrawingTool === 'pen'}
               >
                 펜
               </button>
               <button 
+                onClick={setHighlighterMode} 
+                disabled={modeControlsDisabled}
+                className={`px-3 py-2 rounded text-sm font-semibold border border-white/10 disabled:opacity-50 ${interactionMode === 'pen' && activeDrawingTool === 'highlighter' ? 'bg-yellow-600 text-stone-900 border-yellow-500' : 'bg-stone-800 hover:bg-stone-700 text-stone-300'}`}
+                aria-pressed={interactionMode === 'pen' && activeDrawingTool === 'highlighter'}
+              >
+                형광펜
+              </button>
+              <button 
                 onClick={setEraserMode} 
-                className={`flex-1 px-3 py-2 rounded text-sm font-semibold border border-white/10 ${interactionMode === 'eraser' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700'}`}
+                disabled={modeControlsDisabled}
+                className={`px-3 py-2 rounded text-sm font-semibold border border-white/10 disabled:opacity-50 ${interactionMode === 'eraser' ? 'bg-blue-600 text-white' : 'bg-stone-800 hover:bg-stone-700 text-stone-300'}`}
+                aria-pressed={interactionMode === 'eraser'}
               >
                 지우개
               </button>
             </div>
             
-            <div className="bg-stone-950 p-3 rounded border border-white/5 space-y-3">
-              <div className="text-xs font-semibold text-stone-400">Pen Style</div>
+            <div className={`bg-stone-950 p-3 rounded border border-white/5 space-y-3 ${activeDrawingTool !== 'pen' ? 'opacity-50' : ''}`}>
+              <div className="text-xs font-semibold text-stone-400">Pen Style &mdash; 펜 전용</div>
               <div className="flex gap-2">
                 {PEN_COLOR_PRESETS_V2.map((preset) => (
                   <button
@@ -706,7 +738,7 @@ export default function V2GestureBaselineLab() {
                     type="button"
                     aria-label={preset.label}
                     aria-pressed={activePenStyle.color === preset.color}
-                    disabled={styleControlsDisabled}
+                    disabled={penStyleControlsDisabled}
                     onClick={() => setActivePenStyle(prev => ({ ...prev, color: preset.color }))}
                     className={`w-8 h-8 rounded-full border-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-stone-900 focus:ring-blue-500 disabled:opacity-50 ${activePenStyle.color === preset.color ? 'border-white' : 'border-transparent'}`}
                     style={{ backgroundColor: preset.color }}
@@ -719,7 +751,7 @@ export default function V2GestureBaselineLab() {
                     key={preset.label}
                     type="button"
                     aria-pressed={activePenStyle.width === preset.width}
-                    disabled={styleControlsDisabled}
+                    disabled={penStyleControlsDisabled}
                     onClick={() => setActivePenStyle(prev => ({ ...prev, width: preset.width }))}
                     className={`flex-1 px-2 py-1 rounded text-xs font-medium border ${activePenStyle.width === preset.width ? 'bg-blue-600 border-blue-500 text-white' : 'bg-stone-800 border-white/10 text-stone-300 hover:bg-stone-700'} disabled:opacity-50`}
                   >
@@ -829,8 +861,8 @@ export default function V2GestureBaselineLab() {
                       pageSpace={annotationPageSpace} 
                       interactionMode={interactionMode}
                       completedStrokes={currentPageStrokes}
-                      activeTool={ACTIVE_ANNOTATION_TOOL_V2}
-                      activeStyle={activePenStyle}
+                      activeTool={activeDrawingTool}
+                      activeStyle={activeDrawingStyle}
                       onStrokeComplete={handleStrokeComplete}
                       onEraseRequest={handleEraseRequest}
                       onInputStatusChange={handleInputStatusChange}
