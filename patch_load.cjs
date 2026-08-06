@@ -2,82 +2,172 @@ const fs = require('fs');
 const file = 'src/components/score-viewer/v2/V2GestureBaselineLab.tsx';
 let code = fs.readFileSync(file, 'utf8');
 
-const handleSaveTop = `
-    if (persistenceStorageSaveDiagnostic.status === 'saving') return;
-    if (persistenceStorageLoadDiagnostic.status === 'loading') return;
-    if (annotationRestoreDiagnostic.status === 'restoring') return;
-    
-    storageLoadSequenceRef.current += 1;
-    setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
-    setLoadedAnnotationSnapshot(null);
-    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
-`;
+const regexLoad = /const handleLoadPersistenceFromStorage = async \(\) => {([\s\S]*?)  };\n\n\n  const handleRestoreLoadedSnapshot = async \(\) => {/m;
 
-code = code.replace(
-  "    if (persistenceStorageSaveDiagnostic.status === 'saving') return;\n    if (persistenceStorageLoadDiagnostic.status === 'loading') return;\n    \n    storageLoadSequenceRef.current += 1;\n    setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());",
-  handleSaveTop
+const match = code.match(regexLoad);
+if (!match) {
+  console.log('regexLoad match failed');
+  process.exit(1);
+}
+
+let body = match[1];
+
+body = body.replace(
+  "    const currentUid = user.uid;",
+  `    const currentUid = user.uid;
+
+    if (origin === 'automatic') {
+      setAutomaticSnapshotLookupDiagnostic({
+        ...createIdleAutomaticSnapshotLookupDiagnosticV2(),
+        status: 'looking-up',
+        documentInstanceId: currentInstanceId
+      });
+    }`
 );
 
-const handleLoadTop = `
-    if (persistenceStorageSaveDiagnostic.status === 'saving') return;
-    if (persistenceStorageLoadDiagnostic.status === 'loading') return;
-    if (annotationRestoreDiagnostic.status === 'restoring') return;
+body = body.replace(
+  "        setLoadedAnnotationSnapshot({",
+  `        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'found',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: null,
+            errorMessage: null
+          });
+        }
 
-    const currentLoadStorageSeq = ++storageLoadSequenceRef.current;
-    const currentInstanceId = documentInstanceIdRef.current;
-    const currentIdentity = persistenceStorageIdentity;
-    const currentUid = user.uid;
-
-    setPersistenceStorageLoadDiagnostic({
-      ...createIdlePersistenceStorageLoadDiagnosticV2(),
-      status: 'loading'
-    });
-    setLoadedAnnotationSnapshot(null);
-    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
-`;
-
-code = code.replace(
-  "    if (persistenceStorageSaveDiagnostic.status === 'saving') return;\n    if (persistenceStorageLoadDiagnostic.status === 'loading') return;\n\n    const currentLoadStorageSeq = ++storageLoadSequenceRef.current;\n    const currentInstanceId = documentInstanceIdRef.current;\n    const currentIdentity = persistenceStorageIdentity;\n    const currentUid = user.uid;\n\n    setPersistenceStorageLoadDiagnostic({\n      ...createIdlePersistenceStorageLoadDiagnosticV2(),\n      status: 'loading'\n    });",
-  handleLoadTop
+        setLoadedAnnotationSnapshot({`
 );
 
-const handleLoadSuccess = `
+body = body.replace(
+  "        setPersistenceStorageLoadDiagnostic({\n          ...createIdlePersistenceStorageLoadDiagnosticV2(),\n          status: 'not-found',",
+  `        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'not-found',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: null,
+            errorMessage: null
+          });
+        }
         setPersistenceStorageLoadDiagnostic({
-          status: 'loaded',
-          currentDocumentInstanceId: currentInstanceId,
-          persistedDocumentInstanceId: null,
-          storagePath: result.storagePath,
-          loadedPageCount,
-          loadedStrokeCount,
-          loadedPointCount,
-          loadedPenStrokeCount,
-          loadedHighlighterStrokeCount,
-          jsonByteLength: result.jsonByteLength,
-          codecValidationPassed: true,
-          identityValidationPassed: true,
-          currentMemoryFidelityStatus,
-          errorCode: null,
-          errorPath: null,
-          errorMessage: null
-        });
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'not-found',`
+);
 
-        setLoadedAnnotationSnapshot({
-          uid: currentUid,
-          identity: currentIdentity,
-          storagePath: result.storagePath,
-          document: doc,
-          jsonByteLength: result.jsonByteLength
-        });
-        
-        setAnnotationRestoreDiagnostic({
-          ...createIdleAnnotationRestoreDiagnosticV2(),
-          status: 'ready'
-        });
-`;
+body = body.replace(
+  "        setPersistenceStorageLoadDiagnostic({\n          ...createIdlePersistenceStorageLoadDiagnosticV2(),\n          status: 'invalid',",
+  `        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'invalid',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: result.code,
+            errorMessage: result.message
+          });
+        }
+        setPersistenceStorageLoadDiagnostic({
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'invalid',`
+);
 
+body = body.replace(
+  "        setPersistenceStorageLoadDiagnostic({\n          ...createIdlePersistenceStorageLoadDiagnosticV2(),\n          status: 'error',",
+  `        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'error',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: result.code,
+            errorMessage: result.message
+          });
+        }
+        setPersistenceStorageLoadDiagnostic({
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'error',`
+);
+
+body = body.replace(
+  "      setPersistenceStorageLoadDiagnostic({\n        ...createIdlePersistenceStorageLoadDiagnosticV2(),\n        status: 'error',\n        errorCode: 'unexpected-exception',",
+  `      if (origin === 'automatic') {
+        setAutomaticSnapshotLookupDiagnostic({
+          ...createIdleAutomaticSnapshotLookupDiagnosticV2(),
+          status: 'error',
+          errorCode: 'unexpected-exception',
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      }
+      setPersistenceStorageLoadDiagnostic({
+        ...createIdlePersistenceStorageLoadDiagnosticV2(),
+        status: 'error',
+        errorCode: 'unexpected-exception',`
+);
+
+const newLoad = `const handleLoadPersistenceFromStorage = useCallback(async (origin: PersistenceStorageLoadOriginV2) => {${body}  }, [
+    user,
+    docReady,
+    persistenceStorageIdentity,
+    isLoading,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    transformInfo?.activePointerCount,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    annotationHistory.completedStrokes
+  ]);
+
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !docReady ||
+      isLoading ||
+      !persistenceStorageIdentity ||
+      persistenceStorageSaveDiagnostic.status === 'saving' ||
+      persistenceStorageLoadDiagnostic.status === 'loading' ||
+      annotationRestoreDiagnostic.status === 'restoring'
+    ) {
+      return;
+    }
+
+    const lookupKey = JSON.stringify([
+      user.uid,
+      documentInstanceIdRef.current,
+      persistenceStorageIdentity.repertoireId,
+      persistenceStorageIdentity.fileId,
+      persistenceStorageIdentity.sourceStoragePath
+    ]);
+
+    if (automaticSnapshotLookupAttemptKeyRef.current === lookupKey) {
+      return;
+    }
+
+    automaticSnapshotLookupAttemptKeyRef.current = lookupKey;
+    void handleLoadPersistenceFromStorage('automatic');
+  }, [
+    user?.uid,
+    docReady,
+    isLoading,
+    persistenceStorageIdentity,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    handleLoadPersistenceFromStorage
+  ]);\n\n\n  const handleRestoreLoadedSnapshot = async () => {`;
+
+code = code.replace(regexLoad, newLoad);
+
+// add useCallback if not imported, wait V2GestureBaselineLab imports useCallback
+if (!code.includes('useCallback')) {
+  code = code.replace(/import React, {([^}]*)} from 'react';/, "import React, { useCallback, $1 } from 'react';");
+}
+
+
+// Replace button onClick
 code = code.replace(
-  "        setPersistenceStorageLoadDiagnostic({\n          status: 'loaded',\n          currentDocumentInstanceId: currentInstanceId,\n          persistedDocumentInstanceId: null,\n          storagePath: result.storagePath,\n          loadedPageCount,\n          loadedStrokeCount,\n          loadedPointCount,\n          loadedPenStrokeCount,\n          loadedHighlighterStrokeCount,\n          jsonByteLength: result.jsonByteLength,\n          codecValidationPassed: true,\n          identityValidationPassed: true,\n          currentMemoryFidelityStatus,\n          errorCode: null,\n          errorPath: null,\n          errorMessage: null\n        });",
-  handleLoadSuccess
+  "onClick={handleLoadPersistenceFromStorage}",
+  "onClick={() => { void handleLoadPersistenceFromStorage('manual'); }}"
 );
 
 fs.writeFileSync(file, code);

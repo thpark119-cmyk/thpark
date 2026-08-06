@@ -215,6 +215,35 @@ type PersistenceStorageLoadStatusV2 =
   | 'invalid'
   | 'error';
 
+
+type PersistenceStorageLoadOriginV2 = 'manual' | 'automatic';
+
+type AutomaticSnapshotLookupStatusV2 =
+  | 'idle'
+  | 'looking-up'
+  | 'found'
+  | 'not-found'
+  | 'invalid'
+  | 'error';
+
+interface AutomaticSnapshotLookupDiagnosticV2 {
+  status: AutomaticSnapshotLookupStatusV2;
+  documentInstanceId: number | null;
+  storagePath: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+function createIdleAutomaticSnapshotLookupDiagnosticV2(): AutomaticSnapshotLookupDiagnosticV2 {
+  return {
+    status: 'idle',
+    documentInstanceId: null,
+    storagePath: null,
+    errorCode: null,
+    errorMessage: null
+  };
+}
+
 interface PersistenceStorageLoadDiagnosticV2 {
   status: PersistenceStorageLoadStatusV2;
   currentDocumentInstanceId: number | null;
@@ -588,6 +617,9 @@ export default function V2GestureBaselineLab() {
   const [annotationRestoreDiagnostic, setAnnotationRestoreDiagnostic] = useState<AnnotationRestoreDiagnosticV2>(createIdleAnnotationRestoreDiagnosticV2());
   const [annotationCleanBaseline, setAnnotationCleanBaseline] = useState<AnnotationCleanBaselineV2 | null>(null);
 
+  const [automaticSnapshotLookupDiagnostic, setAutomaticSnapshotLookupDiagnostic] = useState<AutomaticSnapshotLookupDiagnosticV2>(createIdleAutomaticSnapshotLookupDiagnosticV2());
+  const automaticSnapshotLookupAttemptKeyRef = useRef<string | null>(null);
+
   const storageSaveSequenceRef = useRef(0);
   const storageLoadSequenceRef = useRef(0);
 
@@ -830,7 +862,7 @@ export default function V2GestureBaselineLab() {
     }
   };
 
-  const handleLoadPersistenceFromStorage = async () => {
+  const handleLoadPersistenceFromStorage = useCallback(async (origin: PersistenceStorageLoadOriginV2) => {
     if (!user || !user.uid) return;
     if (!docReady || !persistenceStorageIdentity) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
@@ -844,6 +876,14 @@ export default function V2GestureBaselineLab() {
     const currentInstanceId = documentInstanceIdRef.current;
     const currentIdentity = persistenceStorageIdentity;
     const currentUid = user.uid;
+
+    if (origin === 'automatic') {
+      setAutomaticSnapshotLookupDiagnostic({
+        ...createIdleAutomaticSnapshotLookupDiagnosticV2(),
+        status: 'looking-up',
+        documentInstanceId: currentInstanceId
+      });
+    }
 
     setPersistenceStorageLoadDiagnostic({
       ...createIdlePersistenceStorageLoadDiagnosticV2(),
@@ -922,6 +962,16 @@ export default function V2GestureBaselineLab() {
           errorMessage: null
         });
 
+        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'found',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: null,
+            errorMessage: null
+          });
+        }
+
         setLoadedAnnotationSnapshot({
           uid: currentUid,
           identity: currentIdentity,
@@ -936,12 +986,30 @@ export default function V2GestureBaselineLab() {
         });
 
       } else if (result.status === 'not-found') {
+        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'not-found',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: null,
+            errorMessage: null
+          });
+        }
         setPersistenceStorageLoadDiagnostic({
           ...createIdlePersistenceStorageLoadDiagnosticV2(),
           status: 'not-found',
           storagePath: result.storagePath
         });
       } else if (result.status === 'invalid') {
+        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'invalid',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: result.code,
+            errorMessage: result.message
+          });
+        }
         setPersistenceStorageLoadDiagnostic({
           ...createIdlePersistenceStorageLoadDiagnosticV2(),
           status: 'invalid',
@@ -951,6 +1019,15 @@ export default function V2GestureBaselineLab() {
           errorMessage: result.message
         });
       } else if (result.status === 'error') {
+        if (origin === 'automatic') {
+          setAutomaticSnapshotLookupDiagnostic({
+            status: 'error',
+            documentInstanceId: currentInstanceId,
+            storagePath: result.storagePath,
+            errorCode: result.code,
+            errorMessage: result.message
+          });
+        }
         setPersistenceStorageLoadDiagnostic({
           ...createIdlePersistenceStorageLoadDiagnosticV2(),
           status: 'error',
@@ -974,6 +1051,14 @@ export default function V2GestureBaselineLab() {
         return;
       }
 
+      if (origin === 'automatic') {
+        setAutomaticSnapshotLookupDiagnostic({
+          ...createIdleAutomaticSnapshotLookupDiagnosticV2(),
+          status: 'error',
+          errorCode: 'unexpected-exception',
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      }
       setPersistenceStorageLoadDiagnostic({
         ...createIdlePersistenceStorageLoadDiagnosticV2(),
         status: 'error',
@@ -981,7 +1066,57 @@ export default function V2GestureBaselineLab() {
         errorMessage: error instanceof Error ? error.message : String(error)
       });
     }
-  };
+  }, [
+    user,
+    docReady,
+    persistenceStorageIdentity,
+    isLoading,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    transformInfo?.activePointerCount,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    annotationHistory.completedStrokes
+  ]);
+
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !docReady ||
+      isLoading ||
+      !persistenceStorageIdentity ||
+      persistenceStorageSaveDiagnostic.status === 'saving' ||
+      persistenceStorageLoadDiagnostic.status === 'loading' ||
+      annotationRestoreDiagnostic.status === 'restoring'
+    ) {
+      return;
+    }
+
+    const lookupKey = JSON.stringify([
+      user.uid,
+      documentInstanceIdRef.current,
+      persistenceStorageIdentity.repertoireId,
+      persistenceStorageIdentity.fileId,
+      persistenceStorageIdentity.sourceStoragePath
+    ]);
+
+    if (automaticSnapshotLookupAttemptKeyRef.current === lookupKey) {
+      return;
+    }
+
+    automaticSnapshotLookupAttemptKeyRef.current = lookupKey;
+    void handleLoadPersistenceFromStorage('automatic');
+  }, [
+    user?.uid,
+    docReady,
+    isLoading,
+    persistenceStorageIdentity,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    handleLoadPersistenceFromStorage
+  ]);
 
 
   const handleRestoreLoadedSnapshot = async () => {
@@ -1117,6 +1252,9 @@ export default function V2GestureBaselineLab() {
     e.target.value = '';
     
     if (!file || !engineRef.current) return;
+
+    automaticSnapshotLookupAttemptKeyRef.current = null;
+    setAutomaticSnapshotLookupDiagnostic(createIdleAutomaticSnapshotLookupDiagnosticV2());
 
     if (shouldConfirmAnnotationReplacement) {
       const confirmed = window.confirm(
@@ -1494,16 +1632,17 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4F-C Browser Exit Dirty Guard]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4G-A Controlled Snapshot Lookup on PDF Ready]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Pen and highlighter drawing active<br/>
           In-memory codec diagnostic active<br/>
           Content-based dirty state active<br/>
-          Dirty PDF and snapshot replacement guards active<br/>
-          Browser beforeunload dirty guard active<br/>
-          Manual Firebase save/load/restore active<br/>
-          Automatic persistence disabled<br/>
+          Dirty replacement and browser exit guards active<br/>
+          Automatic snapshot lookup on PDF ready active<br/>
+          Automatic canvas restore disabled<br/>
+          Manual save/load/restore active<br/>
+          Automatic save disabled<br/>
           Spatial eraser active
 
 
@@ -1633,7 +1772,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4F-C</div>
+<div>Annotation Stage: 4E-C4G-A</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -1925,7 +2064,7 @@ export default function V2GestureBaselineLab() {
               
               <button
                 type="button"
-                onClick={handleLoadPersistenceFromStorage}
+                onClick={() => { void handleLoadPersistenceFromStorage('manual'); }}
                 disabled={!user || !user.uid || !docReady || !persistenceStorageIdentity || isLoading || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading'}
                 className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
               >
@@ -2031,6 +2170,34 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Browser Exit Listener: <span className={browserExitGuardArmed ? "text-yellow-400 font-bold" : "text-emerald-400 font-bold"}>{browserExitGuardArmed ? 'ARMED' : 'DISARMED'}</span></div>
                 <div className="text-stone-300">Browser Exit Policy: DIRTY OR UNAVAILABLE WITH WORK</div>
                 <div className="text-stone-400">Custom Exit Message: BROWSER CONTROLLED</div>
+              </div>
+            </div>
+
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Automatic Snapshot Lookup</span>
+              </div>
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className="text-stone-300">Automatic Lookup: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
+                <div className="text-stone-300">Lookup Trigger: PDF READY + IDENTITY READY</div>
+                <div className="text-stone-300">Lookup Policy: ONCE PER UID / IDENTITY / DOCUMENT INSTANCE</div>
+                <div className={`font-bold ${
+                  automaticSnapshotLookupDiagnostic.status === 'found' ? 'text-emerald-400' :
+                  automaticSnapshotLookupDiagnostic.status === 'looking-up' ? 'text-yellow-400' :
+                  (automaticSnapshotLookupDiagnostic.status === 'invalid' || automaticSnapshotLookupDiagnostic.status === 'error') ? 'text-red-400' :
+                  'text-stone-400'
+                }`}>
+                  Status: {automaticSnapshotLookupDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Document Instance: {automaticSnapshotLookupDiagnostic.documentInstanceId ?? 'NONE'}</div>
+                <div className="text-stone-300">Storage Path: {automaticSnapshotLookupDiagnostic.storagePath ?? 'NONE'}</div>
+                {(automaticSnapshotLookupDiagnostic.status === 'invalid' || automaticSnapshotLookupDiagnostic.status === 'error') && (
+                  <>
+                    <div className="text-red-400">Error Code: {automaticSnapshotLookupDiagnostic.errorCode ?? 'NONE'}</div>
+                    <div className="text-red-400">Error Message: {automaticSnapshotLookupDiagnostic.errorMessage ?? 'NONE'}</div>
+                  </>
+                )}
+                <div className="text-stone-400">Automatic Restore: DISABLED</div>
               </div>
             </div>
             
