@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   loadAnnotationPersistenceDocumentV2,
   saveAnnotationPersistenceDocumentV2
@@ -307,6 +307,25 @@ function createIdleAnnotationRestoreDiagnosticV2(): AnnotationRestoreDiagnosticV
   };
 }
 
+
+type AnnotationPersistenceDirtyStatusV2 =
+  | 'unavailable'
+  | 'clean'
+  | 'dirty';
+
+type AnnotationCleanBaselineSourceV2 =
+  | 'initial-empty'
+  | 'saved'
+  | 'restored';
+
+interface AnnotationCleanBaselineV2 {
+  uid: string | null;
+  identity: AnnotationPersistenceIdentityV2;
+  documentInstanceId: number;
+  source: AnnotationCleanBaselineSourceV2;
+  strokes: readonly AnnotationCompletedStrokeV2[];
+}
+
 function arePersistenceRoundTripStrokesEqualV2(
   source: readonly AnnotationCompletedStrokeV2[],
   restored: readonly AnnotationCompletedStrokeV2[]
@@ -564,13 +583,52 @@ export default function V2GestureBaselineLab() {
   const [persistenceStorageIdentity, setPersistenceStorageIdentity] = useState<AnnotationPersistenceIdentityV2 | null>(null);
   const [persistenceStorageSaveDiagnostic, setPersistenceStorageSaveDiagnostic] = useState<PersistenceStorageSaveDiagnosticV2>(createIdlePersistenceStorageSaveDiagnosticV2());
   const [persistenceStorageLoadDiagnostic, setPersistenceStorageLoadDiagnostic] = useState<PersistenceStorageLoadDiagnosticV2>(createIdlePersistenceStorageLoadDiagnosticV2());
+
   const [loadedAnnotationSnapshot, setLoadedAnnotationSnapshot] = useState<LoadedAnnotationSnapshotV2 | null>(null);
   const [annotationRestoreDiagnostic, setAnnotationRestoreDiagnostic] = useState<AnnotationRestoreDiagnosticV2>(createIdleAnnotationRestoreDiagnosticV2());
+  const [annotationCleanBaseline, setAnnotationCleanBaseline] = useState<AnnotationCleanBaselineV2 | null>(null);
+
   const storageSaveSequenceRef = useRef(0);
   const storageLoadSequenceRef = useRef(0);
 
 
+
   const activeDrawingStyle = activeDrawingTool === 'highlighter' ? activeHighlighterStyle : activePenStyle;
+
+  const currentDocumentStrokes = useMemo(() => {
+    return annotationHistory.completedStrokes.filter(
+      stroke => stroke.documentInstanceId === documentInstanceIdRef.current
+    );
+  }, [annotationHistory.completedStrokes]);
+
+  const annotationDirtyStatus: AnnotationPersistenceDirtyStatusV2 = useMemo(() => {
+    if (!annotationCleanBaseline) return 'unavailable';
+    
+    // Check UID match (if user uid is undefined/null, baseline uid must be null)
+    const currentUid = user?.uid ?? null;
+    if (currentUid !== annotationCleanBaseline.uid) return 'unavailable';
+
+    // Check identity match
+    if (
+      !persistenceStorageIdentity ||
+      persistenceStorageIdentity.repertoireId !== annotationCleanBaseline.identity.repertoireId ||
+      persistenceStorageIdentity.fileId !== annotationCleanBaseline.identity.fileId ||
+      persistenceStorageIdentity.sourceStoragePath !== annotationCleanBaseline.identity.sourceStoragePath
+    ) {
+      return 'unavailable';
+    }
+
+    // Check document instance match
+    if (documentInstanceIdRef.current !== annotationCleanBaseline.documentInstanceId) {
+      return 'unavailable';
+    }
+
+    return arePersistenceRoundTripStrokesEqualV2(
+      currentDocumentStrokes,
+      annotationCleanBaseline.strokes
+    ) ? 'clean' : 'dirty';
+  }, [annotationCleanBaseline, currentDocumentStrokes, user, persistenceStorageIdentity]);
+
 
   useEffect(() => {
     mountedRef.current = true;
@@ -622,6 +680,7 @@ export default function V2GestureBaselineLab() {
     const currentSaveSeq = ++storageSaveSequenceRef.current;
     const currentInstanceId = documentInstanceIdRef.current;
     const currentIdentity = persistenceStorageIdentity;
+    const currentUid = user.uid;
     const now = new Date().toISOString();
 
     const document = createAnnotationPersistenceDocumentV2({
@@ -668,6 +727,7 @@ export default function V2GestureBaselineLab() {
         return;
       }
 
+
       if (result.status === 'saved') {
         setPersistenceStorageSaveDiagnostic({
           status: 'saved',
@@ -679,6 +739,14 @@ export default function V2GestureBaselineLab() {
           errorCode: null,
           errorPath: null,
           errorMessage: null
+        });
+
+        setAnnotationCleanBaseline({
+          uid: currentUid,
+          identity: currentIdentity,
+          documentInstanceId: currentInstanceId,
+          source: 'saved',
+          strokes: [...sourceStrokes]
         });
       } else if (result.status === 'invalid') {
         setPersistenceStorageSaveDiagnostic({
@@ -979,6 +1047,7 @@ export default function V2GestureBaselineLab() {
     
     strokeIdCounterRef.current = nextCounter;
     
+
     setAnnotationRestoreDiagnostic({
       status: 'restored',
       storagePath: loadedAnnotationSnapshot.storagePath,
@@ -995,7 +1064,16 @@ export default function V2GestureBaselineLab() {
       errorMessage: null
     });
     
+    setAnnotationCleanBaseline({
+      uid: user.uid,
+      identity: persistenceStorageIdentity,
+      documentInstanceId: currentInstanceId,
+      source: 'restored',
+      strokes: [...restoredStrokes]
+    });
+    
     setLoadedAnnotationSnapshot(null);
+
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1015,9 +1093,12 @@ export default function V2GestureBaselineLab() {
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
+
     setLoadedAnnotationSnapshot(null);
     setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
+    setAnnotationCleanBaseline(null);
     const nextStorageIdentity = createLabStorageIdentityV2(file);
+
 
 
     setDocReady(false);
@@ -1054,10 +1135,21 @@ export default function V2GestureBaselineLab() {
       if (result.status !== 'loaded') return;
       
 
+
       documentInstanceIdRef.current += 1;
       setNumPages(result.numPages);
       setPersistenceStorageIdentity(nextStorageIdentity);
+      
+      setAnnotationCleanBaseline({
+        uid: user?.uid ?? null,
+        identity: nextStorageIdentity,
+        documentInstanceId: documentInstanceIdRef.current,
+        source: 'initial-empty',
+        strokes: []
+      });
+
       setDocReady(true);
+
     } catch (err) {
       if (mountedRef.current && currentLoadSeq === loadSequenceRef.current) {
         console.error(err);
@@ -1352,18 +1444,19 @@ export default function V2GestureBaselineLab() {
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
-        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-C Manual Loaded Snapshot Restore Baseline]</h1>
+
+        <h1 className="text-xl font-bold text-brand-light">[4E-C4F-A Annotation Persistence Dirty-State Foundation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Pen and highlighter drawing active<br/>
           In-memory codec diagnostic active<br/>
-          Manual Firebase Storage save active<br/>
-          Manual Firebase Storage load and verification active<br/>
-          Explicit loaded snapshot restore active<br/>
-          Restore replaces current memory after confirmation<br/>
-          Restored snapshot becomes a clean history baseline<br/>
-          Automatic load/save disabled<br/>
+          Manual Firebase save/load/restore active<br/>
+          Clean baseline tracking active<br/>
+          Content-based dirty state active<br/>
+          Automatic persistence disabled<br/>
+          Unsaved-change guards disabled<br/>
           Spatial eraser active
+
 
         </div>
       </div>
@@ -1490,8 +1583,10 @@ export default function V2GestureBaselineLab() {
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
-              <div>Annotation Stage: 4E-C4E-C</div>
+
+              <div>Annotation Stage: 4E-C4F-A</div>
               <div>Persistence Schema: CONNECTED</div>
+
               <div>Persistence Codec: CONNECTED</div>
               <div>Firebase Storage Adapter: CONNECTED</div>
               <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
@@ -1861,9 +1956,29 @@ export default function V2GestureBaselineLab() {
                   </div>
                 )}
               </div>
+
+            </div>
+            
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Annotation Dirty State</span>
+              </div>
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={`font-bold ${annotationDirtyStatus === 'clean' ? 'text-emerald-400' : annotationDirtyStatus === 'dirty' ? 'text-yellow-400' : 'text-stone-400'}`}>
+                  Dirty Status: {annotationDirtyStatus.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Unsaved Changes: {annotationDirtyStatus === 'dirty' ? 'YES' : annotationDirtyStatus === 'clean' ? 'NO' : 'UNKNOWN'}</div>
+                <div className="text-stone-300">Baseline Source: {annotationCleanBaseline ? annotationCleanBaseline.source.toUpperCase() : 'NONE'}</div>
+                <div className="text-stone-300">Baseline Strokes: {annotationCleanBaseline ? annotationCleanBaseline.strokes.length : 'NOT RUN'}</div>
+                <div className="text-stone-300">Current Strokes: {annotationDirtyStatus !== 'unavailable' ? currentDocumentStrokes.length : 'NOT RUN'}</div>
+                <div className="text-stone-300">Baseline Document Instance: {annotationCleanBaseline ? annotationCleanBaseline.documentInstanceId : 'NONE'}</div>
+                <div className="text-stone-300">Current Document Instance: {documentInstanceIdRef.current}</div>
+                <div className={`text-stone-300 ${annotationDirtyStatus !== 'unavailable' ? 'text-emerald-400' : 'text-red-400'}`}>Baseline Identity Match: {annotationDirtyStatus !== 'unavailable' ? 'YES' : 'NO'}</div>
+              </div>
             </div>
             
             <div className="flex gap-2 items-center mt-4">
+
 
               <button 
                 onClick={handleUndo}

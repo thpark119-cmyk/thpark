@@ -1,11 +1,39 @@
 const fs = require('fs');
-let content = fs.readFileSync('src/components/score-viewer/v2/gestureTypes.ts', 'utf8');
+const file = 'src/components/score-viewer/v2/V2GestureBaselineLab.tsx';
+let code = fs.readFileSync(file, 'utf8');
 
-const endEventOld = `  lastPinchViewportY: number | null;
-  transform: GestureTransformV2;`;
-const endEventNew = `  lastPinchViewportY: number | null;
-  transformRevision: number;
-  transform: GestureTransformV2;`;
+const typeDefs = `
+type AnnotationPersistenceDirtyStatusV2 =
+  | 'unavailable'
+  | 'clean'
+  | 'dirty';
 
-content = content.replace(endEventOld, endEventNew);
-fs.writeFileSync('src/components/score-viewer/v2/gestureTypes.ts', content);
+type AnnotationCleanBaselineSourceV2 =
+  | 'initial-empty'
+  | 'saved'
+  | 'restored';
+
+interface AnnotationCleanBaselineV2 {
+  uid: string | null;
+  identity: AnnotationPersistenceIdentityV2;
+  documentInstanceId: number;
+  source: AnnotationCleanBaselineSourceV2;
+  strokes: readonly AnnotationCompletedStrokeV2[];
+}
+
+function arePersistenceRoundTripStrokesEqualV2(`;
+
+code = code.replace("function arePersistenceRoundTripStrokesEqualV2(", typeDefs);
+
+const stateVars = `
+  const [loadedAnnotationSnapshot, setLoadedAnnotationSnapshot] = useState<LoadedAnnotationSnapshotV2 | null>(null);
+  const [annotationRestoreDiagnostic, setAnnotationRestoreDiagnostic] = useState<AnnotationRestoreDiagnosticV2>(createIdleAnnotationRestoreDiagnosticV2());
+  const [annotationCleanBaseline, setAnnotationCleanBaseline] = useState<AnnotationCleanBaselineV2 | null>(null);
+`;
+
+code = code.replace(
+  "  const [loadedAnnotationSnapshot, setLoadedAnnotationSnapshot] = useState<LoadedAnnotationSnapshotV2 | null>(null);\n  const [annotationRestoreDiagnostic, setAnnotationRestoreDiagnostic] = useState<AnnotationRestoreDiagnosticV2>(createIdleAnnotationRestoreDiagnosticV2());",
+  stateVars
+);
+
+fs.writeFileSync(file, code);
