@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
+  loadAnnotationPersistenceDocumentV2,
   saveAnnotationPersistenceDocumentV2
 } from './annotationPersistenceStorageV2';
 import { useAuth } from '../../../context/AuthContext';
@@ -200,6 +201,54 @@ function createIdlePersistenceStorageSaveDiagnosticV2(): PersistenceStorageSaveD
     sourceStrokeCount: 0,
     sourcePointCount: 0,
     jsonByteLength: 0,
+    errorCode: null,
+    errorPath: null,
+    errorMessage: null
+  };
+}
+
+type PersistenceStorageLoadStatusV2 =
+  | 'idle'
+  | 'loading'
+  | 'loaded'
+  | 'not-found'
+  | 'invalid'
+  | 'error';
+
+interface PersistenceStorageLoadDiagnosticV2 {
+  status: PersistenceStorageLoadStatusV2;
+  currentDocumentInstanceId: number | null;
+  persistedDocumentInstanceId: number | null;
+  storagePath: string | null;
+  loadedPageCount: number;
+  loadedStrokeCount: number;
+  loadedPointCount: number;
+  loadedPenStrokeCount: number;
+  loadedHighlighterStrokeCount: number;
+  jsonByteLength: number;
+  codecValidationPassed: boolean;
+  identityValidationPassed: boolean;
+  currentMemoryFidelityStatus: 'not-run' | 'pass' | 'mismatch';
+  errorCode: string | null;
+  errorPath: string | null;
+  errorMessage: string | null;
+}
+
+function createIdlePersistenceStorageLoadDiagnosticV2(): PersistenceStorageLoadDiagnosticV2 {
+  return {
+    status: 'idle',
+    currentDocumentInstanceId: null,
+    persistedDocumentInstanceId: null,
+    storagePath: null,
+    loadedPageCount: 0,
+    loadedStrokeCount: 0,
+    loadedPointCount: 0,
+    loadedPenStrokeCount: 0,
+    loadedHighlighterStrokeCount: 0,
+    jsonByteLength: 0,
+    codecValidationPassed: false,
+    identityValidationPassed: false,
+    currentMemoryFidelityStatus: 'not-run',
     errorCode: null,
     errorPath: null,
     errorMessage: null
@@ -461,7 +510,9 @@ export default function V2GestureBaselineLab() {
   
   const [persistenceStorageIdentity, setPersistenceStorageIdentity] = useState<AnnotationPersistenceIdentityV2 | null>(null);
   const [persistenceStorageSaveDiagnostic, setPersistenceStorageSaveDiagnostic] = useState<PersistenceStorageSaveDiagnosticV2>(createIdlePersistenceStorageSaveDiagnosticV2());
+  const [persistenceStorageLoadDiagnostic, setPersistenceStorageLoadDiagnostic] = useState<PersistenceStorageLoadDiagnosticV2>(createIdlePersistenceStorageLoadDiagnosticV2());
   const storageSaveSequenceRef = useRef(0);
+  const storageLoadSequenceRef = useRef(0);
 
   const activeDrawingStyle = activeDrawingTool === 'highlighter' ? activeHighlighterStyle : activePenStyle;
 
@@ -475,6 +526,7 @@ export default function V2GestureBaselineLab() {
       mountedRef.current = false;
       loadSequenceRef.current += 1;
       storageSaveSequenceRef.current += 1;
+      storageLoadSequenceRef.current += 1;
       if (engineRef.current) {
         engineRef.current.destroy().catch(console.error);
         engineRef.current = null;
@@ -494,7 +546,11 @@ export default function V2GestureBaselineLab() {
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
     if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) return;
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
+    if (persistenceStorageLoadDiagnostic.status === 'loading') return;
     
+    storageLoadSequenceRef.current += 1;
+    setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
+
     const sourceStrokes = annotationHistory.completedStrokes.filter(
       stroke => stroke.documentInstanceId === documentInstanceIdRef.current
     );
@@ -613,6 +669,139 @@ export default function V2GestureBaselineLab() {
     }
   };
 
+  const handleLoadPersistenceFromStorage = async () => {
+    if (!user || !user.uid) return;
+    if (!docReady || !persistenceStorageIdentity) return;
+    if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
+    if ((transformInfo?.activePointerCount ?? 0) > 0) return;
+    if (persistenceStorageSaveDiagnostic.status === 'saving') return;
+    if (persistenceStorageLoadDiagnostic.status === 'loading') return;
+
+    const currentLoadStorageSeq = ++storageLoadSequenceRef.current;
+    const currentInstanceId = documentInstanceIdRef.current;
+    const currentIdentity = persistenceStorageIdentity;
+    const currentUid = user.uid;
+
+    setPersistenceStorageLoadDiagnostic({
+      ...createIdlePersistenceStorageLoadDiagnosticV2(),
+      status: 'loading'
+    });
+
+    try {
+      const result = await loadAnnotationPersistenceDocumentV2({
+        uid: currentUid,
+        identity: currentIdentity
+      });
+
+      if (!mountedRef.current) return;
+      if (storageLoadSequenceRef.current !== currentLoadStorageSeq) return;
+      if (documentInstanceIdRef.current !== currentInstanceId) return;
+      if (!user || user.uid !== currentUid) return;
+      if (!persistenceStorageIdentity) return;
+      if (
+        persistenceStorageIdentity.repertoireId !== currentIdentity.repertoireId ||
+        persistenceStorageIdentity.fileId !== currentIdentity.fileId ||
+        persistenceStorageIdentity.sourceStoragePath !== currentIdentity.sourceStoragePath
+      ) {
+        return;
+      }
+
+      if (result.status === 'loaded') {
+        const doc = result.document;
+        let loadedPageCount = 0;
+        let loadedStrokeCount = 0;
+        let loadedPointCount = 0;
+        let loadedPenStrokeCount = 0;
+        let loadedHighlighterStrokeCount = 0;
+
+        for (const pageKey in doc.pages) {
+          const page = doc.pages[pageKey];
+          loadedPageCount++;
+          loadedStrokeCount += page.strokes.length;
+          for (const stroke of page.strokes) {
+            loadedPointCount += stroke.points.length;
+            if (stroke.tool === 'pen') loadedPenStrokeCount++;
+            if (stroke.tool === 'highlighter') loadedHighlighterStrokeCount++;
+          }
+        }
+
+        const sourceStrokes = annotationHistory.completedStrokes.filter(
+          stroke => stroke.documentInstanceId === currentInstanceId
+        );
+
+        let currentMemoryFidelityStatus: 'not-run' | 'pass' | 'mismatch' = 'not-run';
+        if (sourceStrokes.length > 0) {
+          const restoredStrokes = restoreAnnotationCompletedStrokesV2(doc, currentInstanceId);
+          const passed = arePersistenceRoundTripStrokesEqualV2(sourceStrokes, restoredStrokes);
+          currentMemoryFidelityStatus = passed ? 'pass' : 'mismatch';
+        }
+
+        setPersistenceStorageLoadDiagnostic({
+          status: 'loaded',
+          currentDocumentInstanceId: currentInstanceId,
+          persistedDocumentInstanceId: null,
+          storagePath: result.storagePath,
+          loadedPageCount,
+          loadedStrokeCount,
+          loadedPointCount,
+          loadedPenStrokeCount,
+          loadedHighlighterStrokeCount,
+          jsonByteLength: result.jsonByteLength,
+          codecValidationPassed: true,
+          identityValidationPassed: true,
+          currentMemoryFidelityStatus,
+          errorCode: null,
+          errorPath: null,
+          errorMessage: null
+        });
+      } else if (result.status === 'not-found') {
+        setPersistenceStorageLoadDiagnostic({
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'not-found',
+          storagePath: result.storagePath
+        });
+      } else if (result.status === 'invalid') {
+        setPersistenceStorageLoadDiagnostic({
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'invalid',
+          storagePath: result.storagePath,
+          errorCode: result.code,
+          errorPath: result.path,
+          errorMessage: result.message
+        });
+      } else if (result.status === 'error') {
+        setPersistenceStorageLoadDiagnostic({
+          ...createIdlePersistenceStorageLoadDiagnosticV2(),
+          status: 'error',
+          storagePath: result.storagePath,
+          errorCode: result.code,
+          errorPath: null,
+          errorMessage: result.message
+        });
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (storageLoadSequenceRef.current !== currentLoadStorageSeq) return;
+      if (documentInstanceIdRef.current !== currentInstanceId) return;
+      if (!user || user.uid !== currentUid) return;
+      if (!persistenceStorageIdentity) return;
+      if (
+        persistenceStorageIdentity.repertoireId !== currentIdentity.repertoireId ||
+        persistenceStorageIdentity.fileId !== currentIdentity.fileId ||
+        persistenceStorageIdentity.sourceStoragePath !== currentIdentity.sourceStoragePath
+      ) {
+        return;
+      }
+
+      setPersistenceStorageLoadDiagnostic({
+        ...createIdlePersistenceStorageLoadDiagnosticV2(),
+        status: 'error',
+        errorCode: 'unexpected-exception',
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -625,8 +814,10 @@ export default function V2GestureBaselineLab() {
     }
 
     storageSaveSequenceRef.current += 1;
+    storageLoadSequenceRef.current += 1;
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
+    setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
     const nextStorageIdentity = createLabStorageIdentityV2(file);
 
     setDocReady(false);
@@ -960,15 +1151,16 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-A Manual Firebase Storage Save Diagnostic]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-B Manual Firebase Storage Load and Verify Diagnostic]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Pen and highlighter drawing active<br/>
           In-memory codec diagnostic active<br/>
           Manual Firebase Storage save diagnostic active<br/>
-          Persistent load disabled<br/>
+          Manual Firebase Storage load and verify diagnostic active<br/>
           Automatic persistence disabled<br/>
           History replacement disabled<br/>
+          Canvas restore disabled<br/>
           Spatial eraser active
         </div>
       </div>
@@ -1094,15 +1286,16 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C4E-A</div>
+              <div>Annotation Stage: 4E-C4E-B</div>
               <div>Persistence Schema: CONNECTED</div>
               <div>Persistence Codec: CONNECTED</div>
-              <div>In-Memory Diagnostic: CONNECTED</div>
               <div>Firebase Storage Adapter: CONNECTED</div>
               <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
-              <div>Persistent Load: DISABLED</div>
+              <div>Persistent Load: MANUAL VERIFY ONLY</div>
               <div>Automatic Save: DISABLED</div>
+              <div>Automatic Load: DISABLED</div>
               <div>History Replacement: DISABLED</div>
+              <div>Canvas Restore: DISABLED</div>
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
               <div>Active Tool: {activeDrawingTool.toUpperCase()}</div>
@@ -1367,6 +1560,53 @@ export default function V2GestureBaselineLab() {
                 {!persistenceStorageSaveDiagnostic.errorCode && persistenceStorageSaveDiagnostic.status !== 'idle' && persistenceStorageSaveDiagnostic.status !== 'saving' && (
                   <div className="mt-2 text-emerald-400 border-t border-emerald-500/20 pt-2">
                     Error: NONE
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Firebase Storage Load Diagnostic</span>
+              </div>
+              <div className="text-xs text-stone-400 space-y-1">
+                <div>Mode: MANUAL LOAD + VERIFY ONLY</div>
+                <div>Automatic Load: DISABLED</div>
+                <div>History Replacement: DISABLED</div>
+                <div>Canvas Mutation: DISABLED</div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={handleLoadPersistenceFromStorage}
+                disabled={!user || !user.uid || !docReady || !persistenceStorageIdentity || isLoading || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading'}
+                className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
+              >
+                {persistenceStorageLoadDiagnostic.status === 'loading' ? 'Loading...' : 'Load Current Annotation Snapshot'}
+              </button>
+
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={`font-bold ${persistenceStorageLoadDiagnostic.status === 'loaded' ? 'text-emerald-400' : (persistenceStorageLoadDiagnostic.status === 'invalid' || persistenceStorageLoadDiagnostic.status === 'error') ? 'text-red-400' : (persistenceStorageLoadDiagnostic.status === 'not-found' || persistenceStorageLoadDiagnostic.status === 'loading') ? 'text-yellow-400' : 'text-stone-400'}`}>
+                  Status: {persistenceStorageLoadDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Current Document Instance: {persistenceStorageLoadDiagnostic.currentDocumentInstanceId !== null ? persistenceStorageLoadDiagnostic.currentDocumentInstanceId : 'NONE'}</div>
+                <div className="text-stone-300">Persisted Document Instance: {persistenceStorageLoadDiagnostic.persistedDocumentInstanceId !== null ? persistenceStorageLoadDiagnostic.persistedDocumentInstanceId : 'NONE'}</div>
+                <div className="text-stone-300">Storage Path: {persistenceStorageLoadDiagnostic.storagePath !== null ? persistenceStorageLoadDiagnostic.storagePath : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Pages: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPageCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Points: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Pen Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPenStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Highlighter Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedHighlighterStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">JSON Bytes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.jsonByteLength : 'NOT RUN'}</div>
+                <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.codecValidationPassed ? 'text-emerald-400' : 'text-red-400') : ''}`}>Codec Validation: {persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.codecValidationPassed ? 'PASS' : 'FAIL') : 'NOT RUN'}</div>
+                <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.identityValidationPassed ? 'text-emerald-400' : 'text-red-400') : ''}`}>Identity Validation: {persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.identityValidationPassed ? 'PASS' : 'FAIL') : 'NOT RUN'}</div>
+                <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus === 'pass' ? 'text-emerald-400' : persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus === 'mismatch' ? 'text-yellow-400' : ''}`}>Current Memory Fidelity: {persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus.toUpperCase()}</div>
+
+                {(persistenceStorageLoadDiagnostic.errorCode) && (
+                  <div className="mt-2 text-red-400 border-t border-red-500/20 pt-2">
+                    <div>Error Code: {persistenceStorageLoadDiagnostic.errorCode}</div>
+                    {persistenceStorageLoadDiagnostic.errorPath && <div>Error Path: {persistenceStorageLoadDiagnostic.errorPath}</div>}
+                    <div>Error Message: {persistenceStorageLoadDiagnostic.errorMessage}</div>
                   </div>
                 )}
               </div>
