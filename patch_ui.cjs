@@ -1,27 +1,116 @@
 const fs = require('fs');
-let content = fs.readFileSync('src/components/score-viewer/v2/V2RendererLab.tsx', 'utf8');
+const file = 'src/components/score-viewer/v2/V2GestureBaselineLab.tsx';
+let code = fs.readFileSync(file, 'utf8');
 
-const uiNew = `
-          {/* Continuous Handoff Chain */}
-          <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-2">
-            <h2 className="text-sm font-bold text-stone-300">Continuous Handoff Chain</h2>
-            <div className="grid grid-cols-2 gap-y-1 text-xs text-stone-400">
-              <div>Phase: <span className="text-stone-300 font-mono">{chainPhase}</span></div>
-              <div>Chain ID: <span className="text-stone-300 font-mono">{chainInfo.chainId}</span></div>
-              <div>Commit Idx: <span className="text-stone-300 font-mono">{chainInfo.commitIndex}</span></div>
-              <div>Pending: {pendingHandoffRef.current ? <span className="text-yellow-400 font-mono">Yes (ID: {pendingHandoffRef.current.snapshot.snapshotId})</span> : <span className="text-stone-500">None</span>}</div>
-              <div className="col-span-2">
-                Deferred: {chainInfo.deferred ? 
-                  <span className="text-purple-400 font-mono">Yes (ID: {chainInfo.deferred.deferredId}, Effective: {chainInfo.deferred.effectiveScaleAtEnd.toFixed(3)}, Replaced: {chainInfo.deferred.replacedCount})</span> : 
-                  <span className="text-stone-500">None</span>}
+const titleChange = `
+        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-C Manual Loaded Snapshot Restore Baseline]</h1>
+        <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
+          <strong>Interactive CSS Preview Mode</strong><br/>
+          Pen and highlighter drawing active<br/>
+          In-memory codec diagnostic active<br/>
+          Manual Firebase Storage save active<br/>
+          Manual Firebase Storage load and verification active<br/>
+          Explicit loaded snapshot restore active<br/>
+          Restore replaces current memory after confirmation<br/>
+          Restored snapshot becomes a clean history baseline<br/>
+          Automatic load/save disabled<br/>
+          Spatial eraser active
+`;
+code = code.replace(
+  `        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-B Manual Firebase Storage Load and Verify Diagnostic]</h1>
+        <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
+          <strong>Interactive CSS Preview Mode</strong><br/>
+          Pen and highlighter drawing active<br/>
+          In-memory codec diagnostic active<br/>
+          Manual Firebase Storage save diagnostic active<br/>
+          Manual Firebase Storage load and verify diagnostic active<br/>
+          Automatic persistence disabled<br/>
+          History replacement disabled<br/>
+          Canvas restore disabled<br/>
+          Spatial eraser active`,
+  titleChange
+);
+
+const infoPanel = `
+              <div>Annotation Stage: 4E-C4E-C</div>
+              <div>Persistence Schema: CONNECTED</div>
+              <div>Persistence Codec: CONNECTED</div>
+              <div>Firebase Storage Adapter: CONNECTED</div>
+              <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
+              <div>Persistent Load: MANUAL VERIFY ONLY</div>
+              <div>Automatic Save: DISABLED</div>
+              <div>Automatic Load: DISABLED</div>
+`;
+code = code.replace(
+  `              <div>Annotation Stage: 4E-C4E-B</div>
+              <div>Persistence Schema: CONNECTED</div>
+              <div>Persistence Codec: CONNECTED</div>
+              <div>Firebase Storage Adapter: CONNECTED</div>
+              <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
+              <div>Persistent Load: MANUAL VERIFY ONLY</div>
+              <div>Automatic Save: DISABLED</div>
+              <div>Automatic Load: DISABLED</div>
+              <div>History Replacement: DISABLED</div>
+              <div>Canvas Restore: DISABLED</div>`,
+  infoPanel
+);
+
+const restoreDiagnosticUI = `
+            </div>
+
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Firebase Storage Restore Diagnostic</span>
+              </div>
+              <div className="text-xs text-stone-400 space-y-1">
+                <div>Mode: EXPLICIT MANUAL RESTORE</div>
+                <div>Replace current memory after confirmation</div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={handleRestoreLoadedSnapshot}
+                disabled={!user || !user.uid || !docReady || !persistenceStorageIdentity || !loadedAnnotationSnapshot || isLoading || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring'}
+                className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
+              >
+                {annotationRestoreDiagnostic.status === 'restoring' ? 'Restoring...' : 'Restore Loaded Snapshot to Canvas'}
+              </button>
+
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={\`font-bold \${annotationRestoreDiagnostic.status === 'restored' ? 'text-emerald-400' : (annotationRestoreDiagnostic.status === 'error' || annotationRestoreDiagnostic.status === 'blocked') ? 'text-red-400' : (annotationRestoreDiagnostic.status === 'restoring') ? 'text-yellow-400' : 'text-stone-400'}\`}>
+                  Restore Status: {annotationRestoreDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Restore Source Path: {annotationRestoreDiagnostic.storagePath !== null ? annotationRestoreDiagnostic.storagePath : 'NONE'}</div>
+                <div className="text-stone-300">Loaded Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.loadedStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Points: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.loadedPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Before Restore Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.beforeStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.restoredStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Points: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.restoredPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Current Document Instance: {annotationRestoreDiagnostic.currentDocumentInstanceId !== null ? annotationRestoreDiagnostic.currentDocumentInstanceId : 'NONE'}</div>
+                <div className="text-stone-300">Undo Depth After Restore: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.undoDepthAfterRestore : 'NOT RUN'}</div>
+                <div className="text-stone-300">Redo Depth After Restore: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.redoDepthAfterRestore : 'NOT RUN'}</div>
+                <div className="text-stone-300">Next Stroke ID Counter: {annotationRestoreDiagnostic.nextStrokeIdCounter !== null ? annotationRestoreDiagnostic.nextStrokeIdCounter : 'NOT RUN'}</div>
+
+                {(annotationRestoreDiagnostic.errorCode) && (
+                  <div className="mt-2 text-red-400 border-t border-red-500/20 pt-2">
+                    <div>Restore Error Code: {annotationRestoreDiagnostic.errorCode}</div>
+                    <div>Restore Error Message: {annotationRestoreDiagnostic.errorMessage}</div>
+                  </div>
+                )}
+                {annotationRestoreDiagnostic.status === 'restored' && (
+                  <div className="mt-2 text-emerald-400 border-t border-emerald-500/20 pt-2">
+                    Restore Error: NONE
+                  </div>
+                )}
               </div>
             </div>
-            {chainPhase === 'deferred' && <div className="text-[10px] text-purple-400">현재 handoff 완료 후 최신 확대 의도를 이어서 적용합니다.</div>}
-            {chainPhase === 'chaining' && <div className="text-[10px] text-blue-400">이전 Front swap 완료 후 다음 PDF 배율 handoff를 시작했습니다.</div>}
-            {chainPhase === 'completed' && <div className="text-[10px] text-green-400">최신 사용자 배율까지 연속 handoff가 완료됐습니다.</div>}
-            {chainPhase === 'cancelled' && <div className="text-[10px] text-red-400">Manual cancel에 의해 handoff chain이 초기화됐습니다.</div>}
-          </div>
+            
+            <div className="flex gap-2 items-center mt-4">
 `;
 
-content = content.replace("          {/* Handoff Log */}", uiNew + "\n          {/* Handoff Log */}");
-fs.writeFileSync('src/components/score-viewer/v2/V2RendererLab.tsx', content);
+code = code.replace(
+  "            </div>\n            \n            <div className=\"flex gap-2 items-center mt-4\">",
+  restoreDiagnosticUI
+);
+
+fs.writeFileSync(file, code);

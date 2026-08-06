@@ -255,6 +255,58 @@ function createIdlePersistenceStorageLoadDiagnosticV2(): PersistenceStorageLoadD
   };
 }
 
+
+interface LoadedAnnotationSnapshotV2 {
+  uid: string;
+  identity: AnnotationPersistenceIdentityV2;
+  storagePath: string;
+  document: AnnotationPersistenceDocumentV2;
+  jsonByteLength: number;
+}
+
+type AnnotationRestoreStatusV2 =
+  | 'idle'
+  | 'ready'
+  | 'restoring'
+  | 'restored'
+  | 'cancelled'
+  | 'blocked'
+  | 'error';
+
+interface AnnotationRestoreDiagnosticV2 {
+  status: AnnotationRestoreStatusV2;
+  storagePath: string | null;
+  loadedStrokeCount: number;
+  loadedPointCount: number;
+  beforeStrokeCount: number;
+  restoredStrokeCount: number;
+  restoredPointCount: number;
+  currentDocumentInstanceId: number | null;
+  undoDepthAfterRestore: number;
+  redoDepthAfterRestore: number;
+  nextStrokeIdCounter: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+function createIdleAnnotationRestoreDiagnosticV2(): AnnotationRestoreDiagnosticV2 {
+  return {
+    status: 'idle',
+    storagePath: null,
+    loadedStrokeCount: 0,
+    loadedPointCount: 0,
+    beforeStrokeCount: 0,
+    restoredStrokeCount: 0,
+    restoredPointCount: 0,
+    currentDocumentInstanceId: null,
+    undoDepthAfterRestore: 0,
+    redoDepthAfterRestore: 0,
+    nextStrokeIdCounter: null,
+    errorCode: null,
+    errorMessage: null
+  };
+}
+
 function arePersistenceRoundTripStrokesEqualV2(
   source: readonly AnnotationCompletedStrokeV2[],
   restored: readonly AnnotationCompletedStrokeV2[]
@@ -508,11 +560,15 @@ export default function V2GestureBaselineLab() {
   };
   
   
+
   const [persistenceStorageIdentity, setPersistenceStorageIdentity] = useState<AnnotationPersistenceIdentityV2 | null>(null);
   const [persistenceStorageSaveDiagnostic, setPersistenceStorageSaveDiagnostic] = useState<PersistenceStorageSaveDiagnosticV2>(createIdlePersistenceStorageSaveDiagnosticV2());
   const [persistenceStorageLoadDiagnostic, setPersistenceStorageLoadDiagnostic] = useState<PersistenceStorageLoadDiagnosticV2>(createIdlePersistenceStorageLoadDiagnosticV2());
+  const [loadedAnnotationSnapshot, setLoadedAnnotationSnapshot] = useState<LoadedAnnotationSnapshotV2 | null>(null);
+  const [annotationRestoreDiagnostic, setAnnotationRestoreDiagnostic] = useState<AnnotationRestoreDiagnosticV2>(createIdleAnnotationRestoreDiagnosticV2());
   const storageSaveSequenceRef = useRef(0);
   const storageLoadSequenceRef = useRef(0);
+
 
   const activeDrawingStyle = activeDrawingTool === 'highlighter' ? activeHighlighterStyle : activePenStyle;
 
@@ -535,21 +591,30 @@ export default function V2GestureBaselineLab() {
   }, [isAdmin]);
 
 
+
   useEffect(() => {
     storageSaveSequenceRef.current += 1;
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
+    setLoadedAnnotationSnapshot(null);
+    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
   }, [annotationHistory.completedStrokes]);
+
 
   const handleSavePersistenceToStorage = async () => {
     if (!user || !user.uid) return;
     if (!docReady || !currentBaseline || !persistenceStorageIdentity) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
     if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) return;
+
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
     if (persistenceStorageLoadDiagnostic.status === 'loading') return;
+    if (annotationRestoreDiagnostic.status === 'restoring') return;
     
     storageLoadSequenceRef.current += 1;
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
+    setLoadedAnnotationSnapshot(null);
+    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
+
 
     const sourceStrokes = annotationHistory.completedStrokes.filter(
       stroke => stroke.documentInstanceId === documentInstanceIdRef.current
@@ -674,8 +739,10 @@ export default function V2GestureBaselineLab() {
     if (!docReady || !persistenceStorageIdentity) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
     if ((transformInfo?.activePointerCount ?? 0) > 0) return;
+
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
     if (persistenceStorageLoadDiagnostic.status === 'loading') return;
+    if (annotationRestoreDiagnostic.status === 'restoring') return;
 
     const currentLoadStorageSeq = ++storageLoadSequenceRef.current;
     const currentInstanceId = documentInstanceIdRef.current;
@@ -686,6 +753,9 @@ export default function V2GestureBaselineLab() {
       ...createIdlePersistenceStorageLoadDiagnosticV2(),
       status: 'loading'
     });
+    setLoadedAnnotationSnapshot(null);
+    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
+
 
     try {
       const result = await loadAnnotationPersistenceDocumentV2({
@@ -736,6 +806,7 @@ export default function V2GestureBaselineLab() {
           currentMemoryFidelityStatus = passed ? 'pass' : 'mismatch';
         }
 
+
         setPersistenceStorageLoadDiagnostic({
           status: 'loaded',
           currentDocumentInstanceId: currentInstanceId,
@@ -754,6 +825,20 @@ export default function V2GestureBaselineLab() {
           errorPath: null,
           errorMessage: null
         });
+
+        setLoadedAnnotationSnapshot({
+          uid: currentUid,
+          identity: currentIdentity,
+          storagePath: result.storagePath,
+          document: doc,
+          jsonByteLength: result.jsonByteLength
+        });
+        
+        setAnnotationRestoreDiagnostic({
+          ...createIdleAnnotationRestoreDiagnosticV2(),
+          status: 'ready'
+        });
+
       } else if (result.status === 'not-found') {
         setPersistenceStorageLoadDiagnostic({
           ...createIdlePersistenceStorageLoadDiagnosticV2(),
@@ -802,6 +887,119 @@ export default function V2GestureBaselineLab() {
     }
   };
 
+
+  const handleRestoreLoadedSnapshot = async () => {
+    if (!user || !user.uid) return;
+    if (!docReady || !persistenceStorageIdentity || !loadedAnnotationSnapshot) return;
+    if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
+    if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) return;
+    if (persistenceStorageSaveDiagnostic.status === 'saving') return;
+    if (persistenceStorageLoadDiagnostic.status === 'loading') return;
+    if (annotationRestoreDiagnostic.status === 'restoring') return;
+
+    if (
+      user.uid !== loadedAnnotationSnapshot.uid ||
+      persistenceStorageIdentity.repertoireId !== loadedAnnotationSnapshot.identity.repertoireId ||
+      persistenceStorageIdentity.fileId !== loadedAnnotationSnapshot.identity.fileId ||
+      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath
+    ) {
+      setAnnotationRestoreDiagnostic(prev => ({
+        ...prev,
+        status: 'blocked',
+        errorCode: 'identity-mismatch',
+        errorMessage: 'The loaded snapshot identity does not match current document'
+      }));
+      return;
+    }
+    
+    setAnnotationRestoreDiagnostic(prev => ({
+      ...prev,
+      status: 'restoring'
+    }));
+    
+    if (annotationHistory.completedStrokes.length > 0 || annotationHistory.undoStack.length > 0 || annotationHistory.redoStack.length > 0) {
+      const confirmed = window.confirm("현재 화면의 필기와 Undo/Redo 기록이 불러온 snapshot으로 교체됩니다.\n저장하지 않은 변경은 사라질 수 있습니다.\n계속하시겠습니까?");
+      if (!confirmed) {
+        setAnnotationRestoreDiagnostic(prev => ({
+          ...prev,
+          status: 'cancelled'
+        }));
+        return;
+      }
+    }
+
+    const currentInstanceId = documentInstanceIdRef.current;
+    
+    let nextCounter = strokeIdCounterRef.current;
+    const prefix = 'stroke-';
+    
+    const restoredStrokes = restoreAnnotationCompletedStrokesV2(
+      loadedAnnotationSnapshot.document,
+      currentInstanceId
+    );
+    
+    let loadedStrokeCount = 0;
+    let loadedPointCount = 0;
+    
+    for (const stroke of restoredStrokes) {
+      loadedStrokeCount++;
+      loadedPointCount += stroke.points.length;
+      
+      if (!Number.isInteger(stroke.pageNumber) || stroke.pageNumber < 1 || stroke.pageNumber > numPages) {
+        setAnnotationRestoreDiagnostic(prev => ({
+          ...prev,
+          status: 'blocked',
+          errorCode: 'page-out-of-range',
+          errorMessage: `Stroke has invalid page number: ${stroke.pageNumber}`
+        }));
+        return;
+      }
+      
+      if (stroke.id.startsWith(prefix)) {
+        const numericId = Number(stroke.id.slice(prefix.length));
+        if (Number.isSafeInteger(numericId) && numericId >= nextCounter) {
+          nextCounter = numericId + 1;
+        }
+      }
+    }
+    
+    if (loadedStrokeCount === 0) {
+      setAnnotationRestoreDiagnostic(prev => ({
+        ...prev,
+        status: 'blocked',
+        errorCode: 'empty-loaded-snapshot',
+        errorMessage: 'Cannot restore an empty snapshot'
+      }));
+      return;
+    }
+    
+    const emptyHistory = createEmptyHistoryV2();
+    setAnnotationHistory({
+      ...emptyHistory,
+      completedStrokes: restoredStrokes
+    });
+    
+    strokeIdCounterRef.current = nextCounter;
+    
+    setAnnotationRestoreDiagnostic({
+      status: 'restored',
+      storagePath: loadedAnnotationSnapshot.storagePath,
+      loadedStrokeCount: loadedStrokeCount,
+      loadedPointCount: loadedPointCount,
+      beforeStrokeCount: annotationHistory.completedStrokes.length,
+      restoredStrokeCount: loadedStrokeCount,
+      restoredPointCount: loadedPointCount,
+      currentDocumentInstanceId: currentInstanceId,
+      undoDepthAfterRestore: 0,
+      redoDepthAfterRestore: 0,
+      nextStrokeIdCounter: nextCounter,
+      errorCode: null,
+      errorMessage: null
+    });
+    
+    setLoadedAnnotationSnapshot(null);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -813,12 +1011,16 @@ export default function V2GestureBaselineLab() {
       viewportRef.current.resetTransform();
     }
 
+
     storageSaveSequenceRef.current += 1;
     storageLoadSequenceRef.current += 1;
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
+    setLoadedAnnotationSnapshot(null);
+    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
     const nextStorageIdentity = createLabStorageIdentityV2(file);
+
 
     setDocReady(false);
     setErrorMessage('');
@@ -1151,17 +1353,20 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-B Manual Firebase Storage Load and Verify Diagnostic]</h1>
+
+        <h1 className="text-xl font-bold text-brand-light">[4E-C4E-C Manual Loaded Snapshot Restore Baseline]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Pen and highlighter drawing active<br/>
           In-memory codec diagnostic active<br/>
-          Manual Firebase Storage save diagnostic active<br/>
-          Manual Firebase Storage load and verify diagnostic active<br/>
-          Automatic persistence disabled<br/>
-          History replacement disabled<br/>
-          Canvas restore disabled<br/>
+          Manual Firebase Storage save active<br/>
+          Manual Firebase Storage load and verification active<br/>
+          Explicit loaded snapshot restore active<br/>
+          Restore replaces current memory after confirmation<br/>
+          Restored snapshot becomes a clean history baseline<br/>
+          Automatic load/save disabled<br/>
           Spatial eraser active
+
         </div>
       </div>
       
@@ -1286,7 +1491,8 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C4E-B</div>
+
+              <div>Annotation Stage: 4E-C4E-C</div>
               <div>Persistence Schema: CONNECTED</div>
               <div>Persistence Codec: CONNECTED</div>
               <div>Firebase Storage Adapter: CONNECTED</div>
@@ -1294,8 +1500,7 @@ export default function V2GestureBaselineLab() {
               <div>Persistent Load: MANUAL VERIFY ONLY</div>
               <div>Automatic Save: DISABLED</div>
               <div>Automatic Load: DISABLED</div>
-              <div>History Replacement: DISABLED</div>
-              <div>Canvas Restore: DISABLED</div>
+
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
               <div>Active Tool: {activeDrawingTool.toUpperCase()}</div>
@@ -1610,9 +1815,58 @@ export default function V2GestureBaselineLab() {
                   </div>
                 )}
               </div>
+
+            </div>
+
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Firebase Storage Restore Diagnostic</span>
+              </div>
+              <div className="text-xs text-stone-400 space-y-1">
+                <div>Mode: EXPLICIT MANUAL RESTORE</div>
+                <div>Replace current memory after confirmation</div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={handleRestoreLoadedSnapshot}
+                disabled={!user || !user.uid || !docReady || !persistenceStorageIdentity || !loadedAnnotationSnapshot || isLoading || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring'}
+                className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
+              >
+                {annotationRestoreDiagnostic.status === 'restoring' ? 'Restoring...' : 'Restore Loaded Snapshot to Canvas'}
+              </button>
+
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={`font-bold ${annotationRestoreDiagnostic.status === 'restored' ? 'text-emerald-400' : (annotationRestoreDiagnostic.status === 'error' || annotationRestoreDiagnostic.status === 'blocked') ? 'text-red-400' : (annotationRestoreDiagnostic.status === 'restoring') ? 'text-yellow-400' : 'text-stone-400'}`}>
+                  Restore Status: {annotationRestoreDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Restore Source Path: {annotationRestoreDiagnostic.storagePath !== null ? annotationRestoreDiagnostic.storagePath : 'NONE'}</div>
+                <div className="text-stone-300">Loaded Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.loadedStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Points: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.loadedPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Before Restore Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.beforeStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Strokes: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.restoredStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Points: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.restoredPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Current Document Instance: {annotationRestoreDiagnostic.currentDocumentInstanceId !== null ? annotationRestoreDiagnostic.currentDocumentInstanceId : 'NONE'}</div>
+                <div className="text-stone-300">Undo Depth After Restore: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.undoDepthAfterRestore : 'NOT RUN'}</div>
+                <div className="text-stone-300">Redo Depth After Restore: {annotationRestoreDiagnostic.status === 'restored' ? annotationRestoreDiagnostic.redoDepthAfterRestore : 'NOT RUN'}</div>
+                <div className="text-stone-300">Next Stroke ID Counter: {annotationRestoreDiagnostic.nextStrokeIdCounter !== null ? annotationRestoreDiagnostic.nextStrokeIdCounter : 'NOT RUN'}</div>
+
+                {(annotationRestoreDiagnostic.errorCode) && (
+                  <div className="mt-2 text-red-400 border-t border-red-500/20 pt-2">
+                    <div>Restore Error Code: {annotationRestoreDiagnostic.errorCode}</div>
+                    <div>Restore Error Message: {annotationRestoreDiagnostic.errorMessage}</div>
+                  </div>
+                )}
+                {annotationRestoreDiagnostic.status === 'restored' && (
+                  <div className="mt-2 text-emerald-400 border-t border-emerald-500/20 pt-2">
+                    Restore Error: NONE
+                  </div>
+                )}
+              </div>
             </div>
             
             <div className="flex gap-2 items-center mt-4">
+
               <button 
                 onClick={handleUndo}
                 disabled={undoDepth === 0 || !docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle'}
