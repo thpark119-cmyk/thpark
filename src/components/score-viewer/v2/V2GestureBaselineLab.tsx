@@ -595,8 +595,6 @@ export default function V2GestureBaselineLab() {
   useEffect(() => {
     storageSaveSequenceRef.current += 1;
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
-    setLoadedAnnotationSnapshot(null);
-    setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
   }, [annotationHistory.completedStrokes]);
 
 
