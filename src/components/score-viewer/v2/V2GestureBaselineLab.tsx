@@ -305,16 +305,15 @@ export default function V2GestureBaselineLab() {
       let errorPath: string | null = null;
       let errorMessage: string | null = null;
 
-      if (parseResult.ok) {
+      if (parseResult.ok === true) {
         codecValidationPassed = true;
         jsonByteLength = parseResult.jsonByteLength;
         restoredStrokes = restoreAnnotationCompletedStrokesV2(parseResult.document, documentInstanceIdRef.current);
         strokeFidelityPassed = arePersistenceRoundTripStrokesEqualV2(sourceStrokes, restoredStrokes);
       } else {
-        const errorResult = parseResult as { ok: false, code: string, path: string, message: string };
-        errorCode = errorResult.code;
-        errorPath = errorResult.path;
-        errorMessage = errorResult.message;
+        errorCode = parseResult.code;
+        errorPath = parseResult.path;
+        errorMessage = parseResult.message;
       }
 
       const mismatchedIdentity: AnnotationPersistenceIdentityV2 = {
@@ -322,7 +321,7 @@ export default function V2GestureBaselineLab() {
         fileId: `${identity.fileId}-mismatch`
       };
       const mismatchResult = parseAnnotationPersistenceJsonV2(jsonString, mismatchedIdentity);
-      const identityMismatchDefensePassed = !mismatchResult.ok && (mismatchResult as { ok: false, code: string }).code === 'identity-mismatch';
+      const identityMismatchDefensePassed = mismatchResult.ok === false && mismatchResult.code === 'identity-mismatch';
 
       let legacyPointerFallbackPassed: boolean | null = null;
       if (sourceStrokes.length > 0) {
