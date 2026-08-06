@@ -34,6 +34,15 @@ import {
   redoPageHistoryV2,
   getPageHistoryDepthV2
 } from './annotationHistoryV2';
+import {
+  createAnnotationPersistenceDocumentV2,
+  parseAnnotationPersistenceJsonV2,
+  restoreAnnotationCompletedStrokesV2
+} from './annotationPersistenceCodecV2';
+import type {
+  AnnotationPersistenceDocumentV2,
+  AnnotationPersistenceIdentityV2
+} from './annotationPersistenceTypesV2';
 
 interface RenderErrorDiagnosticV2 {
   code: string;
@@ -107,6 +116,92 @@ const HIGHLIGHTER_WIDTH_PRESETS_V2: readonly HighlighterWidthPresetV2[] = [
   { label: '굵게', width: 18 }
 ];
 
+type PersistenceRoundTripStatusV2 = 'idle' | 'passed' | 'failed';
+
+interface PersistenceRoundTripDiagnosticV2 {
+  status: PersistenceRoundTripStatusV2;
+  documentInstanceId: number | null;
+  sourceStrokeCount: number;
+  restoredStrokeCount: number;
+  sourcePointCount: number;
+  restoredPointCount: number;
+  penStrokeCount: number;
+  highlighterStrokeCount: number;
+  jsonByteLength: number;
+  codecValidationPassed: boolean;
+  strokeFidelityPassed: boolean;
+  identityMismatchDefensePassed: boolean;
+  legacyPointerFallbackPassed: boolean | null;
+  errorCode: string | null;
+  errorPath: string | null;
+  errorMessage: string | null;
+}
+
+function createIdlePersistenceDiagnosticV2(): PersistenceRoundTripDiagnosticV2 {
+  return {
+    status: 'idle',
+    documentInstanceId: null,
+    sourceStrokeCount: 0,
+    restoredStrokeCount: 0,
+    sourcePointCount: 0,
+    restoredPointCount: 0,
+    penStrokeCount: 0,
+    highlighterStrokeCount: 0,
+    jsonByteLength: 0,
+    codecValidationPassed: false,
+    strokeFidelityPassed: false,
+    identityMismatchDefensePassed: false,
+    legacyPointerFallbackPassed: null,
+    errorCode: null,
+    errorPath: null,
+    errorMessage: null
+  };
+}
+
+function arePersistenceRoundTripStrokesEqualV2(
+  source: readonly AnnotationCompletedStrokeV2[],
+  restored: readonly AnnotationCompletedStrokeV2[]
+): boolean {
+  if (source.length !== restored.length) {
+    return false;
+  }
+
+  const sortedSource = source
+    .map((stroke, originalIndex) => ({ stroke, originalIndex }))
+    .sort((a, b) =>
+      a.stroke.pageNumber - b.stroke.pageNumber ||
+      a.originalIndex - b.originalIndex
+    )
+    .map(item => item.stroke);
+
+  for (let i = 0; i < sortedSource.length; i++) {
+    const s = sortedSource[i];
+    const r = restored[i];
+
+    if (
+      s.id !== r.id ||
+      s.documentInstanceId !== r.documentInstanceId ||
+      s.pageNumber !== r.pageNumber ||
+      s.tool !== r.tool ||
+      s.style.color !== r.style.color ||
+      s.style.width !== r.style.width ||
+      s.style.opacity !== r.style.opacity ||
+      s.pointerType !== r.pointerType ||
+      s.points.length !== r.points.length
+    ) {
+      return false;
+    }
+
+    for (let j = 0; j < s.points.length; j++) {
+      if (s.points[j].x !== r.points[j].x || s.points[j].y !== r.points[j].y) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
@@ -167,6 +262,154 @@ export default function V2GestureBaselineLab() {
     currentPointCount: 0,
     touchSuppressedUntilRelease: false
   });
+  
+  const [persistenceDiagnostic, setPersistenceDiagnostic] = useState<PersistenceRoundTripDiagnosticV2>(createIdlePersistenceDiagnosticV2);
+
+  useEffect(() => {
+    setPersistenceDiagnostic(createIdlePersistenceDiagnosticV2());
+  }, [annotationHistory.completedStrokes]);
+
+  const handleRunPersistenceRoundTrip = () => {
+    if (!docReady || !currentBaseline || isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
+    if (transformInfo && (transformInfo.phase !== 'idle' || transformInfo.activePointerCount > 0)) return;
+
+    try {
+      const now = new Date().toISOString();
+      const identity: AnnotationPersistenceIdentityV2 = {
+        repertoireId: 'v2-renderer-lab',
+        fileId: `local-document-${documentInstanceIdRef.current}`,
+        sourceStoragePath: `local-lab://${docName || 'unnamed.pdf'}`
+      };
+
+      const sourceStrokes = annotationHistory.completedStrokes.filter(
+        stroke => stroke.documentInstanceId === documentInstanceIdRef.current
+      );
+
+      const doc = createAnnotationPersistenceDocumentV2({
+        identity,
+        documentInstanceId: documentInstanceIdRef.current,
+        strokes: sourceStrokes,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      const jsonString = JSON.stringify(doc);
+      
+      const parseResult = parseAnnotationPersistenceJsonV2(jsonString, identity);
+      
+      let codecValidationPassed = false;
+      let strokeFidelityPassed = false;
+      let restoredStrokes: AnnotationCompletedStrokeV2[] = [];
+      let jsonByteLength = 0;
+      let errorCode: string | null = null;
+      let errorPath: string | null = null;
+      let errorMessage: string | null = null;
+
+      if (parseResult.ok) {
+        codecValidationPassed = true;
+        jsonByteLength = parseResult.jsonByteLength;
+        restoredStrokes = restoreAnnotationCompletedStrokesV2(parseResult.document, documentInstanceIdRef.current);
+        strokeFidelityPassed = arePersistenceRoundTripStrokesEqualV2(sourceStrokes, restoredStrokes);
+      } else {
+        const errorResult = parseResult as { ok: false, code: string, path: string, message: string };
+        errorCode = errorResult.code;
+        errorPath = errorResult.path;
+        errorMessage = errorResult.message;
+      }
+
+      const mismatchedIdentity: AnnotationPersistenceIdentityV2 = {
+        ...identity,
+        fileId: `${identity.fileId}-mismatch`
+      };
+      const mismatchResult = parseAnnotationPersistenceJsonV2(jsonString, mismatchedIdentity);
+      const identityMismatchDefensePassed = !mismatchResult.ok && (mismatchResult as { ok: false, code: string }).code === 'identity-mismatch';
+
+      let legacyPointerFallbackPassed: boolean | null = null;
+      if (sourceStrokes.length > 0) {
+        const firstStroke = sourceStrokes[0];
+        const legacyDocument: AnnotationPersistenceDocumentV2 = {
+          schemaVersion: 1,
+          repertoireId: identity.repertoireId,
+          fileId: identity.fileId,
+          sourceStoragePath: identity.sourceStoragePath,
+          createdAt: now,
+          updatedAt: now,
+          pages: {
+            [String(firstStroke.pageNumber)]: {
+              pageNumber: firstStroke.pageNumber,
+              strokes: [
+                {
+                  id: `${firstStroke.id}-legacy-pointer`,
+                  tool: firstStroke.tool,
+                  color: firstStroke.style.color,
+                  width: firstStroke.style.width,
+                  opacity: firstStroke.style.opacity,
+                  createdAt: now,
+                  points: firstStroke.points.map(point => ({ x: point.x, y: point.y }))
+                }
+              ]
+            }
+          }
+        };
+
+        const legacyJson = JSON.stringify(legacyDocument);
+        const legacyResult = parseAnnotationPersistenceJsonV2(legacyJson, identity);
+        if (legacyResult.ok) {
+          const legacyRestored = restoreAnnotationCompletedStrokesV2(legacyResult.document, documentInstanceIdRef.current);
+          if (legacyRestored.length === 1 && legacyRestored[0].pointerType === 'mouse') {
+            legacyPointerFallbackPassed = true;
+          } else {
+            legacyPointerFallbackPassed = false;
+          }
+        } else {
+          legacyPointerFallbackPassed = false;
+        }
+      }
+
+      const passed = codecValidationPassed && strokeFidelityPassed && identityMismatchDefensePassed && (legacyPointerFallbackPassed === true || legacyPointerFallbackPassed === null);
+
+      let sourcePointCount = 0;
+      let penStrokeCount = 0;
+      let highlighterStrokeCount = 0;
+      sourceStrokes.forEach(s => {
+        sourcePointCount += s.points.length;
+        if (s.tool === 'pen') penStrokeCount++;
+        if (s.tool === 'highlighter') highlighterStrokeCount++;
+      });
+
+      let restoredPointCount = 0;
+      restoredStrokes.forEach(s => {
+        restoredPointCount += s.points.length;
+      });
+
+      setPersistenceDiagnostic({
+        status: passed ? 'passed' : 'failed',
+        documentInstanceId: documentInstanceIdRef.current,
+        sourceStrokeCount: sourceStrokes.length,
+        restoredStrokeCount: restoredStrokes.length,
+        sourcePointCount,
+        restoredPointCount,
+        penStrokeCount,
+        highlighterStrokeCount,
+        jsonByteLength,
+        codecValidationPassed,
+        strokeFidelityPassed,
+        identityMismatchDefensePassed,
+        legacyPointerFallbackPassed,
+        errorCode,
+        errorPath,
+        errorMessage
+      });
+
+    } catch (error) {
+      setPersistenceDiagnostic(prev => ({
+        ...prev,
+        status: 'failed',
+        errorCode: 'exception',
+        errorMessage: error instanceof Error ? error.message : String(error)
+      }));
+    }
+  };
   
   const activeDrawingStyle = activeDrawingTool === 'highlighter' ? activeHighlighterStyle : activePenStyle;
 
@@ -524,18 +767,15 @@ export default function V2GestureBaselineLab() {
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C3D Highlighter Style Controls]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C4C In-Memory Persistence Round-Trip Diagnostic]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          Annotation V2 memory drawing + add/erase action history active<br/>
-          Typed per-stroke pen and highlighter tools active<br/>
-          Independent pen and highlighter style states active<br/>
-          Preset pen color and width controls active<br/>
-          Preset highlighter color and width controls active<br/>
-          Highlighter opacity fixed at 0.35<br/>
-          Verified shared drawing pointer lifecycle preserved<br/>
-          Spatial eraser active<br/>
-          Persistent storage disabled
+          Pen and highlighter drawing active<br/>
+          Per-stroke style and memory history active<br/>
+          Persistence codec round-trip diagnostic connected<br/>
+          Firebase storage disabled<br/>
+          Persistent save/load disabled<br/>
+          Spatial eraser active
         </div>
       </div>
       
@@ -660,7 +900,12 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C3D</div>
+              <div>Annotation Stage: 4E-C4C</div>
+              <div>Persistence Schema: CONNECTED</div>
+              <div>Persistence Codec: CONNECTED</div>
+              <div>Persistence Diagnostic: IN-MEMORY ONLY</div>
+              <div>Persistent Save/Load: DISABLED</div>
+              <div>Firebase Storage: DISABLED</div>
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
               <div>Active Tool: {activeDrawingTool.toUpperCase()}</div>
@@ -828,8 +1073,62 @@ export default function V2GestureBaselineLab() {
               </div>
               <div className="text-[10px] text-stone-500">Opacity: 0.35 fixed | Blend: source-over</div>
             </div>
+
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Persistence Round-Trip Diagnostic</span>
+              </div>
+              <div className="text-xs text-stone-400 space-y-1">
+                <div>Mode: IN-MEMORY ONLY</div>
+                <div>Firebase Storage: DISABLED</div>
+                <div>History Replacement: DISABLED</div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={handleRunPersistenceRoundTrip}
+                disabled={!docReady || !currentBaseline || isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || (transformInfo !== null && (transformInfo.phase !== 'idle' || transformInfo.activePointerCount > 0))}
+                className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
+              >
+                Run In-Memory Round Trip
+              </button>
+
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={`font-bold ${persistenceDiagnostic.status === 'passed' ? 'text-emerald-400' : persistenceDiagnostic.status === 'failed' ? 'text-red-400' : 'text-stone-400'}`}>
+                  Status: {persistenceDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Document Instance: {persistenceDiagnostic.documentInstanceId !== null ? persistenceDiagnostic.documentInstanceId : 'NOT RUN'}</div>
+                <div className="text-stone-300">Source Strokes: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.sourceStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Strokes: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.restoredStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Source Points: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.sourcePointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Restored Points: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.restoredPointCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Pen Strokes: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.penStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Highlighter Strokes: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.highlighterStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">JSON Bytes: {persistenceDiagnostic.status !== 'idle' ? persistenceDiagnostic.jsonByteLength : 'NOT RUN'}</div>
+                
+                <div className="mt-2 border-t border-white/10 pt-2 text-stone-400">
+                  <div>Codec Validation: <span className={persistenceDiagnostic.status !== 'idle' ? (persistenceDiagnostic.codecValidationPassed ? 'text-emerald-400' : 'text-red-400') : ''}>{persistenceDiagnostic.status === 'idle' ? 'NOT RUN' : (persistenceDiagnostic.codecValidationPassed ? 'PASS' : 'FAIL')}</span></div>
+                  <div>Stroke Fidelity: <span className={persistenceDiagnostic.status !== 'idle' ? (persistenceDiagnostic.strokeFidelityPassed ? 'text-emerald-400' : 'text-red-400') : ''}>{persistenceDiagnostic.status === 'idle' ? 'NOT RUN' : (persistenceDiagnostic.strokeFidelityPassed ? 'PASS' : 'FAIL')}</span></div>
+                  <div>Identity Mismatch Defense: <span className={persistenceDiagnostic.status !== 'idle' ? (persistenceDiagnostic.identityMismatchDefensePassed ? 'text-emerald-400' : 'text-red-400') : ''}>{persistenceDiagnostic.status === 'idle' ? 'NOT RUN' : (persistenceDiagnostic.identityMismatchDefensePassed ? 'PASS' : 'FAIL')}</span></div>
+                  <div>Legacy Pointer Fallback: <span className={persistenceDiagnostic.status !== 'idle' && persistenceDiagnostic.legacyPointerFallbackPassed !== null ? (persistenceDiagnostic.legacyPointerFallbackPassed ? 'text-emerald-400' : 'text-red-400') : ''}>{persistenceDiagnostic.status === 'idle' || persistenceDiagnostic.legacyPointerFallbackPassed === null ? 'NOT RUN' : (persistenceDiagnostic.legacyPointerFallbackPassed ? 'PASS' : 'FAIL')}</span></div>
+                </div>
+
+                {persistenceDiagnostic.errorCode && (
+                  <div className="mt-2 text-red-400 border-t border-red-500/20 pt-2">
+                    <div>Error Code: {persistenceDiagnostic.errorCode}</div>
+                    {persistenceDiagnostic.errorPath && <div>Error Path: {persistenceDiagnostic.errorPath}</div>}
+                    <div>Error Message: {persistenceDiagnostic.errorMessage}</div>
+                  </div>
+                )}
+                {!persistenceDiagnostic.errorCode && persistenceDiagnostic.status !== 'idle' && (
+                  <div className="mt-2 text-emerald-400 border-t border-emerald-500/20 pt-2">
+                    Error: NONE
+                  </div>
+                )}
+              </div>
+            </div>
             
-            <div className="flex gap-2 items-center mt-2">
+            <div className="flex gap-2 items-center mt-4">
               <button 
                 onClick={handleUndo}
                 disabled={undoDepth === 0 || !docReady || !annotationPageSpace || isGestureActive || inputStatus.phase !== 'idle'}
