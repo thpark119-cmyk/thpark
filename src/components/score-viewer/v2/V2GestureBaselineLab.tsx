@@ -78,11 +78,34 @@ const PEN_WIDTH_PRESETS_V2: readonly PenWidthPresetV2[] = [
   { label: '굵게', width: 5 }
 ];
 
-const FIXED_HIGHLIGHTER_STYLE_V2: AnnotationStrokeStyleV2 = {
+const ANNOTATION_DEFAULT_HIGHLIGHTER_STYLE_V2: AnnotationStrokeStyleV2 = {
   color: '#fde047',
   width: 14,
   opacity: 0.35
 };
+
+interface HighlighterColorPresetV2 {
+  label: string;
+  color: string;
+}
+
+const HIGHLIGHTER_COLOR_PRESETS_V2: readonly HighlighterColorPresetV2[] = [
+  { label: '노랑', color: '#fde047' },
+  { label: '초록', color: '#4ade80' },
+  { label: '분홍', color: '#f472b6' },
+  { label: '파랑', color: '#60a5fa' }
+];
+
+interface HighlighterWidthPresetV2 {
+  label: string;
+  width: number;
+}
+
+const HIGHLIGHTER_WIDTH_PRESETS_V2: readonly HighlighterWidthPresetV2[] = [
+  { label: '얇게', width: 10 },
+  { label: '보통', width: 14 },
+  { label: '굵게', width: 18 }
+];
 
 export default function V2GestureBaselineLab() {
   const { user } = useAuth();
@@ -130,6 +153,11 @@ export default function V2GestureBaselineLab() {
     width: ANNOTATION_DEFAULT_PEN_STYLE_V2.width,
     opacity: ANNOTATION_DEFAULT_PEN_STYLE_V2.opacity
   }));
+  const [activeHighlighterStyle, setActiveHighlighterStyle] = useState<AnnotationStrokeStyleV2>(() => ({
+    color: ANNOTATION_DEFAULT_HIGHLIGHTER_STYLE_V2.color,
+    width: ANNOTATION_DEFAULT_HIGHLIGHTER_STYLE_V2.width,
+    opacity: ANNOTATION_DEFAULT_HIGHLIGHTER_STYLE_V2.opacity
+  }));
   const [annotationHistory, setAnnotationHistory] = useState<AnnotationHistoryStateV2>(createEmptyHistoryV2);
   const strokeIdCounterRef = useRef(1);
   const [inputStatus, setInputStatus] = useState<AnnotationInputStatusV2>({
@@ -140,7 +168,7 @@ export default function V2GestureBaselineLab() {
     touchSuppressedUntilRelease: false
   });
   
-  const activeDrawingStyle = activeDrawingTool === 'highlighter' ? FIXED_HIGHLIGHTER_STYLE_V2 : activePenStyle;
+  const activeDrawingStyle = activeDrawingTool === 'highlighter' ? activeHighlighterStyle : activePenStyle;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -491,18 +519,21 @@ export default function V2GestureBaselineLab() {
 
   const modeControlsDisabled = !docReady || !annotationPageSpace || Boolean(isGestureActive) || inputStatus.phase !== 'idle';
   const penStyleControlsDisabled = modeControlsDisabled || activeDrawingTool !== 'pen';
+  const highlighterStyleControlsDisabled = modeControlsDisabled || activeDrawingTool !== 'highlighter';
 
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
-        <h1 className="text-xl font-bold text-brand-light">[4E-C3C Highlighter Input Baseline]</h1>
+        <h1 className="text-xl font-bold text-brand-light">[4E-C3D Highlighter Style Controls]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Annotation V2 memory drawing + add/erase action history active<br/>
           Typed per-stroke pen and highlighter tools active<br/>
+          Independent pen and highlighter style states active<br/>
           Preset pen color and width controls active<br/>
-          Fixed translucent highlighter input active<br/>
-          Pen/highlighter share the verified drawing pointer lifecycle<br/>
+          Preset highlighter color and width controls active<br/>
+          Highlighter opacity fixed at 0.35<br/>
+          Verified shared drawing pointer lifecycle preserved<br/>
           Spatial eraser active<br/>
           Persistent storage disabled
         </div>
@@ -629,16 +660,20 @@ export default function V2GestureBaselineLab() {
 
             <div className="bg-stone-950 p-3 rounded text-xs space-y-2 font-mono text-stone-400 border border-white/5">
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
-              <div>Annotation Stage: 4E-C3C</div>
+              <div>Annotation Stage: 4E-C3D</div>
               <div>Stroke Tool Model: TYPED</div>
               <div>Stroke Style Storage: PER STROKE</div>
               <div>Active Tool: {activeDrawingTool.toUpperCase()}</div>
               <div>Active Color: {activeDrawingStyle.color}</div>
               <div>Active Width: {activeDrawingStyle.width} LOGICAL PX</div>
               <div>Active Opacity: {activeDrawingStyle.opacity}</div>
+              <div>Selected Highlighter Color: {activeHighlighterStyle.color}</div>
+              <div>Selected Highlighter Width: {activeHighlighterStyle.width} LOGICAL PX</div>
+              <div>Selected Highlighter Opacity: {activeHighlighterStyle.opacity}</div>
               <div>Pen Style Controls: CONNECTED</div>
               <div>Highlighter Input: CONNECTED</div>
-              <div>Highlighter Style: FIXED</div>
+              <div>Highlighter Style Controls: CONNECTED</div>
+              <div>Highlighter Opacity Control: NOT ENABLED</div>
               <div>Highlighter Blend: SOURCE-OVER</div>
               <div>Style Persistence: MEMORY ONLY</div>
               <div>Interaction Mode: {interactionMode.toUpperCase()}</div>
@@ -759,6 +794,39 @@ export default function V2GestureBaselineLab() {
                   </button>
                 ))}
               </div>
+            </div>
+            
+            <div className={`bg-stone-950 p-3 rounded border border-white/5 space-y-3 ${activeDrawingTool !== 'highlighter' ? 'opacity-50' : ''}`}>
+              <div className="text-xs font-semibold text-stone-400">Highlighter Style &mdash; 형광펜 전용</div>
+              <div className="flex gap-2">
+                {HIGHLIGHTER_COLOR_PRESETS_V2.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    aria-label={`${preset.label} 형광펜`}
+                    aria-pressed={activeHighlighterStyle.color === preset.color}
+                    disabled={highlighterStyleControlsDisabled}
+                    onClick={() => setActiveHighlighterStyle(prev => ({ ...prev, color: preset.color }))}
+                    className={`w-8 h-8 rounded-full border-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-stone-900 focus:ring-blue-500 disabled:opacity-50 ${activeHighlighterStyle.color === preset.color ? 'border-white' : 'border-transparent'}`}
+                    style={{ backgroundColor: preset.color }}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {HIGHLIGHTER_WIDTH_PRESETS_V2.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    aria-pressed={activeHighlighterStyle.width === preset.width}
+                    disabled={highlighterStyleControlsDisabled}
+                    onClick={() => setActiveHighlighterStyle(prev => ({ ...prev, width: preset.width }))}
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium border ${activeHighlighterStyle.width === preset.width ? 'bg-yellow-600 border-yellow-500 text-stone-900' : 'bg-stone-800 border-white/10 text-stone-300 hover:bg-stone-700'} disabled:opacity-50`}
+                  >
+                    {preset.label} {preset.width}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[10px] text-stone-500">Opacity: 0.35 fixed | Blend: source-over</div>
             </div>
             
             <div className="flex gap-2 items-center mt-2">
