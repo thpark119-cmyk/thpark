@@ -601,6 +601,7 @@ export default function V2GestureBaselineLab() {
     );
   }, [annotationHistory.completedStrokes]);
 
+
   const annotationDirtyStatus: AnnotationPersistenceDirtyStatusV2 = useMemo(() => {
     if (!annotationCleanBaseline) return 'unavailable';
     
@@ -628,6 +629,16 @@ export default function V2GestureBaselineLab() {
       annotationCleanBaseline.strokes
     ) ? 'clean' : 'dirty';
   }, [annotationCleanBaseline, currentDocumentStrokes, user, persistenceStorageIdentity]);
+
+  const hasCurrentAnnotationWork = 
+    currentDocumentStrokes.length > 0 ||
+    annotationHistory.undoStack.length > 0 ||
+    annotationHistory.redoStack.length > 0;
+
+  const shouldConfirmAnnotationReplacement = 
+    annotationDirtyStatus === 'dirty' ||
+    (annotationDirtyStatus === 'unavailable' && hasCurrentAnnotationWork);
+
 
 
   useEffect(() => {
@@ -977,14 +988,14 @@ export default function V2GestureBaselineLab() {
       }));
       return;
     }
-    
-    setAnnotationRestoreDiagnostic(prev => ({
-      ...prev,
-      status: 'restoring'
-    }));
-    
-    if (annotationHistory.completedStrokes.length > 0 || annotationHistory.undoStack.length > 0 || annotationHistory.redoStack.length > 0) {
-      const confirmed = window.confirm("현재 화면의 필기와 Undo/Redo 기록이 불러온 snapshot으로 교체됩니다.\n저장하지 않은 변경은 사라질 수 있습니다.\n계속하시겠습니까?");
+
+    if (shouldConfirmAnnotationReplacement) {
+      const confirmed = window.confirm(
+        '현재 악보에 저장되지 않은 필기 변경이 있습니다.\n' +
+        '불러온 snapshot으로 복원하면 현재 변경이 사라집니다.\n' +
+        '계속하시겠습니까?'
+      );
+
       if (!confirmed) {
         setAnnotationRestoreDiagnostic(prev => ({
           ...prev,
@@ -993,6 +1004,11 @@ export default function V2GestureBaselineLab() {
         return;
       }
     }
+
+    setAnnotationRestoreDiagnostic(prev => ({
+      ...prev,
+      status: 'restoring'
+    }));
 
     const currentInstanceId = documentInstanceIdRef.current;
     
@@ -1076,11 +1092,25 @@ export default function V2GestureBaselineLab() {
 
   };
 
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     
     if (!file || !engineRef.current) return;
+
+    if (shouldConfirmAnnotationReplacement) {
+      const confirmed = window.confirm(
+        '현재 악보에 저장되지 않은 필기 변경이 있습니다.\n' +
+        'PDF를 다시 열거나 다른 PDF를 열면 현재 변경이 사라집니다.\n' +
+        '계속하시겠습니까?'
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
 
 
     if (viewportRef.current) {
@@ -1445,16 +1475,17 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-        <h1 className="text-xl font-bold text-brand-light">[4E-C4F-A Annotation Persistence Dirty-State Foundation]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4F-B Dirty-State Replacement Guards]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Pen and highlighter drawing active<br/>
           In-memory codec diagnostic active<br/>
-          Manual Firebase save/load/restore active<br/>
-          Clean baseline tracking active<br/>
           Content-based dirty state active<br/>
+          Dirty PDF replacement guard active<br/>
+          Dirty snapshot restore guard active<br/>
+          Manual Firebase save/load/restore active<br/>
+          Browser exit guard disabled<br/>
           Automatic persistence disabled<br/>
-          Unsaved-change guards disabled<br/>
           Spatial eraser active
 
 
@@ -1584,7 +1615,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-              <div>Annotation Stage: 4E-C4F-A</div>
+<div>Annotation Stage: 4E-C4F-B</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -1957,7 +1988,7 @@ export default function V2GestureBaselineLab() {
                 )}
               </div>
 
-            </div>
+</div>
             
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
               <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
@@ -1974,6 +2005,12 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Baseline Document Instance: {annotationCleanBaseline ? annotationCleanBaseline.documentInstanceId : 'NONE'}</div>
                 <div className="text-stone-300">Current Document Instance: {documentInstanceIdRef.current}</div>
                 <div className={`text-stone-300 ${annotationDirtyStatus !== 'unavailable' ? 'text-emerald-400' : 'text-red-400'}`}>Baseline Identity Match: {annotationDirtyStatus !== 'unavailable' ? 'YES' : 'NO'}</div>
+              </div>
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className="text-stone-300">PDF Replacement Guard: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
+                <div className="text-stone-300">Snapshot Restore Guard: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
+                <div className="text-stone-300">Guard Policy: DIRTY OR UNAVAILABLE WITH WORK</div>
+                <div className="text-stone-400">Browser Exit Guard: DISABLED</div>
               </div>
             </div>
             
