@@ -424,7 +424,7 @@ interface AnnotationAutosaveEligibilityDiagnosticV2 {
 }
 
 interface AnnotationLifecycleAutosaveRequestDiagnosticV2 {
-  trigger: 'visibility-hidden' | null;
+  trigger: 'visibility-hidden' | 'visibility-visible-retry' | 'pagehide' | null;
   requestedAt: string | null;
   documentInstanceId: number | null;
   scheduleSequence: number | null;
@@ -735,6 +735,7 @@ export default function V2GestureBaselineLab() {
   const [lifecycleAutosaveRequestDiagnostic, setLifecycleAutosaveRequestDiagnostic] = useState<AnnotationLifecycleAutosaveRequestDiagnosticV2>(createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2());
   const annotationAutosaveTimerRef = useRef<number | null>(null);
   const annotationAutosaveScheduleSequenceRef = useRef(0);
+  const lifecycleAutosaveRetryPendingRef = useRef(false);
   const persistenceSaveInFlightRef = useRef<number | null>(null);
   const [persistenceSaveOrigin, setPersistenceSaveOrigin] = useState<AnnotationPersistenceSaveOriginV2 | null>(null);
   const lastAutosaveCommitSequenceRef = useRef<number | null>(null);
@@ -1013,11 +1014,14 @@ export default function V2GestureBaselineLab() {
   };
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'hidden') return;
+    const requestLifecycleAutosave = (
+      trigger: Exclude<AnnotationLifecycleAutosaveRequestDiagnosticV2['trigger'], null>
+    ) => {
       if (annotationDirtyStatus !== 'dirty') return;
       if (autosaveEligibilityDiagnostic.status === 'blocked') return;
       if (isAutosaveBlockedBySnapshotState) return;
+      if (persistenceSaveInFlightRef.current !== null) return;
+      if (persistenceStorageSaveDiagnostic.status === 'saving') return;
 
       const scheduleSequence =
         autosaveEligibilityDiagnostic.scheduleSequence > 0
@@ -1025,7 +1029,7 @@ export default function V2GestureBaselineLab() {
           : undefined;
 
       setLifecycleAutosaveRequestDiagnostic({
-        trigger: 'visibility-hidden',
+        trigger,
         requestedAt: new Date().toISOString(),
         documentInstanceId: documentInstanceIdRef.current,
         scheduleSequence: scheduleSequence ?? null
@@ -1034,17 +1038,46 @@ export default function V2GestureBaselineLab() {
       void handleSavePersistenceToStorage('autosave', scheduleSequence);
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        lifecycleAutosaveRetryPendingRef.current = annotationDirtyStatus === 'dirty';
+        requestLifecycleAutosave('visibility-hidden');
+        return;
+      }
+
+      if (
+        document.visibilityState === 'visible' &&
+        lifecycleAutosaveRetryPendingRef.current
+      ) {
+        requestLifecycleAutosave('visibility-visible-retry');
+      }
+    };
+
+    const handlePageHide = () => {
+      lifecycleAutosaveRetryPendingRef.current = annotationDirtyStatus === 'dirty';
+      requestLifecycleAutosave('pagehide');
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, [
     annotationDirtyStatus,
     autosaveEligibilityDiagnostic.scheduleSequence,
     autosaveEligibilityDiagnostic.status,
     isAutosaveBlockedBySnapshotState,
+    persistenceStorageSaveDiagnostic.status,
     handleSavePersistenceToStorage
   ]);
+
+  useEffect(() => {
+    if (annotationDirtyStatus === 'clean') {
+      lifecycleAutosaveRetryPendingRef.current = false;
+    }
+  }, [annotationDirtyStatus]);
 
   const handleLoadPersistenceFromStorage = useCallback(async (origin: PersistenceStorageLoadOriginV2) => {
     if (!user || !user.uid) return;
@@ -1719,6 +1752,7 @@ export default function V2GestureBaselineLab() {
     storageSaveSequenceRef.current += 1;
     storageLoadSequenceRef.current += 1;
     lastAutosaveCommitSequenceRef.current = null;
+    lifecycleAutosaveRetryPendingRef.current = false;
     setLifecycleAutosaveRequestDiagnostic(createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2());
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
@@ -2185,7 +2219,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4J-A Visibility-Hidden Early Autosave]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4J-B Page Lifecycle Save Signals]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2193,7 +2227,7 @@ export default function V2GestureBaselineLab() {
           Only clean initial-empty canvas can be auto-restored<br/>
           Dirty and local-work canvas replacement remains guarded<br/>
           Manual save/load/restore active<br/>
-          Automatic save active — 2s debounce + hidden-tab early request<br/>
+          Automatic save active — debounce + hidden/pagehide signals + visible retry<br/>
           Spatial eraser active
 
 
@@ -2323,7 +2357,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4J-A</div>
+<div>Annotation Stage: 4E-C4J-B</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2586,6 +2620,8 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Automatic Snapshot Decision Pending: {automaticSnapshotDecisionPending ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Autosave Commit Gate: {!isAutosaveBlockedBySnapshotState ? 'OPEN' : 'BLOCKED'}</div>
                 <div className="text-stone-300">Visibility-Hidden Early Save: CONNECTED</div>
+                <div className="text-stone-300">Pagehide Auxiliary Save Signal: CONNECTED</div>
+                <div className="text-stone-300">Visibility-Visible Retry: CONNECTED</div>
                 <div className="text-stone-300">Last Lifecycle Request: {lifecycleAutosaveRequestDiagnostic.trigger?.toUpperCase() ?? 'NONE'}</div>
                 <div className="text-stone-300">Lifecycle Request Time: {lifecycleAutosaveRequestDiagnostic.requestedAt ?? 'NONE'}</div>
                 <div className="text-stone-300">Lifecycle Request Instance: {lifecycleAutosaveRequestDiagnostic.documentInstanceId ?? 'NONE'}</div>
