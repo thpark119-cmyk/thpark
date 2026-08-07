@@ -1428,8 +1428,8 @@ export default function V2GestureBaselineLab() {
     else if (inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) waitingReason = 'annotation-input-active';
     else if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) waitingReason = 'gesture-active';
     else if (persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring') waitingReason = 'persistence-busy';
-    else if (automaticSnapshotLookupDiagnostic.status === 'looking-up' || automaticSnapshotRestoreDiagnostic.status === 'waiting' || automaticSnapshotRestoreDiagnostic.status === 'restoring') waitingReason = 'snapshot-decision-pending';
-    else if (loadedAnnotationSnapshot && loadedAnnotationSnapshot.loadOrigin === 'manual' && annotationRestoreDiagnostic.status === 'idle') waitingReason = 'manual-snapshot-ready';
+    else if (loadedAnnotationSnapshot && loadedAnnotationSnapshot.loadOrigin === 'manual' && annotationRestoreDiagnostic.status === 'ready') waitingReason = 'manual-snapshot-ready';
+    else if (automaticSnapshotLookupDiagnostic.status === 'looking-up' || (loadedAnnotationSnapshot?.loadOrigin === 'automatic' && (automaticSnapshotRestoreDiagnostic.status === 'waiting' || automaticSnapshotRestoreDiagnostic.status === 'restoring'))) waitingReason = 'snapshot-decision-pending';
 
     if (waitingReason) {
       if (annotationAutosaveTimerRef.current !== null) {
@@ -1469,7 +1469,13 @@ export default function V2GestureBaselineLab() {
       scheduleSequence: newSequence
     }));
 
-    annotationAutosaveTimerRef.current = window.setTimeout(() => {
+    const scheduledTimerId = window.setTimeout(() => {
+      if (annotationAutosaveTimerRef.current !== scheduledTimerId) {
+        return;
+      }
+      
+      annotationAutosaveTimerRef.current = null;
+
       if (mountedRef.current && annotationAutosaveScheduleSequenceRef.current === newSequence && documentInstanceIdRef.current === currentInstanceId) {
         setAutosaveEligibilityDiagnostic(prev => {
           if (prev.scheduleSequence !== newSequence) return prev;
@@ -1482,6 +1488,14 @@ export default function V2GestureBaselineLab() {
       }
     }, ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2);
 
+    annotationAutosaveTimerRef.current = scheduledTimerId;
+
+    return () => {
+      if (annotationAutosaveTimerRef.current === scheduledTimerId) {
+        window.clearTimeout(scheduledTimerId);
+        annotationAutosaveTimerRef.current = null;
+      }
+    };
   }, [
     user?.uid,
     docReady,
