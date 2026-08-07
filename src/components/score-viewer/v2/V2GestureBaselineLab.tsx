@@ -388,6 +388,7 @@ interface AnnotationCleanBaselineV2 {
 
 const ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2 = 2000;
 
+type AnnotationPersistenceSaveOriginV2 = 'manual' | 'autosave';
 type AnnotationAutosaveEligibilityStatusV2 =
   | 'unavailable'
   | 'clean'
@@ -408,7 +409,9 @@ type AnnotationAutosaveEligibilityReasonV2 =
   | 'remote-snapshot-invalid'
   | 'remote-snapshot-error'
   | 'automatic-restore-blocked'
-  | 'automatic-restore-error';
+  | 'automatic-restore-error'
+  | 'autosave-save-invalid'
+  | 'autosave-save-error';
 
 interface AnnotationAutosaveEligibilityDiagnosticV2 {
   status: AnnotationAutosaveEligibilityStatusV2;
@@ -715,6 +718,9 @@ export default function V2GestureBaselineLab() {
   const [autosaveEligibilityDiagnostic, setAutosaveEligibilityDiagnostic] = useState<AnnotationAutosaveEligibilityDiagnosticV2>(createUnavailableAnnotationAutosaveEligibilityDiagnosticV2());
   const annotationAutosaveTimerRef = useRef<number | null>(null);
   const annotationAutosaveScheduleSequenceRef = useRef(0);
+  const persistenceSaveInFlightRef = useRef<number | null>(null);
+  const [persistenceSaveOrigin, setPersistenceSaveOrigin] = useState<AnnotationPersistenceSaveOriginV2 | null>(null);
+  const lastAutosaveCommitSequenceRef = useRef<number | null>(null);
   const automaticSnapshotRestoreDecisionKeyRef = useRef<string | null>(null);
 
   const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
@@ -801,37 +807,40 @@ export default function V2GestureBaselineLab() {
 
 
   useEffect(() => {
-    storageSaveSequenceRef.current += 1;
-    setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
+    if (persistenceSaveInFlightRef.current === null) {
+      setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
+    }
   }, [annotationHistory.completedStrokes]);
 
 
-  const handleSavePersistenceToStorage = async () => {
+  const handleSavePersistenceToStorage = async (origin: AnnotationPersistenceSaveOriginV2) => {
     if (!user || !user.uid) return;
     if (!docReady || !currentBaseline || !persistenceStorageIdentity) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
     if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) return;
-
+    if (persistenceSaveInFlightRef.current !== null) return;
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
     if (persistenceStorageLoadDiagnostic.status === 'loading') return;
     if (annotationRestoreDiagnostic.status === 'restoring') return;
-    
+
     storageLoadSequenceRef.current += 1;
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
     setLoadedAnnotationSnapshot(null);
     setAnnotationRestoreDiagnostic(createIdleAnnotationRestoreDiagnosticV2());
-
 
     const sourceStrokes = annotationHistory.completedStrokes.filter(
       stroke => stroke.documentInstanceId === documentInstanceIdRef.current
     );
 
     const currentSaveSeq = ++storageSaveSequenceRef.current;
+    persistenceSaveInFlightRef.current = currentSaveSeq;
+    setPersistenceSaveOrigin(origin);
+
     const currentInstanceId = documentInstanceIdRef.current;
     const currentIdentity = persistenceStorageIdentity;
     const currentUid = user.uid;
-    const now = new Date().toISOString();
 
+    const now = new Date().toISOString();
     const document = createAnnotationPersistenceDocumentV2({
       identity: currentIdentity,
       documentInstanceId: currentInstanceId,
@@ -865,8 +874,9 @@ export default function V2GestureBaselineLab() {
       });
 
       if (!mountedRef.current) return;
-      if (storageSaveSequenceRef.current !== currentSaveSeq) return;
+      if (persistenceSaveInFlightRef.current !== currentSaveSeq) return;
       if (documentInstanceIdRef.current !== currentInstanceId) return;
+      if (currentUid !== user.uid) return;
       if (!persistenceStorageIdentity) return;
       if (
         persistenceStorageIdentity.repertoireId !== currentIdentity.repertoireId ||
@@ -875,7 +885,6 @@ export default function V2GestureBaselineLab() {
       ) {
         return;
       }
-
 
       if (result.status === 'saved') {
         setPersistenceStorageSaveDiagnostic({
@@ -897,6 +906,7 @@ export default function V2GestureBaselineLab() {
           source: 'saved',
           strokes: [...sourceStrokes]
         });
+
       } else if (result.status === 'invalid') {
         setPersistenceStorageSaveDiagnostic({
           status: 'invalid',
@@ -924,8 +934,9 @@ export default function V2GestureBaselineLab() {
       }
     } catch (error) {
       if (!mountedRef.current) return;
-      if (storageSaveSequenceRef.current !== currentSaveSeq) return;
+      if (persistenceSaveInFlightRef.current !== currentSaveSeq) return;
       if (documentInstanceIdRef.current !== currentInstanceId) return;
+      if (currentUid !== user.uid) return;
       if (!persistenceStorageIdentity) return;
       if (
         persistenceStorageIdentity.repertoireId !== currentIdentity.repertoireId ||
@@ -942,10 +953,14 @@ export default function V2GestureBaselineLab() {
         sourceStrokeCount: sourceStrokes.length,
         sourcePointCount,
         jsonByteLength: 0,
-        errorCode: 'unexpected-exception',
+        errorCode: 'exception',
         errorPath: null,
-        errorMessage: error instanceof Error ? error.message : String(error)
+        errorMessage: error instanceof Error ? error.message : 'Unknown exception'
       });
+    } finally {
+      if (persistenceSaveInFlightRef.current === currentSaveSeq) {
+        persistenceSaveInFlightRef.current = null;
+      }
     }
   };
 
@@ -1525,6 +1540,42 @@ export default function V2GestureBaselineLab() {
     };
   }, []);
 
+  useEffect(() => {
+    if (
+      autosaveEligibilityDiagnostic.status === 'ready' &&
+      autosaveEligibilityDiagnostic.scheduleSequence > 0 &&
+      lastAutosaveCommitSequenceRef.current !== autosaveEligibilityDiagnostic.scheduleSequence &&
+      annotationDirtyStatus === 'dirty' &&
+      autosaveEligibilityDiagnostic.documentInstanceId === documentInstanceIdRef.current &&
+      user?.uid &&
+      persistenceStorageIdentity &&
+      persistenceSaveInFlightRef.current === null &&
+      inputStatus.phase === 'idle' &&
+      inputStatus.activePointerId === null &&
+      !isGestureActive &&
+      (transformInfo?.activePointerCount ?? 0) === 0 &&
+      annotationRestoreDiagnostic.status !== 'ready' &&
+      automaticSnapshotLookupDiagnostic.status !== 'looking-up' &&
+      automaticSnapshotRestoreDiagnostic.status !== 'waiting' &&
+      automaticSnapshotRestoreDiagnostic.status !== 'restoring'
+    ) {
+      lastAutosaveCommitSequenceRef.current = autosaveEligibilityDiagnostic.scheduleSequence;
+      void handleSavePersistenceToStorage('autosave');
+    }
+  }, [
+    autosaveEligibilityDiagnostic,
+    annotationDirtyStatus,
+    user?.uid,
+    persistenceStorageIdentity,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    isGestureActive,
+    transformInfo?.activePointerCount,
+    annotationRestoreDiagnostic.status,
+    automaticSnapshotLookupDiagnostic.status,
+    automaticSnapshotRestoreDiagnostic.status
+  ]);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -2018,7 +2069,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4H-B Debounced Autosave Eligibility Foundation]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C Serialized Debounced Autosave Commit]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2156,7 +2207,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4H-B</div>
+<div>Annotation Stage: 4E-C4H-C</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2394,8 +2445,8 @@ export default function V2GestureBaselineLab() {
                 <span className="font-semibold text-stone-200">Autosave Eligibility</span>
               </div>
               <div className="text-xs text-stone-400 space-y-1">
-                <div>Autosave Stage: ELIGIBILITY ONLY</div>
-                <div>Automatic Upload: DISABLED</div>
+                <div>Autosave Stage: SERIALIZED COMMIT</div>
+                <div>Automatic Upload: ENABLED</div>
                 <div>Debounce Delay: 2000 MS</div>
               </div>
               <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
@@ -2408,7 +2459,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Scheduled Points: {autosaveEligibilityDiagnostic.scheduledPointCount}</div>
                 <div className="text-stone-300">Schedule Sequence: {autosaveEligibilityDiagnostic.scheduleSequence}</div>
                 <div className="text-stone-300">Timer Armed: {annotationAutosaveTimerRef.current !== null ? 'YES' : 'NO'}</div>
-                <div className="text-stone-300">Firebase Write on Ready: DISABLED</div>
+                <div className="text-stone-300">Firebase Write on Ready: ENABLED</div>
               </div>
             </div>
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
@@ -2416,7 +2467,7 @@ export default function V2GestureBaselineLab() {
                 <span className="font-semibold text-stone-200">Firebase Storage Save Diagnostic</span>
               </div>
               <div className="text-xs text-stone-400 space-y-1">
-                <div>Mode: MANUAL SAVE ONLY</div>
+                <div>Mode: MANUAL + DEBOUNCED AUTOSAVE</div>
                 <div>Firebase Storage: ADAPTER CONNECTED</div>
                 <div>Empty Snapshot Save: ENABLED WHEN DIRTY</div>
                 <div>Empty Snapshot Storage: CURRENT.JSON</div>
@@ -2426,7 +2477,7 @@ export default function V2GestureBaselineLab() {
               
               <button
                 type="button"
-                onClick={handleSavePersistenceToStorage}
+                onClick={() => { void handleSavePersistenceToStorage('manual'); }}
                 disabled={!user || !user.uid || !docReady || !currentBaseline || !persistenceStorageIdentity || isLoading || !hasPersistableAnnotationState || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving'}
                 className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
               >
@@ -2437,6 +2488,8 @@ export default function V2GestureBaselineLab() {
                 <div className={`font-bold ${persistenceStorageSaveDiagnostic.status === 'saved' ? 'text-emerald-400' : (persistenceStorageSaveDiagnostic.status === 'invalid' || persistenceStorageSaveDiagnostic.status === 'error') ? 'text-red-400' : persistenceStorageSaveDiagnostic.status === 'saving' ? 'text-yellow-400' : 'text-stone-400'}`}>
                   Status: {persistenceStorageSaveDiagnostic.status.toUpperCase()}
                 </div>
+                <div className="text-stone-300">Save Origin: {persistenceSaveOrigin ? persistenceSaveOrigin.toUpperCase() : 'NONE'}</div>
+                <div className="text-stone-300">Save In Flight: {persistenceSaveInFlightRef.current !== null ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Document Instance: {persistenceStorageSaveDiagnostic.documentInstanceId !== null ? persistenceStorageSaveDiagnostic.documentInstanceId : 'NONE'}</div>
                 <div className="text-stone-300">Storage Path: {persistenceStorageSaveDiagnostic.storagePath !== null ? persistenceStorageSaveDiagnostic.storagePath : 'NOT RUN'}</div>
                 <div className="text-stone-300">Source Strokes: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourceStrokeCount : 'NOT RUN'}</div>
