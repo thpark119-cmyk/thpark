@@ -1334,6 +1334,15 @@ export default function V2GestureBaselineLab() {
       errorMessage: null
     });
     
+    if (origin === 'automatic') {
+      setAutomaticSnapshotRestoreDiagnostic({
+        status: 'restored',
+        documentInstanceId: currentInstanceId,
+        storagePath: loadedAnnotationSnapshot.storagePath,
+        reason: null
+      });
+    }
+
     setAnnotationCleanBaseline({
       uid: user.uid,
       identity: persistenceStorageIdentity,
@@ -2087,7 +2096,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C2 READY Autosave Commit Connection]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C2F Empty Snapshot Round-Trip Correction]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2225,11 +2234,13 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4H-C2</div>
+<div>Annotation Stage: 4E-C4H-C2F</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
               <div>Firebase Storage Adapter: CONNECTED</div>
+              <div>Empty Snapshot Save: SUPPORTED</div>
+              <div>Empty Snapshot Restore: SUPPORTED</div>
               <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
               <div>Persistent Load: MANUAL VERIFY ONLY</div>
               <div>Automatic Save: DISABLED</div>
@@ -2511,7 +2522,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Save In Flight: {persistenceSaveInFlightRef.current !== null ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Document Instance: {persistenceStorageSaveDiagnostic.documentInstanceId !== null ? persistenceStorageSaveDiagnostic.documentInstanceId : 'NONE'}</div>
                 <div className="text-stone-300">Storage Path: {persistenceStorageSaveDiagnostic.storagePath !== null ? persistenceStorageSaveDiagnostic.storagePath : 'NOT RUN'}</div>
-                <div className="text-stone-300">Source Strokes: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourceStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Saved Stroke Count: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourceStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Source Points: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourcePointCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">JSON Bytes: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.jsonByteLength : 'NOT RUN'}</div>
                 <div className="text-stone-300">Snapshot Content: {persistenceStorageSaveDiagnostic.status !== 'idle' ? (persistenceStorageSaveDiagnostic.sourceStrokeCount === 0 ? 'EMPTY' : 'NON-EMPTY') : 'NOT RUN'}</div>
@@ -2561,7 +2572,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Persisted Document Instance: {persistenceStorageLoadDiagnostic.persistedDocumentInstanceId !== null ? persistenceStorageLoadDiagnostic.persistedDocumentInstanceId : 'NONE'}</div>
                 <div className="text-stone-300">Storage Path: {persistenceStorageLoadDiagnostic.storagePath !== null ? persistenceStorageLoadDiagnostic.storagePath : 'NOT RUN'}</div>
                 <div className="text-stone-300">Loaded Pages: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPageCount : 'NOT RUN'}</div>
-                <div className="text-stone-300">Loaded Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedStrokeCount : 'NOT RUN'}</div>
+                <div className="text-stone-300">Loaded Snapshot Stroke Count: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Loaded Points: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPointCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Loaded Pen Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPenStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Loaded Highlighter Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedHighlighterStrokeCount : 'NOT RUN'}</div>
