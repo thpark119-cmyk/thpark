@@ -1405,6 +1405,23 @@ export default function V2GestureBaselineLab() {
       return;
     }
 
+    if (persistenceStorageSaveDiagnostic.status === 'invalid' && persistenceSaveOrigin === 'autosave') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'autosave-save-invalid', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+    if (persistenceStorageSaveDiagnostic.status === 'error' && persistenceSaveOrigin === 'autosave') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'autosave-save-error', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+
     if (persistenceStorageLoadDiagnostic.status === 'invalid') {
       if (annotationAutosaveTimerRef.current !== null) {
         window.clearTimeout(annotationAutosaveTimerRef.current);
@@ -1608,6 +1625,7 @@ export default function V2GestureBaselineLab() {
 
     storageSaveSequenceRef.current += 1;
     storageLoadSequenceRef.current += 1;
+    lastAutosaveCommitSequenceRef.current = null;
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
@@ -2069,7 +2087,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C Serialized Debounced Autosave Commit]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C2 READY Autosave Commit Connection]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2207,7 +2225,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4H-C</div>
+<div>Annotation Stage: 4E-C4H-C2</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2458,6 +2476,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Scheduled Strokes: {autosaveEligibilityDiagnostic.scheduledStrokeCount}</div>
                 <div className="text-stone-300">Scheduled Points: {autosaveEligibilityDiagnostic.scheduledPointCount}</div>
                 <div className="text-stone-300">Schedule Sequence: {autosaveEligibilityDiagnostic.scheduleSequence}</div>
+                <div className="text-stone-300">Last Autosave Commit Sequence: {lastAutosaveCommitSequenceRef.current ?? 'NONE'}</div>
                 <div className="text-stone-300">Timer Armed: {annotationAutosaveTimerRef.current !== null ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Firebase Write on Ready: ENABLED</div>
               </div>
