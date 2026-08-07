@@ -387,6 +387,7 @@ interface AnnotationCleanBaselineV2 {
 
 
 const ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2 = 2000;
+const ANNOTATION_PERSISTENCE_BROADCAST_CHANNEL_V2 = 'mio-annotation-persistence-v2';
 
 type AnnotationPersistenceSaveOriginV2 = 'manual' | 'autosave';
 type AnnotationAutosaveEligibilityStatusV2 =
@@ -410,6 +411,7 @@ type AnnotationAutosaveEligibilityReasonV2 =
   | 'remote-snapshot-error'
   | 'automatic-restore-blocked'
   | 'automatic-restore-error'
+  | 'remote-tab-change-detected'
   | 'autosave-save-invalid'
   | 'autosave-save-error';
 
@@ -428,6 +430,27 @@ interface AnnotationLifecycleAutosaveRequestDiagnosticV2 {
   requestedAt: string | null;
   documentInstanceId: number | null;
   scheduleSequence: number | null;
+}
+
+interface AnnotationPersistenceSavedBroadcastMessageV2 {
+  kind: 'annotation-persistence-saved-v2';
+  senderId: string;
+  uid: string;
+  identity: AnnotationPersistenceIdentityV2;
+  updatedAt: string;
+}
+
+type RemoteTabChangeMonitorStatusV2 =
+  | 'unavailable'
+  | 'listening'
+  | 'detected'
+  | 'error';
+
+interface RemoteTabChangeDiagnosticV2 {
+  status: RemoteTabChangeMonitorStatusV2;
+  remoteSenderId: string | null;
+  remoteUpdatedAt: string | null;
+  errorMessage: string | null;
 }
 
 function createUnavailableAnnotationAutosaveEligibilityDiagnosticV2(): AnnotationAutosaveEligibilityDiagnosticV2 {
@@ -449,6 +472,46 @@ function createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2(): AnnotationL
     documentInstanceId: null,
     scheduleSequence: null
   };
+}
+
+function createUnavailableRemoteTabChangeDiagnosticV2(): RemoteTabChangeDiagnosticV2 {
+  return {
+    status: 'unavailable',
+    remoteSenderId: null,
+    remoteUpdatedAt: null,
+    errorMessage: null
+  };
+}
+
+function createListeningRemoteTabChangeDiagnosticV2(): RemoteTabChangeDiagnosticV2 {
+  return {
+    status: 'listening',
+    remoteSenderId: null,
+    remoteUpdatedAt: null,
+    errorMessage: null
+  };
+}
+
+function isBroadcastRecordV2(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isAnnotationPersistenceSavedBroadcastMessageV2(
+  value: unknown
+): value is AnnotationPersistenceSavedBroadcastMessageV2 {
+  if (!isBroadcastRecordV2(value) || !isBroadcastRecordV2(value.identity)) {
+    return false;
+  }
+
+  return (
+    value.kind === 'annotation-persistence-saved-v2' &&
+    typeof value.senderId === 'string' && value.senderId.length > 0 &&
+    typeof value.uid === 'string' && value.uid.length > 0 &&
+    typeof value.updatedAt === 'string' && value.updatedAt.length > 0 &&
+    typeof value.identity.repertoireId === 'string' && value.identity.repertoireId.length > 0 &&
+    typeof value.identity.fileId === 'string' && value.identity.fileId.length > 0 &&
+    typeof value.identity.sourceStoragePath === 'string' && value.identity.sourceStoragePath.length > 0
+  );
 }
 
 function arePersistenceRoundTripStrokesEqualV2(
@@ -718,6 +781,9 @@ export default function V2GestureBaselineLab() {
 
   const storageSaveSequenceRef = useRef(0);
   const storageLoadSequenceRef = useRef(0);
+  const [annotationPersistenceBroadcastSenderId] = useState(() => crypto.randomUUID());
+  const annotationPersistenceBroadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const [remoteTabChangeDiagnostic, setRemoteTabChangeDiagnostic] = useState<RemoteTabChangeDiagnosticV2>(createUnavailableRemoteTabChangeDiagnosticV2());
 
 
 
@@ -809,6 +875,66 @@ export default function V2GestureBaselineLab() {
   const isAutosaveBlockedBySnapshotState =
     manualSnapshotAwaitingDecision || automaticSnapshotDecisionPending;
 
+  const remoteTabChangeDetected = remoteTabChangeDiagnostic.status === 'detected';
+
+  useEffect(() => {
+    if (!user?.uid || !persistenceStorageIdentity || typeof BroadcastChannel === 'undefined') {
+      annotationPersistenceBroadcastChannelRef.current = null;
+      setRemoteTabChangeDiagnostic(createUnavailableRemoteTabChangeDiagnosticV2());
+      return;
+    }
+
+    let channel: BroadcastChannel;
+    try {
+      channel = new BroadcastChannel(ANNOTATION_PERSISTENCE_BROADCAST_CHANNEL_V2);
+    } catch (error) {
+      annotationPersistenceBroadcastChannelRef.current = null;
+      setRemoteTabChangeDiagnostic({
+        status: 'error',
+        remoteSenderId: null,
+        remoteUpdatedAt: null,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+      return;
+    }
+
+    annotationPersistenceBroadcastChannelRef.current = channel;
+    setRemoteTabChangeDiagnostic(createListeningRemoteTabChangeDiagnosticV2());
+
+    const handleBroadcastMessage = (event: MessageEvent<unknown>) => {
+      if (!isAnnotationPersistenceSavedBroadcastMessageV2(event.data)) return;
+      if (event.data.senderId === annotationPersistenceBroadcastSenderId) return;
+      if (event.data.uid !== user.uid) return;
+      if (
+        event.data.identity.repertoireId !== persistenceStorageIdentity.repertoireId ||
+        event.data.identity.fileId !== persistenceStorageIdentity.fileId ||
+        event.data.identity.sourceStoragePath !== persistenceStorageIdentity.sourceStoragePath
+      ) {
+        return;
+      }
+
+      setRemoteTabChangeDiagnostic({
+        status: 'detected',
+        remoteSenderId: event.data.senderId,
+        remoteUpdatedAt: event.data.updatedAt,
+        errorMessage: null
+      });
+    };
+
+    channel.addEventListener('message', handleBroadcastMessage);
+    return () => {
+      channel.removeEventListener('message', handleBroadcastMessage);
+      channel.close();
+      if (annotationPersistenceBroadcastChannelRef.current === channel) {
+        annotationPersistenceBroadcastChannelRef.current = null;
+      }
+    };
+  }, [
+    user?.uid,
+    persistenceStorageIdentity,
+    annotationPersistenceBroadcastSenderId
+  ]);
+
   useEffect(() => {
     if (!browserExitGuardArmed) {
       return;
@@ -867,6 +993,7 @@ export default function V2GestureBaselineLab() {
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
     if (persistenceStorageLoadDiagnostic.status === 'loading') return;
     if (annotationRestoreDiagnostic.status === 'restoring') return;
+    if (remoteTabChangeDetected) return;
 
     if (origin === 'autosave' && autosaveScheduleSequence !== undefined) {
       lastAutosaveCommitSequenceRef.current = autosaveScheduleSequence;
@@ -956,6 +1083,32 @@ export default function V2GestureBaselineLab() {
           strokes: [...sourceStrokes]
         });
 
+        const broadcastChannel = annotationPersistenceBroadcastChannelRef.current;
+        if (broadcastChannel) {
+          const message: AnnotationPersistenceSavedBroadcastMessageV2 = {
+            kind: 'annotation-persistence-saved-v2',
+            senderId: annotationPersistenceBroadcastSenderId,
+            uid: currentUid,
+            identity: currentIdentity,
+            updatedAt: document.updatedAt
+          };
+
+          try {
+            broadcastChannel.postMessage(message);
+          } catch (error) {
+            setRemoteTabChangeDiagnostic(prev =>
+              prev.status === 'detected'
+                ? prev
+                : {
+                    status: 'error',
+                    remoteSenderId: null,
+                    remoteUpdatedAt: null,
+                    errorMessage: error instanceof Error ? error.message : String(error)
+                  }
+            );
+          }
+        }
+
       } else if (result.status === 'invalid') {
         setPersistenceStorageSaveDiagnostic({
           status: 'invalid',
@@ -1020,6 +1173,7 @@ export default function V2GestureBaselineLab() {
       if (annotationDirtyStatus !== 'dirty') return;
       if (autosaveEligibilityDiagnostic.status === 'blocked') return;
       if (isAutosaveBlockedBySnapshotState) return;
+      if (remoteTabChangeDetected) return;
       if (persistenceSaveInFlightRef.current !== null) return;
       if (persistenceStorageSaveDiagnostic.status === 'saving') return;
 
@@ -1069,6 +1223,7 @@ export default function V2GestureBaselineLab() {
     autosaveEligibilityDiagnostic.scheduleSequence,
     autosaveEligibilityDiagnostic.status,
     isAutosaveBlockedBySnapshotState,
+    remoteTabChangeDetected,
     persistenceStorageSaveDiagnostic.status,
     handleSavePersistenceToStorage
   ]);
@@ -1465,6 +1620,11 @@ export default function V2GestureBaselineLab() {
       source: 'restored',
       strokes: [...restoredStrokes]
     });
+    setRemoteTabChangeDiagnostic(
+      annotationPersistenceBroadcastChannelRef.current
+        ? createListeningRemoteTabChangeDiagnosticV2()
+        : createUnavailableRemoteTabChangeDiagnosticV2()
+    );
     
     setLoadedAnnotationSnapshot(null);
   }, [
@@ -1525,6 +1685,20 @@ export default function V2GestureBaselineLab() {
         documentInstanceId: documentInstanceIdRef.current,
         scheduledStrokeCount: 0,
         scheduledPointCount: 0
+      }));
+      return;
+    }
+
+    if (remoteTabChangeDetected) {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({
+        ...prev,
+        status: 'blocked',
+        reason: 'remote-tab-change-detected',
+        documentInstanceId: documentInstanceIdRef.current
       }));
       return;
     }
@@ -1669,7 +1843,8 @@ export default function V2GestureBaselineLab() {
     annotationRestoreDiagnostic.status,
     automaticSnapshotLookupDiagnostic.status,
     loadedAnnotationSnapshot,
-    currentDocumentStrokes
+    currentDocumentStrokes,
+    remoteTabChangeDetected
   ]);
 
   useEffect(() => {
@@ -1695,7 +1870,8 @@ export default function V2GestureBaselineLab() {
       inputStatus.activePointerId === null &&
       !isGestureActive &&
       (transformInfo?.activePointerCount ?? 0) === 0 &&
-      !isAutosaveBlockedBySnapshotState
+      !isAutosaveBlockedBySnapshotState &&
+      !remoteTabChangeDetected
     ) {
       void handleSavePersistenceToStorage('autosave', autosaveEligibilityDiagnostic.scheduleSequence);
     }
@@ -1710,7 +1886,8 @@ export default function V2GestureBaselineLab() {
     transformInfo?.activePointerCount,
     annotationRestoreDiagnostic.status,
     automaticSnapshotLookupDiagnostic.status,
-    automaticSnapshotRestoreDiagnostic.status
+    automaticSnapshotRestoreDiagnostic.status,
+    remoteTabChangeDetected
   ]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1754,6 +1931,7 @@ export default function V2GestureBaselineLab() {
     lastAutosaveCommitSequenceRef.current = null;
     lifecycleAutosaveRetryPendingRef.current = false;
     setLifecycleAutosaveRequestDiagnostic(createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2());
+    setRemoteTabChangeDiagnostic(createUnavailableRemoteTabChangeDiagnosticV2());
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
@@ -2219,7 +2397,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4J-B Page Lifecycle Save Signals]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4K-A Same-Browser Tab Conflict Detection]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2228,6 +2406,7 @@ export default function V2GestureBaselineLab() {
           Dirty and local-work canvas replacement remains guarded<br/>
           Manual save/load/restore active<br/>
           Automatic save active — debounce + hidden/pagehide signals + visible retry<br/>
+          Same-browser tab save conflict detection active<br/>
           Spatial eraser active
 
 
@@ -2357,7 +2536,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4J-B</div>
+<div>Annotation Stage: 4E-C4K-A</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2626,8 +2805,20 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Lifecycle Request Time: {lifecycleAutosaveRequestDiagnostic.requestedAt ?? 'NONE'}</div>
                 <div className="text-stone-300">Lifecycle Request Instance: {lifecycleAutosaveRequestDiagnostic.documentInstanceId ?? 'NONE'}</div>
                 <div className="text-stone-300">Lifecycle Request Sequence: {lifecycleAutosaveRequestDiagnostic.scheduleSequence ?? 'NONE'}</div>
+                <div className={`font-bold ${remoteTabChangeDiagnostic.status === 'listening' ? 'text-emerald-400' : remoteTabChangeDiagnostic.status === 'detected' || remoteTabChangeDiagnostic.status === 'error' ? 'text-red-400' : 'text-stone-400'}`}>
+                  Same-Browser Tab Monitor: {remoteTabChangeDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Other-Tab Save Gate: {remoteTabChangeDetected ? 'BLOCKED' : 'OPEN'}</div>
+                <div className="text-stone-300">Other-Tab Save Time: {remoteTabChangeDiagnostic.remoteUpdatedAt ?? 'NONE'}</div>
+                <div className="text-stone-300">Conflict Recovery: {remoteTabChangeDetected ? 'LOAD + RESTORE REQUIRED' : 'NOT REQUIRED'}</div>
+                {remoteTabChangeDiagnostic.errorMessage && <div className="text-red-400">Tab Monitor Error: {remoteTabChangeDiagnostic.errorMessage}</div>}
                 <div className="text-stone-300">Firebase Write on Ready: ENABLED</div>
               </div>
+              {remoteTabChangeDetected && (
+                <div className="rounded border border-red-500/30 bg-red-950/40 p-3 text-xs leading-relaxed text-red-200">
+                  Another browser tab saved this score. Saving in this tab is paused so the newer work is not overwritten. Load the current snapshot below, then restore it to continue safely.
+                </div>
+              )}
             </div>
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
               <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
@@ -2645,7 +2836,7 @@ export default function V2GestureBaselineLab() {
               <button
                 type="button"
                 onClick={() => { void handleSavePersistenceToStorage('manual'); }}
-                disabled={!user || !user.uid || !docReady || !currentBaseline || !persistenceStorageIdentity || isLoading || !hasPersistableAnnotationState || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving'}
+                disabled={!user || !user.uid || !docReady || !currentBaseline || !persistenceStorageIdentity || isLoading || !hasPersistableAnnotationState || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || remoteTabChangeDetected}
                 className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
               >
                 {persistenceStorageSaveDiagnostic.status === 'saving' ? 'Saving...' : 'Save Current Annotation Snapshot'}
@@ -2741,7 +2932,7 @@ export default function V2GestureBaselineLab() {
               
               <button
                 type="button"
-                onClick={handleRestoreLoadedSnapshot}
+                onClick={() => { void handleRestoreLoadedSnapshot('manual'); }}
                 disabled={!user || !user.uid || !docReady || !persistenceStorageIdentity || !loadedAnnotationSnapshot || isLoading || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring'}
                 className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
               >
