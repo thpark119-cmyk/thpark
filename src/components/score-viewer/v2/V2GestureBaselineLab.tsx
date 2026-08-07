@@ -698,6 +698,8 @@ export default function V2GestureBaselineLab() {
     ) ? 'clean' : 'dirty';
   }, [annotationCleanBaseline, currentDocumentStrokes, user, persistenceStorageIdentity]);
 
+  const hasPersistableAnnotationState = currentDocumentStrokes.length > 0 || annotationDirtyStatus === 'dirty';
+
   const hasCurrentAnnotationWork = 
     currentDocumentStrokes.length > 0 ||
     annotationHistory.undoStack.length > 0 ||
@@ -773,7 +775,6 @@ export default function V2GestureBaselineLab() {
     const sourceStrokes = annotationHistory.completedStrokes.filter(
       stroke => stroke.documentInstanceId === documentInstanceIdRef.current
     );
-    if (sourceStrokes.length === 0) return;
 
     const currentSaveSeq = ++storageSaveSequenceRef.current;
     const currentInstanceId = documentInstanceIdRef.current;
@@ -1241,16 +1242,6 @@ export default function V2GestureBaselineLab() {
           nextCounter = numericId + 1;
         }
       }
-    }
-    
-    if (loadedStrokeCount === 0) {
-      setAnnotationRestoreDiagnostic(prev => ({
-        ...prev,
-        status: 'blocked',
-        errorCode: 'empty-loaded-snapshot',
-        errorMessage: 'Cannot restore an empty snapshot'
-      }));
-      return;
     }
     
     const emptyHistory = createEmptyHistoryV2();
@@ -1763,22 +1754,6 @@ export default function V2GestureBaselineLab() {
        return;
     }
 
-    let totalLoadedStrokes = 0;
-    for (const p in loadedAnnotationSnapshot.document.pages) {
-      totalLoadedStrokes += loadedAnnotationSnapshot.document.pages[p].strokes.length;
-    }
-
-    if (totalLoadedStrokes === 0) {
-       automaticSnapshotRestoreDecisionKeyRef.current = decisionKey;
-       setAutomaticSnapshotRestoreDiagnostic({
-         status: 'skipped',
-         documentInstanceId: documentInstanceIdRef.current,
-         storagePath: loadedAnnotationSnapshot.storagePath,
-         reason: 'empty-snapshot'
-       });
-       return;
-    }
-
     automaticSnapshotRestoreDecisionKeyRef.current = decisionKey;
     void handleRestoreLoadedSnapshot('automatic');
   }, [
@@ -1812,7 +1787,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4G-B Controlled Automatic Restore on Clean Empty Canvas]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4H-A Empty Annotation Snapshot Semantics]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -1950,7 +1925,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4G-B</div>
+<div>Annotation Stage: 4E-C4H-A</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2190,15 +2165,16 @@ export default function V2GestureBaselineLab() {
               <div className="text-xs text-stone-400 space-y-1">
                 <div>Mode: MANUAL SAVE ONLY</div>
                 <div>Firebase Storage: ADAPTER CONNECTED</div>
+                <div>Empty Snapshot Save: ENABLED WHEN DIRTY</div>
+                <div>Empty Snapshot Storage: CURRENT.JSON</div>
+                <div>Storage Delete: DISABLED</div>
                 <div>Automatic Save: DISABLED</div>
-                <div>Persistent Load: DISABLED</div>
-                <div>History Replacement: DISABLED</div>
               </div>
               
               <button
                 type="button"
                 onClick={handleSavePersistenceToStorage}
-                disabled={!user || !user.uid || !docReady || !currentBaseline || !persistenceStorageIdentity || isLoading || annotationHistory.completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current).length === 0 || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving'}
+                disabled={!user || !user.uid || !docReady || !currentBaseline || !persistenceStorageIdentity || isLoading || !hasPersistableAnnotationState || isGestureActive || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null || persistenceStorageSaveDiagnostic.status === 'saving'}
                 className="w-full px-3 py-2 rounded text-sm font-semibold border border-white/10 bg-brand-light text-brand-dark hover:bg-brand-light/90 disabled:opacity-50 disabled:bg-stone-800 disabled:text-stone-400"
               >
                 {persistenceStorageSaveDiagnostic.status === 'saving' ? 'Saving...' : 'Save Current Annotation Snapshot'}
@@ -2213,6 +2189,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Source Strokes: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourceStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Source Points: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.sourcePointCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">JSON Bytes: {persistenceStorageSaveDiagnostic.status !== 'idle' ? persistenceStorageSaveDiagnostic.jsonByteLength : 'NOT RUN'}</div>
+                <div className="text-stone-300">Snapshot Content: {persistenceStorageSaveDiagnostic.status !== 'idle' ? (persistenceStorageSaveDiagnostic.sourceStrokeCount === 0 ? 'EMPTY' : 'NON-EMPTY') : 'NOT RUN'}</div>
 
                 {(persistenceStorageSaveDiagnostic.errorCode) && (
                   <div className="mt-2 text-red-400 border-t border-red-500/20 pt-2">
@@ -2235,6 +2212,8 @@ export default function V2GestureBaselineLab() {
               </div>
               <div className="text-xs text-stone-400 space-y-1">
                 <div>Mode: MANUAL LOAD + VERIFY ONLY</div>
+                <div>Empty Snapshot Load: SUPPORTED</div>
+                <div>Empty Snapshot Restore: SUPPORTED</div>
                 <div>Automatic Load: DISABLED</div>
                 <div>History Replacement: DISABLED</div>
                 <div>Canvas Mutation: DISABLED</div>
@@ -2262,6 +2241,7 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Loaded Pen Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedPenStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">Loaded Highlighter Strokes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.loadedHighlighterStrokeCount : 'NOT RUN'}</div>
                 <div className="text-stone-300">JSON Bytes: {persistenceStorageLoadDiagnostic.status === 'loaded' ? persistenceStorageLoadDiagnostic.jsonByteLength : 'NOT RUN'}</div>
+                <div className="text-stone-300">Snapshot Content: {persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.loadedStrokeCount === 0 ? 'EMPTY' : 'NON-EMPTY') : 'NOT RUN'}</div>
                 <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.codecValidationPassed ? 'text-emerald-400' : 'text-red-400') : ''}`}>Codec Validation: {persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.codecValidationPassed ? 'PASS' : 'FAIL') : 'NOT RUN'}</div>
                 <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.identityValidationPassed ? 'text-emerald-400' : 'text-red-400') : ''}`}>Identity Validation: {persistenceStorageLoadDiagnostic.status === 'loaded' ? (persistenceStorageLoadDiagnostic.identityValidationPassed ? 'PASS' : 'FAIL') : 'NOT RUN'}</div>
                 <div className={`text-stone-300 ${persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus === 'pass' ? 'text-emerald-400' : persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus === 'mismatch' ? 'text-yellow-400' : ''}`}>Current Memory Fidelity: {persistenceStorageLoadDiagnostic.currentMemoryFidelityStatus.toUpperCase()}</div>
