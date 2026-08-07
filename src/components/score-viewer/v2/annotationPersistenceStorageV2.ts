@@ -10,6 +10,8 @@ import type {
   AnnotationPersistenceIdentityV2
 } from './annotationPersistenceTypesV2';
 
+const ANNOTATION_PERSISTENCE_CACHE_CONTROL_V2 = 'no-store, max-age=0';
+
 export interface AnnotationPersistenceStorageKeyV2 {
   uid: string;
   identity: AnnotationPersistenceIdentityV2;
@@ -187,7 +189,8 @@ export async function saveAnnotationPersistenceDocumentV2(
   try {
     const storageRef = ref(storage, storagePath);
     await uploadBytes(storageRef, utf8Bytes, {
-      contentType: 'application/json'
+      contentType: 'application/json',
+      cacheControl: ANNOTATION_PERSISTENCE_CACHE_CONTROL_V2
     });
 
     return {
