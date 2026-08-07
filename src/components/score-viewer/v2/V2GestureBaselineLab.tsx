@@ -754,18 +754,21 @@ export default function V2GestureBaselineLab() {
     ) ? 'clean' : 'dirty';
   }, [annotationCleanBaseline, currentDocumentStrokes, user, persistenceStorageIdentity]);
 
-  const hasPersistableAnnotationState = currentDocumentStrokes.length > 0 || annotationDirtyStatus === 'dirty';
+  const hasCurrentDocumentWork = currentDocumentStrokes.length > 0;
 
-  const hasCurrentAnnotationWork = 
-    currentDocumentStrokes.length > 0 ||
-    annotationHistory.undoStack.length > 0 ||
-    annotationHistory.redoStack.length > 0;
-
-  const shouldConfirmAnnotationReplacement = 
+  const shouldProtectAnnotationWork = 
     annotationDirtyStatus === 'dirty' ||
-    (annotationDirtyStatus === 'unavailable' && hasCurrentAnnotationWork);
+    (annotationDirtyStatus === 'unavailable' && hasCurrentDocumentWork);
 
-  const browserExitGuardArmed = shouldConfirmAnnotationReplacement;
+  const shouldConfirmAnnotationReplacement = shouldProtectAnnotationWork;
+  const browserExitGuardArmed = shouldProtectAnnotationWork;
+
+  const guardReason = 
+    annotationDirtyStatus === 'dirty'
+      ? 'DIRTY'
+      : (annotationDirtyStatus === 'unavailable' && hasCurrentDocumentWork)
+        ? 'UNAVAILABLE WITH WORK'
+        : 'NONE';
 
   useEffect(() => {
     if (!browserExitGuardArmed) {
@@ -1620,6 +1623,12 @@ export default function V2GestureBaselineLab() {
       }
     }
 
+    if (annotationAutosaveTimerRef.current !== null) {
+      window.clearTimeout(annotationAutosaveTimerRef.current);
+      annotationAutosaveTimerRef.current = null;
+    }
+    annotationAutosaveScheduleSequenceRef.current += 1;
+
     automaticSnapshotLookupAttemptKeyRef.current = null;
     setAutomaticSnapshotLookupDiagnostic(createIdleAutomaticSnapshotLookupDiagnosticV2());
     automaticSnapshotRestoreDecisionKeyRef.current = null;
@@ -2096,7 +2105,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4H-C2F Empty Snapshot Round-Trip Correction]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4I-A Autosave-Aware Dirty Guard Reconciliation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2234,7 +2243,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4H-C2F</div>
+<div>Annotation Stage: 4E-C4I-A</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2658,12 +2667,11 @@ export default function V2GestureBaselineLab() {
                 <div className={`text-stone-300 ${annotationDirtyStatus !== 'unavailable' ? 'text-emerald-400' : 'text-red-400'}`}>Baseline Identity Match: {annotationDirtyStatus !== 'unavailable' ? 'YES' : 'NO'}</div>
               </div>
               <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
-                <div className="text-stone-300">PDF Replacement Guard: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
-                <div className="text-stone-300">Snapshot Restore Guard: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
-                <div className="text-stone-300">Browser Exit Guard: <span className="text-emerald-400 font-bold">ACTIVE</span></div>
-                <div className="text-stone-300">Browser Exit Listener: <span className={browserExitGuardArmed ? "text-yellow-400 font-bold" : "text-emerald-400 font-bold"}>{browserExitGuardArmed ? 'ARMED' : 'DISARMED'}</span></div>
-                <div className="text-stone-300">Browser Exit Policy: DIRTY OR UNAVAILABLE WITH WORK</div>
-                <div className="text-stone-400">Custom Exit Message: BROWSER CONTROLLED</div>
+                <div className="text-stone-300">Guard Basis: CONTENT VS CLEAN BASELINE</div>
+                <div className="text-stone-300">Replacement Guard: <span className={shouldProtectAnnotationWork ? "text-yellow-400 font-bold" : "text-emerald-400 font-bold"}>{shouldProtectAnnotationWork ? 'ARMED' : 'DISARMED'}</span></div>
+                <div className="text-stone-300">Browser Exit Guard: <span className={browserExitGuardArmed ? "text-yellow-400 font-bold" : "text-emerald-400 font-bold"}>{browserExitGuardArmed ? 'ARMED' : 'DISARMED'}</span></div>
+                <div className="text-stone-300">Guard Reason: {guardReason}</div>
+                <div className="text-stone-300">Autosave Guard Policy: ARMED UNTIL CLEAN</div>
               </div>
             </div>
 
