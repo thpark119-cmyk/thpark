@@ -756,6 +756,14 @@ export default function V2GestureBaselineLab() {
 
   const hasCurrentDocumentWork = currentDocumentStrokes.length > 0;
 
+  const hasPersistableAnnotationState = 
+    hasCurrentDocumentWork || annotationDirtyStatus === 'dirty';
+
+  const hasCurrentAnnotationWork = 
+    hasCurrentDocumentWork ||
+    annotationHistory.undoStack.length > 0 ||
+    annotationHistory.redoStack.length > 0;
+
   const shouldProtectAnnotationWork = 
     annotationDirtyStatus === 'dirty' ||
     (annotationDirtyStatus === 'unavailable' && hasCurrentDocumentWork);
