@@ -59,6 +59,8 @@ const DETAIL_OUTPUT_SCALE = 3;
 const DETAIL_PREVIEW_SCALE_THRESHOLD = 1.5;
 
 function formatMiB(bytes: number): string {
+
+
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
@@ -285,13 +287,41 @@ function createIdlePersistenceStorageLoadDiagnosticV2(): PersistenceStorageLoadD
 }
 
 
+type AutomaticSnapshotRestoreStatusV2 =
+  | 'idle'
+  | 'waiting'
+  | 'restoring'
+  | 'restored'
+  | 'skipped'
+  | 'blocked'
+  | 'error';
+
+interface AutomaticSnapshotRestoreDiagnosticV2 {
+  status: AutomaticSnapshotRestoreStatusV2;
+  documentInstanceId: number | null;
+  storagePath: string | null;
+  reason: string | null;
+}
+
+function createIdleAutomaticSnapshotRestoreDiagnosticV2(): AutomaticSnapshotRestoreDiagnosticV2 {
+  return {
+    status: 'idle',
+    documentInstanceId: null,
+    storagePath: null,
+    reason: null
+  };
+}
+
 interface LoadedAnnotationSnapshotV2 {
+  loadOrigin: PersistenceStorageLoadOriginV2;
   uid: string;
   identity: AnnotationPersistenceIdentityV2;
   storagePath: string;
   document: AnnotationPersistenceDocumentV2;
   jsonByteLength: number;
 }
+
+type AnnotationSnapshotRestoreOriginV2 = 'manual' | 'automatic';
 
 type AnnotationRestoreStatusV2 =
   | 'idle'
@@ -634,6 +664,12 @@ export default function V2GestureBaselineLab() {
   }, [annotationHistory.completedStrokes]);
 
 
+  const [automaticSnapshotRestoreDiagnostic, setAutomaticSnapshotRestoreDiagnostic] = useState<AutomaticSnapshotRestoreDiagnosticV2>(createIdleAutomaticSnapshotRestoreDiagnosticV2());
+  const automaticSnapshotRestoreDecisionKeyRef = useRef<string | null>(null);
+
+  const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
+  const { undoDepth, redoDepth } = getPageHistoryDepthV2(annotationHistory, documentInstanceIdRef.current, pageNumber);
+
   const annotationDirtyStatus: AnnotationPersistenceDirtyStatusV2 = useMemo(() => {
     if (!annotationCleanBaseline) return 'unavailable';
     
@@ -973,6 +1009,7 @@ export default function V2GestureBaselineLab() {
         }
 
         setLoadedAnnotationSnapshot({
+          loadOrigin: origin,
           uid: currentUid,
           identity: currentIdentity,
           storagePath: result.storagePath,
@@ -1119,7 +1156,7 @@ export default function V2GestureBaselineLab() {
   ]);
 
 
-  const handleRestoreLoadedSnapshot = async () => {
+  const handleRestoreLoadedSnapshot = useCallback(async (origin: AnnotationSnapshotRestoreOriginV2) => {
     if (!user || !user.uid) return;
     if (!docReady || !persistenceStorageIdentity || !loadedAnnotationSnapshot) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
@@ -1143,7 +1180,7 @@ export default function V2GestureBaselineLab() {
       return;
     }
 
-    if (shouldConfirmAnnotationReplacement) {
+    if (origin === 'manual' && shouldConfirmAnnotationReplacement) {
       const confirmed = window.confirm(
         '현재 악보에 저장되지 않은 필기 변경이 있습니다.\n' +
         '불러온 snapshot으로 복원하면 현재 변경이 사라집니다.\n' +
@@ -1157,6 +1194,13 @@ export default function V2GestureBaselineLab() {
         }));
         return;
       }
+    }
+
+    if (origin === 'automatic') {
+      setAutomaticSnapshotRestoreDiagnostic(prev => ({
+        ...prev,
+        status: 'restoring'
+      }));
     }
 
     setAnnotationRestoreDiagnostic(prev => ({
@@ -1243,18 +1287,27 @@ export default function V2GestureBaselineLab() {
     });
     
     setLoadedAnnotationSnapshot(null);
-
-  };
-
+  }, [
+    user,
+    docReady,
+    persistenceStorageIdentity,
+    loadedAnnotationSnapshot,
+    isLoading,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    isGestureActive,
+    transformInfo?.activePointerCount,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    shouldConfirmAnnotationReplacement
+  ]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     
     if (!file || !engineRef.current) return;
-
-    automaticSnapshotLookupAttemptKeyRef.current = null;
-    setAutomaticSnapshotLookupDiagnostic(createIdleAutomaticSnapshotLookupDiagnosticV2());
 
     if (shouldConfirmAnnotationReplacement) {
       const confirmed = window.confirm(
@@ -1267,6 +1320,11 @@ export default function V2GestureBaselineLab() {
         return;
       }
     }
+
+    automaticSnapshotLookupAttemptKeyRef.current = null;
+    setAutomaticSnapshotLookupDiagnostic(createIdleAutomaticSnapshotLookupDiagnosticV2());
+    automaticSnapshotRestoreDecisionKeyRef.current = null;
+    setAutomaticSnapshotRestoreDiagnostic(createIdleAutomaticSnapshotRestoreDiagnosticV2());
 
 
 
@@ -1606,13 +1664,11 @@ export default function V2GestureBaselineLab() {
 
   const isQualityReady = frontInfo && frontInfo.pageNumber === pageNumber && frontInfo.outputScale === effectiveOutputScale;
 
-  const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
   
   const currentPageStrokes = React.useMemo(() => {
     return annotationHistory.completedStrokes.filter(s => s.documentInstanceId === documentInstanceIdRef.current && s.pageNumber === pageNumber);
   }, [annotationHistory.completedStrokes, pageNumber]);
 
-  const { undoDepth, redoDepth } = getPageHistoryDepthV2(annotationHistory, documentInstanceIdRef.current, pageNumber);
 
   const totalPoints = currentPageStrokes.reduce((acc, s) => acc + s.points.length, 0);
 
@@ -1627,20 +1683,142 @@ export default function V2GestureBaselineLab() {
   const penStyleControlsDisabled = modeControlsDisabled || activeDrawingTool !== 'pen';
   const highlighterStyleControlsDisabled = modeControlsDisabled || activeDrawingTool !== 'highlighter';
 
+  useEffect(() => {
+    if (
+      automaticSnapshotLookupDiagnostic.status !== 'found' ||
+      !loadedAnnotationSnapshot ||
+      loadedAnnotationSnapshot.loadOrigin !== 'automatic' ||
+      loadedAnnotationSnapshot.storagePath !== automaticSnapshotLookupDiagnostic.storagePath ||
+      !user?.uid ||
+      user.uid !== loadedAnnotationSnapshot.uid ||
+      !persistenceStorageIdentity ||
+      persistenceStorageIdentity.repertoireId !== loadedAnnotationSnapshot.identity.repertoireId ||
+      persistenceStorageIdentity.fileId !== loadedAnnotationSnapshot.identity.fileId ||
+      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath
+    ) {
+      return;
+    }
+    
+    if (automaticSnapshotLookupDiagnostic.documentInstanceId !== documentInstanceIdRef.current) return;
+
+    if (
+      !docReady ||
+      isLoading ||
+      persistenceStorageSaveDiagnostic.status === 'saving' ||
+      persistenceStorageLoadDiagnostic.status === 'loading' ||
+      annotationRestoreDiagnostic.status === 'restoring' ||
+      inputStatus.phase !== 'idle' ||
+      inputStatus.activePointerId !== null ||
+      isGestureActive ||
+      (transformInfo?.activePointerCount ?? 0) > 0
+    ) {
+       setAutomaticSnapshotRestoreDiagnostic(prev => {
+         if (prev.status === 'waiting') return prev;
+         return {
+           status: 'waiting',
+           documentInstanceId: documentInstanceIdRef.current,
+           storagePath: loadedAnnotationSnapshot.storagePath,
+           reason: null
+         };
+       });
+       return;
+    }
+
+    const decisionKey = JSON.stringify([
+      user.uid,
+      documentInstanceIdRef.current,
+      persistenceStorageIdentity.repertoireId,
+      persistenceStorageIdentity.fileId,
+      persistenceStorageIdentity.sourceStoragePath,
+      loadedAnnotationSnapshot.storagePath,
+      loadedAnnotationSnapshot.jsonByteLength
+    ]);
+
+    if (automaticSnapshotRestoreDecisionKeyRef.current === decisionKey) {
+      return;
+    }
+
+    if (
+      annotationDirtyStatus !== 'clean' ||
+      !annotationCleanBaseline ||
+      annotationCleanBaseline.source !== 'initial-empty' ||
+      annotationCleanBaseline.uid !== user.uid ||
+      annotationCleanBaseline.identity.repertoireId !== persistenceStorageIdentity.repertoireId ||
+      annotationCleanBaseline.identity.fileId !== persistenceStorageIdentity.fileId ||
+      annotationCleanBaseline.identity.sourceStoragePath !== persistenceStorageIdentity.sourceStoragePath ||
+      annotationCleanBaseline.documentInstanceId !== documentInstanceIdRef.current ||
+      currentDocumentStrokes.length > 0 ||
+      undoDepth > 0 ||
+      redoDepth > 0 ||
+      hasCurrentAnnotationWork ||
+      shouldConfirmAnnotationReplacement
+    ) {
+       automaticSnapshotRestoreDecisionKeyRef.current = decisionKey;
+       setAutomaticSnapshotRestoreDiagnostic({
+         status: 'skipped',
+         documentInstanceId: documentInstanceIdRef.current,
+         storagePath: loadedAnnotationSnapshot.storagePath,
+         reason: 'dirty-or-local-work'
+       });
+       return;
+    }
+
+    let totalLoadedStrokes = 0;
+    for (const p in loadedAnnotationSnapshot.document.pages) {
+      totalLoadedStrokes += loadedAnnotationSnapshot.document.pages[p].strokes.length;
+    }
+
+    if (totalLoadedStrokes === 0) {
+       automaticSnapshotRestoreDecisionKeyRef.current = decisionKey;
+       setAutomaticSnapshotRestoreDiagnostic({
+         status: 'skipped',
+         documentInstanceId: documentInstanceIdRef.current,
+         storagePath: loadedAnnotationSnapshot.storagePath,
+         reason: 'empty-snapshot'
+       });
+       return;
+    }
+
+    automaticSnapshotRestoreDecisionKeyRef.current = decisionKey;
+    void handleRestoreLoadedSnapshot('automatic');
+  }, [
+    automaticSnapshotLookupDiagnostic.status,
+    automaticSnapshotLookupDiagnostic.storagePath,
+    automaticSnapshotLookupDiagnostic.documentInstanceId,
+    loadedAnnotationSnapshot,
+    user,
+    persistenceStorageIdentity,
+    docReady,
+    isLoading,
+    persistenceStorageSaveDiagnostic.status,
+    persistenceStorageLoadDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    isGestureActive,
+    transformInfo?.activePointerCount,
+    annotationDirtyStatus,
+    annotationCleanBaseline,
+    currentDocumentStrokes.length,
+    undoDepth,
+    redoDepth,
+    hasCurrentAnnotationWork,
+    shouldConfirmAnnotationReplacement,
+    handleRestoreLoadedSnapshot
+  ]);
+
   return (
     <div className="flex flex-col min-h-screen text-stone-200">
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4G-A Controlled Snapshot Lookup on PDF Ready]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4G-B Controlled Automatic Restore on Clean Empty Canvas]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
-          Pen and highlighter drawing active<br/>
-          In-memory codec diagnostic active<br/>
-          Content-based dirty state active<br/>
-          Dirty replacement and browser exit guards active<br/>
-          Automatic snapshot lookup on PDF ready active<br/>
-          Automatic canvas restore disabled<br/>
+          Automatic snapshot lookup active<br/>
+          Controlled automatic restore active<br/>
+          Only clean initial-empty canvas can be auto-restored<br/>
+          Dirty and local-work canvas replacement remains guarded<br/>
           Manual save/load/restore active<br/>
           Automatic save disabled<br/>
           Spatial eraser active
@@ -1772,7 +1950,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4G-A</div>
+<div>Annotation Stage: 4E-C4G-B</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2197,7 +2375,26 @@ export default function V2GestureBaselineLab() {
                     <div className="text-red-400">Error Message: {automaticSnapshotLookupDiagnostic.errorMessage ?? 'NONE'}</div>
                   </>
                 )}
-                <div className="text-stone-400">Automatic Restore: DISABLED</div>
+                <div className="mt-4 pt-4 border-t border-white/5 space-y-1">
+                  <div className="text-stone-300">Automatic Restore: <span className="text-emerald-400 font-bold">CONTROLLED</span></div>
+                  <div className="text-stone-300">Restore Policy: CLEAN INITIAL-EMPTY ONLY</div>
+                  <div className="text-stone-300">Restore Decision: ONCE PER AUTOMATIC SNAPSHOT</div>
+                  <div className={`font-bold ${
+                    automaticSnapshotRestoreDiagnostic.status === 'restored' ? 'text-emerald-400' :
+                    automaticSnapshotRestoreDiagnostic.status === 'skipped' ? 'text-stone-400' :
+                    automaticSnapshotRestoreDiagnostic.status === 'blocked' || automaticSnapshotRestoreDiagnostic.status === 'error' ? 'text-red-400' :
+                    automaticSnapshotRestoreDiagnostic.status === 'waiting' || automaticSnapshotRestoreDiagnostic.status === 'restoring' ? 'text-yellow-400' :
+                    'text-stone-400'
+                  }`}>
+                    Restore Status: {automaticSnapshotRestoreDiagnostic.status.toUpperCase()}
+                  </div>
+                  <div className="text-stone-300">Document Instance: {automaticSnapshotRestoreDiagnostic.documentInstanceId ?? 'NONE'}</div>
+                  <div className="text-stone-300">Storage Path: {automaticSnapshotRestoreDiagnostic.storagePath ?? 'NONE'}</div>
+                  {automaticSnapshotRestoreDiagnostic.reason && (
+                    <div className="text-stone-300">Reason: {automaticSnapshotRestoreDiagnostic.reason}</div>
+                  )}
+                  <div className="text-stone-400 mt-2">Automatic Save: DISABLED</div>
+                </div>
               </div>
             </div>
             
