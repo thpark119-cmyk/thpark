@@ -423,6 +423,13 @@ interface AnnotationAutosaveEligibilityDiagnosticV2 {
   scheduleSequence: number;
 }
 
+interface AnnotationLifecycleAutosaveRequestDiagnosticV2 {
+  trigger: 'visibility-hidden' | null;
+  requestedAt: string | null;
+  documentInstanceId: number | null;
+  scheduleSequence: number | null;
+}
+
 function createUnavailableAnnotationAutosaveEligibilityDiagnosticV2(): AnnotationAutosaveEligibilityDiagnosticV2 {
   return {
     status: 'unavailable',
@@ -432,6 +439,15 @@ function createUnavailableAnnotationAutosaveEligibilityDiagnosticV2(): Annotatio
     scheduledStrokeCount: 0,
     scheduledPointCount: 0,
     scheduleSequence: 0
+  };
+}
+
+function createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2(): AnnotationLifecycleAutosaveRequestDiagnosticV2 {
+  return {
+    trigger: null,
+    requestedAt: null,
+    documentInstanceId: null,
+    scheduleSequence: null
   };
 }
 
@@ -716,6 +732,7 @@ export default function V2GestureBaselineLab() {
 
   const [automaticSnapshotRestoreDiagnostic, setAutomaticSnapshotRestoreDiagnostic] = useState<AutomaticSnapshotRestoreDiagnosticV2>(createIdleAutomaticSnapshotRestoreDiagnosticV2());
   const [autosaveEligibilityDiagnostic, setAutosaveEligibilityDiagnostic] = useState<AnnotationAutosaveEligibilityDiagnosticV2>(createUnavailableAnnotationAutosaveEligibilityDiagnosticV2());
+  const [lifecycleAutosaveRequestDiagnostic, setLifecycleAutosaveRequestDiagnostic] = useState<AnnotationLifecycleAutosaveRequestDiagnosticV2>(createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2());
   const annotationAutosaveTimerRef = useRef<number | null>(null);
   const annotationAutosaveScheduleSequenceRef = useRef(0);
   const persistenceSaveInFlightRef = useRef<number | null>(null);
@@ -994,6 +1011,40 @@ export default function V2GestureBaselineLab() {
       }
     }
   };
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden') return;
+      if (annotationDirtyStatus !== 'dirty') return;
+      if (autosaveEligibilityDiagnostic.status === 'blocked') return;
+      if (isAutosaveBlockedBySnapshotState) return;
+
+      const scheduleSequence =
+        autosaveEligibilityDiagnostic.scheduleSequence > 0
+          ? autosaveEligibilityDiagnostic.scheduleSequence
+          : undefined;
+
+      setLifecycleAutosaveRequestDiagnostic({
+        trigger: 'visibility-hidden',
+        requestedAt: new Date().toISOString(),
+        documentInstanceId: documentInstanceIdRef.current,
+        scheduleSequence: scheduleSequence ?? null
+      });
+
+      void handleSavePersistenceToStorage('autosave', scheduleSequence);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [
+    annotationDirtyStatus,
+    autosaveEligibilityDiagnostic.scheduleSequence,
+    autosaveEligibilityDiagnostic.status,
+    isAutosaveBlockedBySnapshotState,
+    handleSavePersistenceToStorage
+  ]);
 
   const handleLoadPersistenceFromStorage = useCallback(async (origin: PersistenceStorageLoadOriginV2) => {
     if (!user || !user.uid) return;
@@ -1668,6 +1719,7 @@ export default function V2GestureBaselineLab() {
     storageSaveSequenceRef.current += 1;
     storageLoadSequenceRef.current += 1;
     lastAutosaveCommitSequenceRef.current = null;
+    setLifecycleAutosaveRequestDiagnostic(createIdleAnnotationLifecycleAutosaveRequestDiagnosticV2());
     setPersistenceStorageIdentity(null);
     setPersistenceStorageSaveDiagnostic(createIdlePersistenceStorageSaveDiagnosticV2());
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
@@ -2133,7 +2185,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4I-B1 Autosave READY Deadlock & Restore Instance Correction]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4J-A Visibility-Hidden Early Autosave]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2141,7 +2193,7 @@ export default function V2GestureBaselineLab() {
           Only clean initial-empty canvas can be auto-restored<br/>
           Dirty and local-work canvas replacement remains guarded<br/>
           Manual save/load/restore active<br/>
-          Automatic save disabled<br/>
+          Automatic save active — 2s debounce + hidden-tab early request<br/>
           Spatial eraser active
 
 
@@ -2271,7 +2323,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4I-B1</div>
+<div>Annotation Stage: 4E-C4J-A</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2533,6 +2585,11 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Manual Snapshot Awaiting Decision: {manualSnapshotAwaitingDecision ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Automatic Snapshot Decision Pending: {automaticSnapshotDecisionPending ? 'YES' : 'NO'}</div>
                 <div className="text-stone-300">Autosave Commit Gate: {!isAutosaveBlockedBySnapshotState ? 'OPEN' : 'BLOCKED'}</div>
+                <div className="text-stone-300">Visibility-Hidden Early Save: CONNECTED</div>
+                <div className="text-stone-300">Last Lifecycle Request: {lifecycleAutosaveRequestDiagnostic.trigger?.toUpperCase() ?? 'NONE'}</div>
+                <div className="text-stone-300">Lifecycle Request Time: {lifecycleAutosaveRequestDiagnostic.requestedAt ?? 'NONE'}</div>
+                <div className="text-stone-300">Lifecycle Request Instance: {lifecycleAutosaveRequestDiagnostic.documentInstanceId ?? 'NONE'}</div>
+                <div className="text-stone-300">Lifecycle Request Sequence: {lifecycleAutosaveRequestDiagnostic.scheduleSequence ?? 'NONE'}</div>
                 <div className="text-stone-300">Firebase Write on Ready: ENABLED</div>
               </div>
             </div>
