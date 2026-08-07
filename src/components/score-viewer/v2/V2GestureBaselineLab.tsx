@@ -1246,13 +1246,14 @@ export default function V2GestureBaselineLab() {
       user.uid !== loadedAnnotationSnapshot.uid ||
       persistenceStorageIdentity.repertoireId !== loadedAnnotationSnapshot.identity.repertoireId ||
       persistenceStorageIdentity.fileId !== loadedAnnotationSnapshot.identity.fileId ||
-      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath
+      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath ||
+      documentInstanceIdRef.current !== loadedAnnotationSnapshot.document.documentInstanceId
     ) {
       setAnnotationRestoreDiagnostic(prev => ({
         ...prev,
         status: 'blocked',
         errorCode: 'identity-mismatch',
-        errorMessage: 'The loaded snapshot identity does not match current document'
+        errorMessage: 'The loaded snapshot identity or document instance does not match current document'
       }));
       return;
     }
@@ -2113,7 +2114,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4I-A Autosave-Aware Dirty Guard Reconciliation]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4I-B Cross-Document Persistence Isolation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2251,13 +2252,17 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4I-A</div>
+<div>Annotation Stage: 4E-C4I-B</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
               <div>Firebase Storage Adapter: CONNECTED</div>
               <div>Empty Snapshot Save: SUPPORTED</div>
               <div>Empty Snapshot Restore: SUPPORTED</div>
+              <div>Persistence Completion Scope: UID + IDENTITY + DOCUMENT + SEQUENCE</div>
+              <div>Stale Save Completion: IGNORED</div>
+              <div>Stale Load Completion: IGNORED</div>
+              <div>Cross-Document Restore: BLOCKED</div>
               <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
               <div>Persistent Load: MANUAL VERIFY ONLY</div>
               <div>Automatic Save: DISABLED</div>
