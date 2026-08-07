@@ -385,6 +385,53 @@ interface AnnotationCleanBaselineV2 {
   strokes: readonly AnnotationCompletedStrokeV2[];
 }
 
+
+const ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2 = 2000;
+
+type AnnotationAutosaveEligibilityStatusV2 =
+  | 'unavailable'
+  | 'clean'
+  | 'blocked'
+  | 'waiting'
+  | 'scheduled'
+  | 'ready';
+
+type AnnotationAutosaveEligibilityReasonV2 =
+  | 'identity-unavailable'
+  | 'dirty-state-unavailable'
+  | 'document-loading'
+  | 'annotation-input-active'
+  | 'gesture-active'
+  | 'persistence-busy'
+  | 'snapshot-decision-pending'
+  | 'manual-snapshot-ready'
+  | 'remote-snapshot-invalid'
+  | 'remote-snapshot-error'
+  | 'automatic-restore-blocked'
+  | 'automatic-restore-error';
+
+interface AnnotationAutosaveEligibilityDiagnosticV2 {
+  status: AnnotationAutosaveEligibilityStatusV2;
+  reason: AnnotationAutosaveEligibilityReasonV2 | null;
+  documentInstanceId: number | null;
+  debounceMs: number;
+  scheduledStrokeCount: number;
+  scheduledPointCount: number;
+  scheduleSequence: number;
+}
+
+function createUnavailableAnnotationAutosaveEligibilityDiagnosticV2(): AnnotationAutosaveEligibilityDiagnosticV2 {
+  return {
+    status: 'unavailable',
+    reason: 'identity-unavailable',
+    documentInstanceId: null,
+    debounceMs: ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2,
+    scheduledStrokeCount: 0,
+    scheduledPointCount: 0,
+    scheduleSequence: 0
+  };
+}
+
 function arePersistenceRoundTripStrokesEqualV2(
   source: readonly AnnotationCompletedStrokeV2[],
   restored: readonly AnnotationCompletedStrokeV2[]
@@ -665,6 +712,9 @@ export default function V2GestureBaselineLab() {
 
 
   const [automaticSnapshotRestoreDiagnostic, setAutomaticSnapshotRestoreDiagnostic] = useState<AutomaticSnapshotRestoreDiagnosticV2>(createIdleAutomaticSnapshotRestoreDiagnosticV2());
+  const [autosaveEligibilityDiagnostic, setAutosaveEligibilityDiagnostic] = useState<AnnotationAutosaveEligibilityDiagnosticV2>(createUnavailableAnnotationAutosaveEligibilityDiagnosticV2());
+  const annotationAutosaveTimerRef = useRef<number | null>(null);
+  const annotationAutosaveScheduleSequenceRef = useRef(0);
   const automaticSnapshotRestoreDecisionKeyRef = useRef<string | null>(null);
 
   const isGestureActive = (transformInfo?.activePointerCount ?? 0) > 0 || (transformInfo?.phase && transformInfo.phase !== 'idle');
@@ -1294,6 +1344,173 @@ export default function V2GestureBaselineLab() {
     shouldConfirmAnnotationReplacement
   ]);
 
+
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !docReady ||
+      !persistenceStorageIdentity ||
+      !annotationCleanBaseline ||
+      annotationDirtyStatus === 'unavailable' ||
+      user.uid !== annotationCleanBaseline.uid ||
+      persistenceStorageIdentity.repertoireId !== annotationCleanBaseline.identity.repertoireId ||
+      persistenceStorageIdentity.fileId !== annotationCleanBaseline.identity.fileId ||
+      persistenceStorageIdentity.sourceStoragePath !== annotationCleanBaseline.identity.sourceStoragePath ||
+      documentInstanceIdRef.current !== annotationCleanBaseline.documentInstanceId
+    ) {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic({
+        status: 'unavailable',
+        reason: annotationDirtyStatus === 'unavailable' ? 'dirty-state-unavailable' : 'identity-unavailable',
+        documentInstanceId: null,
+        debounceMs: ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2,
+        scheduledStrokeCount: 0,
+        scheduledPointCount: 0,
+        scheduleSequence: 0
+      });
+      return;
+    }
+
+    if (annotationDirtyStatus === 'clean') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({
+        ...prev,
+        status: 'clean',
+        reason: null,
+        documentInstanceId: documentInstanceIdRef.current,
+        scheduledStrokeCount: 0,
+        scheduledPointCount: 0
+      }));
+      return;
+    }
+
+    if (persistenceStorageLoadDiagnostic.status === 'invalid') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'remote-snapshot-invalid', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+    if (persistenceStorageLoadDiagnostic.status === 'error') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'remote-snapshot-error', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+    if (automaticSnapshotRestoreDiagnostic.status === 'blocked') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'automatic-restore-blocked', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+    if (automaticSnapshotRestoreDiagnostic.status === 'error') {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({ ...prev, status: 'blocked', reason: 'automatic-restore-error', documentInstanceId: documentInstanceIdRef.current }));
+      return;
+    }
+
+    let waitingReason: AnnotationAutosaveEligibilityReasonV2 | null = null;
+    if (isLoading) waitingReason = 'document-loading';
+    else if (inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) waitingReason = 'annotation-input-active';
+    else if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) waitingReason = 'gesture-active';
+    else if (persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring') waitingReason = 'persistence-busy';
+    else if (automaticSnapshotLookupDiagnostic.status === 'looking-up' || automaticSnapshotRestoreDiagnostic.status === 'waiting' || automaticSnapshotRestoreDiagnostic.status === 'restoring') waitingReason = 'snapshot-decision-pending';
+    else if (loadedAnnotationSnapshot && loadedAnnotationSnapshot.loadOrigin === 'manual' && annotationRestoreDiagnostic.status === 'idle') waitingReason = 'manual-snapshot-ready';
+
+    if (waitingReason) {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+      setAutosaveEligibilityDiagnostic(prev => ({
+        ...prev,
+        status: 'waiting',
+        reason: waitingReason,
+        documentInstanceId: documentInstanceIdRef.current
+      }));
+      return;
+    }
+
+    if (annotationAutosaveTimerRef.current !== null) {
+      window.clearTimeout(annotationAutosaveTimerRef.current);
+      annotationAutosaveTimerRef.current = null;
+    }
+
+    const currentStrokeCount = currentDocumentStrokes.length;
+    let currentPointCount = 0;
+    for (const stroke of currentDocumentStrokes) {
+      currentPointCount += stroke.points.length;
+    }
+
+    const newSequence = ++annotationAutosaveScheduleSequenceRef.current;
+    const currentInstanceId = documentInstanceIdRef.current;
+    
+    setAutosaveEligibilityDiagnostic(prev => ({
+      ...prev,
+      status: 'scheduled',
+      reason: null,
+      documentInstanceId: currentInstanceId,
+      scheduledStrokeCount: currentStrokeCount,
+      scheduledPointCount: currentPointCount,
+      scheduleSequence: newSequence
+    }));
+
+    annotationAutosaveTimerRef.current = window.setTimeout(() => {
+      if (mountedRef.current && annotationAutosaveScheduleSequenceRef.current === newSequence && documentInstanceIdRef.current === currentInstanceId) {
+        setAutosaveEligibilityDiagnostic(prev => {
+          if (prev.scheduleSequence !== newSequence) return prev;
+          return {
+            ...prev,
+            status: 'ready',
+            reason: null
+          };
+        });
+      }
+    }, ANNOTATION_AUTOSAVE_DEBOUNCE_MS_V2);
+
+  }, [
+    user?.uid,
+    docReady,
+    persistenceStorageIdentity,
+    annotationCleanBaseline,
+    annotationDirtyStatus,
+    persistenceStorageLoadDiagnostic.status,
+    automaticSnapshotRestoreDiagnostic.status,
+    isLoading,
+    inputStatus.phase,
+    inputStatus.activePointerId,
+    isGestureActive,
+    transformInfo?.activePointerCount,
+    persistenceStorageSaveDiagnostic.status,
+    annotationRestoreDiagnostic.status,
+    automaticSnapshotLookupDiagnostic.status,
+    loadedAnnotationSnapshot,
+    currentDocumentStrokes
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (annotationAutosaveTimerRef.current !== null) {
+        window.clearTimeout(annotationAutosaveTimerRef.current);
+        annotationAutosaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -1787,7 +2004,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4H-A Empty Annotation Snapshot Semantics]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4H-B Debounced Autosave Eligibility Foundation]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -1925,7 +2142,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4H-A</div>
+<div>Annotation Stage: 4E-C4H-B</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2158,6 +2375,28 @@ export default function V2GestureBaselineLab() {
             </div>
             
 
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
+              <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                <span className="font-semibold text-stone-200">Autosave Eligibility</span>
+              </div>
+              <div className="text-xs text-stone-400 space-y-1">
+                <div>Autosave Stage: ELIGIBILITY ONLY</div>
+                <div>Automatic Upload: DISABLED</div>
+                <div>Debounce Delay: 2000 MS</div>
+              </div>
+              <div className="text-xs space-y-1 font-mono mt-2 p-2 bg-stone-950 rounded border border-white/5">
+                <div className={`font-bold ${autosaveEligibilityDiagnostic.status === 'clean' || autosaveEligibilityDiagnostic.status === 'ready' ? 'text-emerald-400' : autosaveEligibilityDiagnostic.status === 'scheduled' || autosaveEligibilityDiagnostic.status === 'waiting' ? 'text-yellow-400' : autosaveEligibilityDiagnostic.status === 'blocked' ? 'text-red-400' : 'text-stone-400'}`}>
+                  Status: {autosaveEligibilityDiagnostic.status.toUpperCase()}
+                </div>
+                <div className="text-stone-300">Reason: {autosaveEligibilityDiagnostic.reason ?? 'NONE'}</div>
+                <div className="text-stone-300">Document Instance: {autosaveEligibilityDiagnostic.documentInstanceId ?? 'NONE'}</div>
+                <div className="text-stone-300">Scheduled Strokes: {autosaveEligibilityDiagnostic.scheduledStrokeCount}</div>
+                <div className="text-stone-300">Scheduled Points: {autosaveEligibilityDiagnostic.scheduledPointCount}</div>
+                <div className="text-stone-300">Schedule Sequence: {autosaveEligibilityDiagnostic.scheduleSequence}</div>
+                <div className="text-stone-300">Timer Armed: {annotationAutosaveTimerRef.current !== null ? 'YES' : 'NO'}</div>
+                <div className="text-stone-300">Firebase Write on Ready: DISABLED</div>
+              </div>
+            </div>
             <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 space-y-4 mt-4">
               <div className="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
                 <span className="font-semibold text-stone-200">Firebase Storage Save Diagnostic</span>
