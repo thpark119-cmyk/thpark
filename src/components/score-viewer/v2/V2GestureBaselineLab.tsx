@@ -778,6 +778,19 @@ export default function V2GestureBaselineLab() {
         ? 'UNAVAILABLE WITH WORK'
         : 'NONE';
 
+  const manualSnapshotAwaitingDecision =
+    loadedAnnotationSnapshot?.loadOrigin === 'manual' &&
+    annotationRestoreDiagnostic.status === 'ready';
+
+  const automaticSnapshotDecisionPending =
+    automaticSnapshotLookupDiagnostic.status === 'looking-up' ||
+    (loadedAnnotationSnapshot?.loadOrigin === 'automatic' &&
+      (automaticSnapshotRestoreDiagnostic.status === 'waiting' ||
+       automaticSnapshotRestoreDiagnostic.status === 'restoring'));
+
+  const isAutosaveBlockedBySnapshotState =
+    manualSnapshotAwaitingDecision || automaticSnapshotDecisionPending;
+
   useEffect(() => {
     if (!browserExitGuardArmed) {
       return;
@@ -824,7 +837,10 @@ export default function V2GestureBaselineLab() {
   }, [annotationHistory.completedStrokes]);
 
 
-  const handleSavePersistenceToStorage = async (origin: AnnotationPersistenceSaveOriginV2) => {
+  const handleSavePersistenceToStorage = async (
+    origin: AnnotationPersistenceSaveOriginV2,
+    autosaveScheduleSequence?: number
+  ) => {
     if (!user || !user.uid) return;
     if (!docReady || !currentBaseline || !persistenceStorageIdentity) return;
     if (isLoading || inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) return;
@@ -833,6 +849,10 @@ export default function V2GestureBaselineLab() {
     if (persistenceStorageSaveDiagnostic.status === 'saving') return;
     if (persistenceStorageLoadDiagnostic.status === 'loading') return;
     if (annotationRestoreDiagnostic.status === 'restoring') return;
+
+    if (origin === 'autosave' && autosaveScheduleSequence !== undefined) {
+      lastAutosaveCommitSequenceRef.current = autosaveScheduleSequence;
+    }
 
     storageLoadSequenceRef.current += 1;
     setPersistenceStorageLoadDiagnostic(createIdlePersistenceStorageLoadDiagnosticV2());
@@ -1246,14 +1266,13 @@ export default function V2GestureBaselineLab() {
       user.uid !== loadedAnnotationSnapshot.uid ||
       persistenceStorageIdentity.repertoireId !== loadedAnnotationSnapshot.identity.repertoireId ||
       persistenceStorageIdentity.fileId !== loadedAnnotationSnapshot.identity.fileId ||
-      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath ||
-      documentInstanceIdRef.current !== loadedAnnotationSnapshot.document.documentInstanceId
+      persistenceStorageIdentity.sourceStoragePath !== loadedAnnotationSnapshot.identity.sourceStoragePath
     ) {
       setAnnotationRestoreDiagnostic(prev => ({
         ...prev,
         status: 'blocked',
         errorCode: 'identity-mismatch',
-        errorMessage: 'The loaded snapshot identity or document instance does not match current document'
+        errorMessage: 'The loaded snapshot identity does not match current document'
       }));
       return;
     }
@@ -1481,8 +1500,8 @@ export default function V2GestureBaselineLab() {
     else if (inputStatus.phase !== 'idle' || inputStatus.activePointerId !== null) waitingReason = 'annotation-input-active';
     else if (isGestureActive || (transformInfo?.activePointerCount ?? 0) > 0) waitingReason = 'gesture-active';
     else if (persistenceStorageSaveDiagnostic.status === 'saving' || persistenceStorageLoadDiagnostic.status === 'loading' || annotationRestoreDiagnostic.status === 'restoring') waitingReason = 'persistence-busy';
-    else if (loadedAnnotationSnapshot && loadedAnnotationSnapshot.loadOrigin === 'manual' && annotationRestoreDiagnostic.status === 'ready') waitingReason = 'manual-snapshot-ready';
-    else if (automaticSnapshotLookupDiagnostic.status === 'looking-up' || (loadedAnnotationSnapshot?.loadOrigin === 'automatic' && (automaticSnapshotRestoreDiagnostic.status === 'waiting' || automaticSnapshotRestoreDiagnostic.status === 'restoring'))) waitingReason = 'snapshot-decision-pending';
+    else if (manualSnapshotAwaitingDecision) waitingReason = 'manual-snapshot-ready';
+    else if (automaticSnapshotDecisionPending) waitingReason = 'snapshot-decision-pending';
 
     if (waitingReason) {
       if (annotationAutosaveTimerRef.current !== null) {
@@ -1592,13 +1611,9 @@ export default function V2GestureBaselineLab() {
       inputStatus.activePointerId === null &&
       !isGestureActive &&
       (transformInfo?.activePointerCount ?? 0) === 0 &&
-      annotationRestoreDiagnostic.status !== 'ready' &&
-      automaticSnapshotLookupDiagnostic.status !== 'looking-up' &&
-      automaticSnapshotRestoreDiagnostic.status !== 'waiting' &&
-      automaticSnapshotRestoreDiagnostic.status !== 'restoring'
+      !isAutosaveBlockedBySnapshotState
     ) {
-      lastAutosaveCommitSequenceRef.current = autosaveEligibilityDiagnostic.scheduleSequence;
-      void handleSavePersistenceToStorage('autosave');
+      void handleSavePersistenceToStorage('autosave', autosaveEligibilityDiagnostic.scheduleSequence);
     }
   }, [
     autosaveEligibilityDiagnostic,
@@ -2078,6 +2093,10 @@ export default function V2GestureBaselineLab() {
          storagePath: loadedAnnotationSnapshot.storagePath,
          reason: 'dirty-or-local-work'
        });
+       if (loadedAnnotationSnapshot.loadOrigin === 'automatic') {
+         setLoadedAnnotationSnapshot(prev => (prev === loadedAnnotationSnapshot ? null : prev));
+         setAnnotationRestoreDiagnostic(prev => (prev.status === 'ready' ? createIdleAnnotationRestoreDiagnosticV2() : prev));
+       }
        return;
     }
 
@@ -2114,7 +2133,7 @@ export default function V2GestureBaselineLab() {
       <div className="p-4 bg-brand/10 border-b border-brand/20 mb-4">
 
 
-<h1 className="text-xl font-bold text-brand-light">[4E-C4I-B Cross-Document Persistence Isolation]</h1>
+<h1 className="text-xl font-bold text-brand-light">[4E-C4I-B1 Autosave READY Deadlock & Restore Instance Correction]</h1>
         <div className="bg-emerald-900/50 text-emerald-200 p-2 rounded text-xs mt-2 border border-emerald-500/20">
           <strong>Interactive CSS Preview Mode</strong><br/>
           Automatic snapshot lookup active<br/>
@@ -2252,7 +2271,7 @@ export default function V2GestureBaselineLab() {
               <div className="font-semibold text-stone-300">Annotation V2 Baseline</div>
 
 
-<div>Annotation Stage: 4E-C4I-B</div>
+<div>Annotation Stage: 4E-C4I-B1</div>
               <div>Persistence Schema: CONNECTED</div>
 
               <div>Persistence Codec: CONNECTED</div>
@@ -2265,7 +2284,7 @@ export default function V2GestureBaselineLab() {
               <div>Cross-Document Restore: BLOCKED</div>
               <div>Persistent Save: MANUAL DIAGNOSTIC ONLY</div>
               <div>Persistent Load: MANUAL VERIFY ONLY</div>
-              <div>Automatic Save: DISABLED</div>
+              <div>Automatic Save: CONNECTED — 2S DEBOUNCE</div>
               <div>Automatic Load: DISABLED</div>
 
               <div>Stroke Tool Model: TYPED</div>
@@ -2511,6 +2530,9 @@ export default function V2GestureBaselineLab() {
                 <div className="text-stone-300">Schedule Sequence: {autosaveEligibilityDiagnostic.scheduleSequence}</div>
                 <div className="text-stone-300">Last Autosave Commit Sequence: {lastAutosaveCommitSequenceRef.current ?? 'NONE'}</div>
                 <div className="text-stone-300">Timer Armed: {annotationAutosaveTimerRef.current !== null ? 'YES' : 'NO'}</div>
+                <div className="text-stone-300">Manual Snapshot Awaiting Decision: {manualSnapshotAwaitingDecision ? 'YES' : 'NO'}</div>
+                <div className="text-stone-300">Automatic Snapshot Decision Pending: {automaticSnapshotDecisionPending ? 'YES' : 'NO'}</div>
+                <div className="text-stone-300">Autosave Commit Gate: {!isAutosaveBlockedBySnapshotState ? 'OPEN' : 'BLOCKED'}</div>
                 <div className="text-stone-300">Firebase Write on Ready: ENABLED</div>
               </div>
             </div>
@@ -2524,7 +2546,7 @@ export default function V2GestureBaselineLab() {
                 <div>Empty Snapshot Save: ENABLED WHEN DIRTY</div>
                 <div>Empty Snapshot Storage: CURRENT.JSON</div>
                 <div>Storage Delete: DISABLED</div>
-                <div>Automatic Save: DISABLED</div>
+                <div>Automatic Save: CONNECTED — 2S DEBOUNCE</div>
               </div>
               
               <button
